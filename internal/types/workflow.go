@@ -80,6 +80,23 @@ type Workflow struct {
 //
 // Populated by the execution-wiring slice; until then no endpoint creates
 // rows and the list endpoint returns an empty history.
+// RunWorkflowRequest is the input document of one workflow execution.
+type RunWorkflowRequest struct {
+	// Query is materialized into sys.query by the Start node.
+	Query string `json:"query"`
+	// Files (optional) are materialized into sys.files.
+	Files []string `json:"files,omitempty"`
+}
+
+// Workflow run statuses (persisted in workflow_runs.status).
+const (
+	WorkflowRunStatusPending   = "pending"
+	WorkflowRunStatusRunning   = "running"
+	WorkflowRunStatusSucceeded = "succeeded"
+	WorkflowRunStatusFailed    = "failed"
+	WorkflowRunStatusCancelled = "cancelled"
+)
+
 type WorkflowRun struct {
 	// Unique identifier of the run (UUID, generated in Go)
 	ID string `yaml:"id" json:"id" gorm:"type:varchar(36);primaryKey"`

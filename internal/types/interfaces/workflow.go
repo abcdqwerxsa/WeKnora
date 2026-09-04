@@ -37,6 +37,10 @@ type WorkflowRepository interface {
 	// CreateWorkflowRun inserts a new run row (used by the execution wiring).
 	CreateWorkflowRun(ctx context.Context, run *types.WorkflowRun) error
 
+	// UpdateWorkflowRun saves the terminal (or intermediate) state of a run
+	// row (status/output/error) — used by the execution wiring.
+	UpdateWorkflowRun(ctx context.Context, run *types.WorkflowRun) error
+
 	// ListWorkflowRunsByTenantAndWorkflow returns the run history of one
 	// workflow, newest first.
 	ListWorkflowRunsByTenantAndWorkflow(ctx context.Context, tenantID uint64, workflowID string) ([]*types.WorkflowRun, error)
@@ -63,6 +67,12 @@ type WorkflowService interface {
 	DeleteWorkflow(ctx context.Context, id string) error
 
 	// ListWorkflowRuns returns the run history of a workflow in the caller's
-	// tenant (currently always empty until execution wiring lands).
+	// tenant, newest first (populated by RunWorkflow).
 	ListWorkflowRuns(ctx context.Context, workflowID string) ([]*types.WorkflowRun, error)
+
+	// RunWorkflow executes one run of the workflow in the caller's tenant:
+	// compiles the stored DSL through the engine package, runs it with the
+	// platform LLM / knowledge-search adapters injected, and persists a
+	// workflow_runs row (running -> succeeded | failed). Synchronous MVP.
+	RunWorkflow(ctx context.Context, id string, req *types.RunWorkflowRequest) (*types.WorkflowRun, error)
 }

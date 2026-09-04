@@ -93,6 +93,19 @@ func (r *workflowRepository) CreateWorkflowRun(ctx context.Context, run *types.W
 	return r.db.WithContext(ctx).Create(run).Error
 }
 
+// UpdateWorkflowRun saves the terminal (or intermediate) state of a run row.
+// The run row is always created inside the caller's tenant by the service
+// layer, so the primary-key save cannot escape tenant scope.
+func (r *workflowRepository) UpdateWorkflowRun(ctx context.Context, run *types.WorkflowRun) error {
+	return r.db.WithContext(ctx).Model(&types.WorkflowRun{}).
+		Where("id = ? AND tenant_id = ?", run.ID, run.TenantID).
+		Updates(map[string]any{
+			"status": run.Status,
+			"output": run.Output,
+			"error":  run.Error,
+		}).Error
+}
+
 // ListWorkflowRunsByTenantAndWorkflow returns the run history of one
 // workflow, newest first.
 func (r *workflowRepository) ListWorkflowRunsByTenantAndWorkflow(ctx context.Context, tenantID uint64, workflowID string) ([]*types.WorkflowRun, error) {

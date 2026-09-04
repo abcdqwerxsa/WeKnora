@@ -1,10 +1,11 @@
-// Package service — workflow CRUD.
+// Package service — workflow CRUD + execution wiring.
 //
-// Slice 2 of the workflow-orchestration feature: storage + REST + RBAC only.
-// The engine package is a parallel slice and intentionally NOT imported —
-// the DSL is structurally validated with the minimal local shape below and
-// stored verbatim. Execution wiring (compile/run + workflow_runs writes)
-// lands in the integration phase.
+// The workflow-orchestration feature was assembled from parallel slices:
+// CRUD/RBAC landed first (DSL validated with a minimal local shape and
+// stored verbatim), the engine package (internal/agent/workflow) landed in
+// parallel. This file now wires the two: RunWorkflow compiles the stored
+// DSL through the engine and injects platform LLM / knowledge-search
+// adapters, persisting every run into workflow_runs.
 package service
 
 import (
@@ -12,8 +13,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
 	"unicode/utf8"
 
+	wfengine "github.com/Tencent/WeKnora/internal/agent/workflow"
+	"github.com/Tencent/WeKnora/internal/agent/workflow/nodes"
+	"github.com/Tencent/WeKnora/internal/logger"
+	"github.com/Tencent/WeKnora/internal/models/chat"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"github.com/google/uuid"
@@ -140,12 +147,20 @@ func validateWorkflowFields(name, description, status string, dsl types.JSON) er
 
 // workflowService implements interfaces.WorkflowService.
 type workflowService struct {
-	repo interfaces.WorkflowRepository
+	repo   interfaces.WorkflowRepository
+	models interfaces.ModelService
+	kbs    interfaces.KnowledgeBaseService
 }
 
-// NewWorkflowService creates a new workflow CRUD service.
-func NewWorkflowService(repo interfaces.WorkflowRepository) interfaces.WorkflowService {
-	return &workflowService{repo: repo}
+// NewWorkflowService creates a new workflow service. models/kbs back the
+// engine adapters injected into every compiled run (LLMFunc → ModelService
+// GetChatModel, RetrievalFunc → KnowledgeBaseService HybridSearch).
+func NewWorkflowService(
+	repo interfaces.WorkflowRepository,
+	models interfaces.ModelService,
+	kbs interfaces.KnowledgeBaseService,
+) interfaces.WorkflowService {
+	return &workflowService{repo: repo, models: models, kbs: kbs}
 }
 
 // CreateWorkflow validates and creates a workflow. TenantID and CreatorID
@@ -255,7 +270,7 @@ func (s *workflowService) DeleteWorkflow(ctx context.Context, id string) error {
 }
 
 // ListWorkflowRuns returns the run history of a workflow in the caller's
-// tenant. Always empty until the execution wiring starts writing runs.
+// tenant, newest first; rows are written by RunWorkflow.
 func (s *workflowService) ListWorkflowRuns(ctx context.Context, workflowID string) ([]*types.WorkflowRun, error) {
 	tenantID, ok := types.TenantIDFromContext(ctx)
 	if !ok || tenantID == 0 {
@@ -265,4 +280,154 @@ func (s *workflowService) ListWorkflowRuns(ctx context.Context, workflowID strin
 		return nil, err
 	}
 	return s.repo.ListWorkflowRunsByTenantAndWorkflow(ctx, tenantID, workflowID)
+}
+
+// workflowRunTimeout bounds one synchronous workflow run. Long-running
+// graphs should move to the async task queue in a follow-up; the MVP keeps
+// execution synchronous behind this cap.
+const workflowRunTimeout = 120 * time.Second
+
+// RunWorkflow executes one run of a workflow in the caller's tenant.
+//
+// Lifecycle: a workflow_runs row is created in "running" state before
+// execution so every attempt is observable, then flipped to succeeded or
+// failed after the engine returns. Compile errors and execution errors both
+// leave a persisted failed row; the caller receives (run, err) and may
+// present the run record itself as the outcome.
+func (s *workflowService) RunWorkflow(ctx context.Context, id string, req *types.RunWorkflowRequest) (*types.WorkflowRun, error) {
+	tenantID, ok := types.TenantIDFromContext(ctx)
+	if !ok || tenantID == 0 {
+		return nil, ErrWorkflowTenantRequired
+	}
+	if req == nil {
+		req = &types.RunWorkflowRequest{}
+	}
+	wf, err := s.repo.GetWorkflowByIDAndTenant(ctx, id, tenantID)
+	if err != nil {
+		return nil, err
+	}
+
+	var dsl wfengine.DSL
+	if err := json.Unmarshal(wf.DSL, &dsl); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrWorkflowInvalidDSL, err)
+	}
+	normalized, err := wfengine.Normalize(&dsl)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrWorkflowInvalidDSL, err)
+	}
+
+	inputDoc, _ := json.Marshal(req)
+	run := &types.WorkflowRun{
+		ID:         uuid.New().String(),
+		TenantID:   tenantID,
+		WorkflowID: id,
+		Status:     types.WorkflowRunStatusRunning,
+		Input:      types.JSON(inputDoc),
+	}
+	if err := s.repo.CreateWorkflowRun(ctx, run); err != nil {
+		return nil, err
+	}
+
+	compiled, cerr := wfengine.Compile(normalized, wfengine.Deps{
+		LLMFunc:       s.runLLM,
+		RetrievalFunc: s.runRetrieval,
+		OnNodeEvent: func(ev wfengine.NodeEvent) {
+			logger.Infof(ctx, "[workflow:%s run:%s] node %s %s (%dms)",
+				id, run.ID, ev.NodeID, ev.Phase, ev.DurationMS)
+		},
+	})
+	if cerr != nil {
+		s.failWorkflowRun(ctx, run, cerr)
+		return run, cerr
+	}
+
+	runCtx, cancel := context.WithTimeout(ctx, workflowRunTimeout)
+	defer cancel()
+	result, rerr := compiled.Run(runCtx, req.Query, req.Files)
+	if rerr != nil {
+		s.failWorkflowRun(ctx, run, rerr)
+		return run, rerr
+	}
+
+	outDoc := map[string]any{
+		"answer":  result.Answer,
+		"path":    result.Path,
+		"outputs": result.Outputs,
+	}
+	outJSON, merr := json.Marshal(outDoc)
+	if merr != nil {
+		s.failWorkflowRun(ctx, run, merr)
+		return run, merr
+	}
+	run.Status = types.WorkflowRunStatusSucceeded
+	run.Output = types.JSON(outJSON)
+	if uerr := s.repo.UpdateWorkflowRun(ctx, run); uerr != nil {
+		logger.Errorf(ctx, "workflow run %s terminal update failed: %v", run.ID, uerr)
+	}
+	return run, nil
+}
+
+// failWorkflowRun persists the terminal failed state of a run.
+func (s *workflowService) failWorkflowRun(ctx context.Context, run *types.WorkflowRun, cause error) {
+	run.Status = types.WorkflowRunStatusFailed
+	run.Error = cause.Error()
+	if err := s.repo.UpdateWorkflowRun(ctx, run); err != nil {
+		logger.Errorf(ctx, "workflow run %s failure update failed: %v", run.ID, err)
+	}
+}
+
+// runLLM adapts the engine's LLMFunc onto the platform ModelService.
+// The node's model param must name a model visible to the caller's tenant;
+// there is no cross-tenant fallback.
+func (s *workflowService) runLLM(ctx context.Context, req nodes.LLMRequest) (string, error) {
+	if strings.TrimSpace(req.Model) == "" {
+		return "", errors.New("workflow LLM node requires a model id in its params")
+	}
+	model, err := s.models.GetChatModel(ctx, req.Model)
+	if err != nil {
+		return "", fmt.Errorf("workflow LLM model %q unavailable: %w", req.Model, err)
+	}
+	resp, err := model.Chat(ctx, []chat.Message{{Role: "user", Content: req.Prompt}}, &chat.ChatOptions{
+		Temperature: req.Temperature,
+	})
+	if err != nil {
+		return "", fmt.Errorf("workflow LLM call failed: %w", err)
+	}
+	return resp.Content, nil
+}
+
+// runRetrieval adapts the engine's RetrievalFunc onto the platform
+// KnowledgeBaseService. Every KB is searched with the caller's tenant
+// context, so cross-tenant KB ids fail closed inside HybridSearch.
+func (s *workflowService) runRetrieval(ctx context.Context, req nodes.RetrievalRequest) (*nodes.RetrievalResult, error) {
+	if len(req.KBIDs) == 0 {
+		return nil, errors.New("workflow Retrieval node requires at least one kb_id")
+	}
+	topK := req.TopK
+	if topK <= 0 {
+		topK = 10
+	}
+	result := &nodes.RetrievalResult{Chunks: []map[string]any{}, DocAggs: []map[string]any{}}
+	for _, kbID := range req.KBIDs {
+		hits, err := s.kbs.HybridSearch(ctx, kbID, types.SearchParams{
+			// Zero thresholds keep the retrievers' no-filter semantics
+			// (pgvector treats 0 as "score >= 0", i.e. rank-only).
+			QueryText:  req.Query,
+			MatchCount: topK,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("workflow retrieval on kb %s failed: %w", kbID, err)
+		}
+		for _, h := range hits {
+			result.Chunks = append(result.Chunks, map[string]any{
+				"id":              h.ID,
+				"content":         h.Content,
+				"knowledge_id":    h.KnowledgeID,
+				"knowledge_title": h.KnowledgeTitle,
+				"chunk_index":     h.ChunkIndex,
+				"score":           h.Score,
+			})
+		}
+	}
+	return result, nil
 }

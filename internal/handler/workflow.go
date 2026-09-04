@@ -1,13 +1,14 @@
-// Package handler — workflow CRUD endpoints.
+// Package handler — workflow CRUD + run endpoints.
 //
-// Slice 2 of the workflow-orchestration feature: REST CRUD only.
-// POST /:id/runs is a wired-later stub returning 501 — execution lands in
-// the integration phase.
+// The workflow-orchestration feature was assembled from parallel slices;
+// this file hosts the REST surface. Run execution is wired to the engine
+// package through WorkflowService.RunWorkflow (synchronous MVP).
 package handler
 
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	apprepo "github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/application/service"
@@ -212,27 +213,56 @@ func (h *WorkflowHandler) DeleteWorkflow(c *gin.Context) {
 }
 
 // CreateWorkflowRun godoc
-// @Summary      执行工作流（占位）
-// @Description  执行引擎在后续切片接线；当前返回 501，不落库
+// @Summary      执行工作流
+// @Description  同步执行一次工作流（MVP：120s 超时上限），运行记录写入 workflow_runs；执行失败时返回 run 记录（status=failed）
 // @Tags         工作流
-// @Param        id path string true "工作流 ID"
-// @Failure      501 {object} apperrors.AppError
+// @Accept       json
+// @Produce      json
+// @Param        id      path  string                     true "工作流 ID"
+// @Param        request body  types.RunWorkflowRequest   true "执行输入（query 必填）"
+// @Success      200 {object} map[string]interface{}
+// @Failure      400 {object} apperrors.AppError
+// @Failure      404 {object} apperrors.AppError
+// @Failure      500 {object} apperrors.AppError
 // @Security     Bearer
 // @Router       /workflows/{id}/runs [post]
 func (h *WorkflowHandler) CreateWorkflowRun(c *gin.Context) {
-	// Slice boundary: execution wiring is a separate slice. Reserve the
-	// route shape now so the frontend/API contract is stable, but make the
-	// not-implemented state loud and explicit.
-	c.Error(&apperrors.AppError{
-		Code:     apperrors.ErrServiceUnavailable,
-		Message:  "workflow execution not wired yet",
-		HTTPCode: http.StatusNotImplemented,
-	})
+	ctx := c.Request.Context()
+	id := c.Param("id")
+	var req types.RunWorkflowRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(apperrors.NewValidationError("Invalid request parameters").WithDetails(err.Error()))
+		return
+	}
+	if strings.TrimSpace(req.Query) == "" {
+		c.Error(apperrors.NewValidationError("query is required"))
+		return
+	}
+	run, err := h.service.RunWorkflow(ctx, id, &req)
+	if err != nil {
+		if errors.Is(err, apprepo.ErrWorkflowNotFound) {
+			c.Error(apperrors.NewNotFoundError("workflow not found"))
+			return
+		}
+		if errors.Is(err, service.ErrWorkflowInvalidDSL) {
+			c.Error(apperrors.NewValidationError("invalid workflow DSL").WithDetails(err.Error()))
+			return
+		}
+		// A persisted failed run is a legitimate execution outcome, not a
+		// transport error — surface the run record itself.
+		if run != nil && run.Status == types.WorkflowRunStatusFailed {
+			c.JSON(http.StatusOK, gin.H{"run": run})
+			return
+		}
+		c.Error(apperrors.NewInternalServerError("failed to run workflow").WithDetails(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"run": run})
 }
 
 // ListWorkflowRuns godoc
 // @Summary      工作流运行历史
-// @Description  列出工作流的执行记录（接线前恒为空）
+// @Description  列出工作流的执行记录（新到旧）
 // @Tags         工作流
 // @Produce      json
 // @Param        id path string true "工作流 ID"
