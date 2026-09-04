@@ -1,0 +1,107 @@
+package repository
+
+import (
+	"context"
+	"errors"
+
+	"github.com/Tencent/WeKnora/internal/types"
+	"github.com/Tencent/WeKnora/internal/types/interfaces"
+	"gorm.io/gorm"
+)
+
+// ErrWorkflowNotFound is the sentinel returned when a workflow id does not
+// exist inside the requested tenant (or has been soft-deleted). Handlers map
+// it to 404; the RBAC creator-lookup maps it to ErrResourceNotFound so the
+// middleware lets the handler answer with a proper 404 instead of a fake 403.
+var ErrWorkflowNotFound = errors.New("workflow not found")
+
+// workflowRepository implements interfaces.WorkflowRepository. Every query
+// filters on tenant_id — there is deliberately no tenant-less read path.
+type workflowRepository struct {
+	db *gorm.DB
+}
+
+// NewWorkflowRepository creates a new workflow repository.
+func NewWorkflowRepository(db *gorm.DB) interfaces.WorkflowRepository {
+	return &workflowRepository{db: db}
+}
+
+// CreateWorkflow inserts a new workflow row.
+func (r *workflowRepository) CreateWorkflow(ctx context.Context, workflow *types.Workflow) error {
+	return r.db.WithContext(ctx).Create(workflow).Error
+}
+
+// GetWorkflowByIDAndTenant returns the workflow with the given id only when
+// it belongs to tenantID (enforces tenant isolation).
+func (r *workflowRepository) GetWorkflowByIDAndTenant(ctx context.Context, id string, tenantID uint64) (*types.Workflow, error) {
+	var wf types.Workflow
+	if err := r.db.WithContext(ctx).Where("id = ? AND tenant_id = ?", id, tenantID).First(&wf).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrWorkflowNotFound
+		}
+		return nil, err
+	}
+	return &wf, nil
+}
+
+// ListWorkflowsByTenantID returns one page of the tenant's workflows, newest
+// first, plus the total count for pagination.
+func (r *workflowRepository) ListWorkflowsByTenantID(ctx context.Context, tenantID uint64, offset, limit int) ([]*types.Workflow, int64, error) {
+	var (
+		workflows []*types.Workflow
+		total     int64
+	)
+	if err := r.db.WithContext(ctx).Model(&types.Workflow{}).
+		Where("tenant_id = ?", tenantID).
+		Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	if err := r.db.WithContext(ctx).
+		Where("tenant_id = ?", tenantID).
+		Order("created_at DESC").
+		Offset(offset).Limit(limit).
+		Find(&workflows).Error; err != nil {
+		return nil, 0, err
+	}
+	return workflows, total, nil
+}
+
+// UpdateWorkflow saves mutated fields of an existing workflow row.
+func (r *workflowRepository) UpdateWorkflow(ctx context.Context, workflow *types.Workflow) error {
+	return r.db.WithContext(ctx).Model(workflow).
+		Where("id = ? AND tenant_id = ?", workflow.ID, workflow.TenantID).
+		Select("name", "description", "dsl", "status", "version", "updated_at").
+		Updates(workflow).Error
+}
+
+// DeleteWorkflow soft-deletes the workflow (gorm.DeletedAt) inside tenantID.
+func (r *workflowRepository) DeleteWorkflow(ctx context.Context, id string, tenantID uint64) error {
+	res := r.db.WithContext(ctx).
+		Where("id = ? AND tenant_id = ?", id, tenantID).
+		Delete(&types.Workflow{})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return ErrWorkflowNotFound
+	}
+	return nil
+}
+
+// CreateWorkflowRun inserts a new run row (used by the execution wiring).
+func (r *workflowRepository) CreateWorkflowRun(ctx context.Context, run *types.WorkflowRun) error {
+	return r.db.WithContext(ctx).Create(run).Error
+}
+
+// ListWorkflowRunsByTenantAndWorkflow returns the run history of one
+// workflow, newest first.
+func (r *workflowRepository) ListWorkflowRunsByTenantAndWorkflow(ctx context.Context, tenantID uint64, workflowID string) ([]*types.WorkflowRun, error) {
+	var runs []*types.WorkflowRun
+	if err := r.db.WithContext(ctx).
+		Where("tenant_id = ? AND workflow_id = ?", tenantID, workflowID).
+		Order("created_at DESC").
+		Find(&runs).Error; err != nil {
+		return nil, err
+	}
+	return runs, nil
+}
