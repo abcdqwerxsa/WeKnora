@@ -216,6 +216,21 @@ const router = createRouter({
       component: () => import('../views/dev/MarkdownTestPage.vue'),
       meta: { requiresAuth: false, requiresInit: false }
     }] : []),
+    // Workflow orchestration canvas (MVP). Guards match the other feature
+    // pages (auth + init) so the global beforeEach handles login/onboarding
+    // the same way as /platform children.
+    {
+      path: '/workflow',
+      name: 'workflowList',
+      component: () => import('../views/workflow/WorkflowList.vue'),
+      meta: { requiresInit: true, requiresAuth: true }
+    },
+    {
+      path: '/workflow/:id/edit',
+      name: 'workflowEditor',
+      component: () => import('../views/workflow/WorkflowEditor.vue'),
+      meta: { requiresInit: true, requiresAuth: true }
+    },
   ],
 });
 
