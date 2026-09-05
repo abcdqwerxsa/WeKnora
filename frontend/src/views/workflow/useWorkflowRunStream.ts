@@ -34,6 +34,25 @@ export function useWorkflowRunStream(workflowId: () => string) {
   const streaming = ref(false)
   let controller: AbortController | null = null
 
+  // Idle watchdog: a healthy stream emits at least one frame per node; if
+  // nothing arrives for this long (terminal frame lost to a proxy race,
+  // half-open connection), detach so the `streaming` flag cannot hang
+  // forever. Not an error — the history row stays the source of truth.
+  const STREAM_IDLE_TIMEOUT_MS = 5 * 60_000
+  let idleTimer: ReturnType<typeof setTimeout> | null = null
+
+  function clearIdleTimer() {
+    if (idleTimer !== null) {
+      clearTimeout(idleTimer)
+      idleTimer = null
+    }
+  }
+
+  function armIdleTimer() {
+    clearIdleTimer()
+    idleTimer = setTimeout(() => stop(), STREAM_IDLE_TIMEOUT_MS)
+  }
+
   function resetStreamState() {
     frames.value = []
     nodePhases.value = {}
@@ -43,6 +62,7 @@ export function useWorkflowRunStream(workflowId: () => string) {
 
   /** Detach from the stream only — the run keeps executing server-side. */
   function stop() {
+    clearIdleTimer()
     controller?.abort()
     controller = null
     streaming.value = false
@@ -54,6 +74,7 @@ export function useWorkflowRunStream(workflowId: () => string) {
     if (!workflowId() || !runId) return
     controller = new AbortController()
     streaming.value = true
+    armIdleTimer()
     const token = localStorage.getItem('weknora_token')
     const tenantId = localStorage.getItem('weknora_selected_tenant_id')
     const url = `${getApiBaseUrl()}${workflowRunEventsUrl(workflowId(), runId)}`
@@ -70,6 +91,7 @@ export function useWorkflowRunStream(workflowId: () => string) {
       openWhenHidden: true,
       onmessage(ev) {
         if (!ev.data) return
+        armIdleTimer()
         let frame: WorkflowRunEventFrame
         try {
           frame = JSON.parse(ev.data) as WorkflowRunEventFrame

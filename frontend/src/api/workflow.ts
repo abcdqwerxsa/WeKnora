@@ -167,6 +167,16 @@ export const runWorkflow = (
 export const cancelWorkflowRun = (workflowId: string, runId: string): Promise<WorkflowRunResponse> =>
   post(`/api/v1/workflows/${workflowId}/runs/${runId}/cancel`)
 
+/**
+ * Resume a failed run from its checkpoint: the run row flips back to
+ * running and re-executes asynchronously, skipping nodes whose outputs are
+ * already checkpointed. Only status=failed runs are resumable — the server
+ * answers 409 for other terminal states and 404 for unknown ids; a failed
+ * run without checkpoint state simply re-executes from the start.
+ */
+export const resumeWorkflowRun = (workflowId: string, runId: string): Promise<WorkflowRunResponse> =>
+  post(`/api/v1/workflows/${workflowId}/runs/${runId}/resume`)
+
 export const listWorkflowRuns = (id: string): Promise<WorkflowRunListResponse> =>
   get(`/api/v1/workflows/${id}/runs`)
 
