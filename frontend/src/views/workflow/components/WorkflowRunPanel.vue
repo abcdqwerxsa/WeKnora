@@ -18,6 +18,16 @@
         <t-button v-if="streaming" variant="text" theme="default" size="small" @click="stop()">
           {{ $t('workflow.run.disconnect') }}
         </t-button>
+        <t-button
+          v-if="cancellable"
+          variant="outline"
+          theme="danger"
+          size="small"
+          :loading="cancelling"
+          @click="cancelActiveRun"
+        >
+          {{ $t('workflow.run.cancel') }}
+        </t-button>
       </div>
     </section>
 
@@ -46,10 +56,11 @@
     </section>
 
     <!-- Result -->
-    <section v-if="answer !== null || resultError" class="wf-run-section">
+    <section v-if="answer !== null || resultError || isCancelled" class="wf-run-section">
       <p class="wf-run-section-title">{{ $t('workflow.run.result') }}</p>
       <t-alert v-if="resultError" theme="error" :message="resultError" />
       <pre v-else-if="answer" class="wf-run-answer">{{ answer }}</pre>
+      <div v-else-if="isCancelled" class="wf-run-muted">{{ $t('workflow.run.cancelledNotice') }}</div>
       <div v-else class="wf-run-muted">{{ $t('workflow.run.noAnswer') }}</div>
     </section>
 
@@ -86,7 +97,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
-import { runWorkflow, listWorkflowRuns, type WorkflowRun } from '@/api/workflow'
+import { runWorkflow, listWorkflowRuns, cancelWorkflowRun, type WorkflowRun } from '@/api/workflow'
 import { useWorkflowRunStream } from '../useWorkflowRunStream'
 
 const props = defineProps<{ workflowId: string }>()
@@ -105,6 +116,10 @@ const starting = ref(false)
 const answer = ref<string | null>(null)
 const resultError = ref('')
 const activeRunId = ref('')
+// Mirrors the active run's lifecycle so the cancel affordance stays accurate
+// even when the SSE stream is detached (disconnect ≠ cancel).
+const activeStatus = ref('')
+const cancelling = ref(false)
 
 const history = ref<WorkflowRun[]>([])
 const historyError = ref(false)
@@ -114,6 +129,11 @@ const { frames, nodePhases, terminalStatus, terminalError, streaming, follow, st
 )
 
 emit('node-phases', nodePhases.value)
+
+const cancellable = computed(
+  () => activeStatus.value === 'pending' || activeStatus.value === 'running' || streaming.value,
+)
+const isCancelled = computed(() => activeStatus.value === 'cancelled' || terminalStatus.value === 'cancelled')
 
 const statusTheme = (status: WorkflowRun['status']): string => {
   if (status === 'succeeded') return 'success'
@@ -154,6 +174,7 @@ async function start(asyncMode: boolean) {
       return
     }
     activeRunId.value = run.id
+    activeStatus.value = run.status
     if (run.status === 'pending' || run.status === 'running') {
       follow(run.id)
     } else {
@@ -181,6 +202,7 @@ async function loadHistory() {
 
 function selectHistoryRow(run: WorkflowRun) {
   activeRunId.value = run.id
+  activeStatus.value = run.status
   answer.value = null
   resultError.value = ''
   if (run.status === 'pending' || run.status === 'running') {
@@ -196,6 +218,7 @@ function selectHistoryRow(run: WorkflowRun) {
 // Terminal stream state mirrors into the result section (covers async runs
 // whose final answer arrives via the terminal run frame).
 watch([terminalStatus, terminalError], () => {
+  if (terminalStatus.value) activeStatus.value = terminalStatus.value
   if (terminalError.value) {
     resultError.value = terminalError.value
     return
@@ -207,13 +230,42 @@ watch([terminalStatus, terminalError], () => {
   else void refreshActiveRun()
 })
 
+/**
+ * Cancel the active run. The cancel response is authoritative for the UI;
+ * the SSE terminal frame (phase=cancelled, sent right before the server
+ * closes the stream) provides final consistency — both paths land in the
+ * same state, so no manual stop() is forced here.
+ */
+async function cancelActiveRun() {
+  if (!activeRunId.value || cancelling.value) return
+  cancelling.value = true
+  try {
+    const response = await cancelWorkflowRun(props.workflowId, activeRunId.value)
+    const run = response?.run
+    if (!run) throw new Error(response?.message || t('workflow.run.cancelFailed'))
+    activeStatus.value = run.status
+    if (run.status === 'cancelled') {
+      answer.value = null
+      resultError.value = ''
+    }
+    void loadHistory()
+  } catch (error) {
+    MessagePlugin.error(error instanceof Error ? error.message : t('workflow.run.cancelFailed'))
+  } finally {
+    cancelling.value = false
+  }
+}
+
 async function refreshActiveRun() {
   if (!activeRunId.value) return
   try {
     const response = await listWorkflowRuns(props.workflowId)
     history.value = response?.data?.runs ?? []
     const row = history.value.find((item) => item.id === activeRunId.value)
-    if (row) applyRunOutcome(row)
+    if (row) {
+      activeStatus.value = row.status
+      applyRunOutcome(row)
+    }
   } catch {
     /* history refresh is best-effort */
   }

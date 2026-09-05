@@ -158,6 +158,15 @@ export const runWorkflow = (
   payload: { query: string; files?: string[]; async?: boolean },
 ): Promise<WorkflowRunResponse> => post(`/api/v1/workflows/${id}/runs`, payload)
 
+/**
+ * Cancel a pending/running run (best-effort engine stop + async-task
+ * dequeue). Terminal runs answer idempotently with their current state —
+ * cancelling an already-finished run is not an error. The SSE stream (if
+ * attached) receives a kind=run phase=cancelled terminal frame, then closes.
+ */
+export const cancelWorkflowRun = (workflowId: string, runId: string): Promise<WorkflowRunResponse> =>
+  post(`/api/v1/workflows/${workflowId}/runs/${runId}/cancel`)
+
 export const listWorkflowRuns = (id: string): Promise<WorkflowRunListResponse> =>
   get(`/api/v1/workflows/${id}/runs`)
 
