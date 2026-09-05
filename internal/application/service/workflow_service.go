@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -155,6 +156,7 @@ type workflowService struct {
 	kbs      interfaces.KnowledgeBaseService
 	enqueuer interfaces.TaskEnqueuer
 	runs     *workflowRunBroker
+	cancels  *workflowRunCancels
 }
 
 // NewWorkflowService creates a new workflow service. models/kbs back the
@@ -174,6 +176,7 @@ func NewWorkflowService(
 		kbs:      kbs,
 		enqueuer: enqueuer,
 		runs:     newWorkflowRunBroker(),
+		cancels:  newWorkflowRunCancels(),
 	}
 }
 
@@ -483,7 +486,14 @@ func (s *workflowService) executeWorkflowRun(
 	}
 
 	runCtx, cancel := context.WithTimeout(ctx, workflowRunTimeout)
-	defer cancel()
+	// Expose the run's abort handle so CancelWorkflowRun can stop this
+	// execution in-process. Registered for the whole run; engine propagation
+	// then flows runCtx -> node Invoke -> adapters.
+	s.cancels.register(run.ID, cancel)
+	defer func() {
+		s.cancels.unregister(run.ID)
+		cancel()
+	}()
 	result, rerr := compiled.Run(runCtx, req.Query, req.Files)
 	if rerr != nil {
 		s.failWorkflowRun(ctx, run, rerr)
@@ -500,6 +510,12 @@ func (s *workflowService) executeWorkflowRun(
 		s.failWorkflowRun(ctx, run, merr)
 		return merr
 	}
+	if s.runAlreadyCancelled(ctx, run) {
+		// Cancel raced the successful completion — cancelled wins; the
+		// outputs are discarded with the row (rerun is the recovery path).
+		logger.Infof(ctx, "[workflow:%s] run %s success suppressed: row already cancelled", wf.ID, run.ID)
+		return fmt.Errorf("workflow run %s cancelled", run.ID)
+	}
 	run.Status = types.WorkflowRunStatusSucceeded
 	run.Output = types.JSON(outJSON)
 	if uerr := s.repo.UpdateWorkflowRun(ctx, run); uerr != nil {
@@ -512,14 +528,36 @@ func (s *workflowService) executeWorkflowRun(
 }
 
 // failWorkflowRun persists the terminal failed state of a run and emits the
-// terminal run event.
+// terminal run event. A row already flipped to cancelled (user cancel
+// racing the failure) is left alone — cancelled is also terminal and the
+// cancel path already closed SSE subscribers.
 func (s *workflowService) failWorkflowRun(ctx context.Context, run *types.WorkflowRun, cause error) {
+	if s.runAlreadyCancelled(ctx, run) {
+		logger.Infof(ctx, "[workflow:%s] run %s failure suppressed: row already cancelled (%v)",
+			run.WorkflowID, run.ID, cause)
+		return
+	}
 	run.Status = types.WorkflowRunStatusFailed
 	run.Error = cause.Error()
 	if err := s.repo.UpdateWorkflowRun(ctx, run); err != nil {
 		logger.Errorf(ctx, "workflow run %s failure update failed: %v", run.ID, err)
 	}
 	s.emitRunFinished(ctx, run, types.WorkflowRunStatusFailed, cause.Error())
+}
+
+// runAlreadyCancelled re-reads the run row and reports whether a cancel
+// landed while the engine was aborting. Terminal-write suppression relies
+// on this instead of comparing in-memory state, because CancelWorkflowRun
+// may run on a different request goroutine (and, for async runs, a
+// different instance entirely).
+func (s *workflowService) runAlreadyCancelled(ctx context.Context, run *types.WorkflowRun) bool {
+	cur, err := s.repo.GetWorkflowRunByIDAndTenant(ctx, run.ID, run.TenantID)
+	if err != nil {
+		// Read failure: fall through to the plain write — the state-guarded
+		// MarkWorkflowRunCancelled is the hard barrier; this is a soft check.
+		return false
+	}
+	return cur.Status == types.WorkflowRunStatusCancelled
 }
 
 // emitRunFinished delivers the terminal frame to SSE subscribers (closing
@@ -539,6 +577,83 @@ func (s *workflowService) emitRunFinished(ctx context.Context, run *types.Workfl
 		SessionID: run.ID,
 		Data:      frame,
 	})
+}
+
+// workflowRunCancels tracks the context.CancelFunc of every run currently
+// executing in THIS process, keyed by run id. CancelWorkflowRun uses it to
+// abort in-process executions; async runs executing on another instance are
+// handled by the row-level guard alone (the idempotent asynq handler skips
+// non-pending rows, so a cancelled row never re-executes).
+type workflowRunCancels struct {
+	mu sync.Mutex
+	m  map[string]context.CancelFunc
+}
+
+func newWorkflowRunCancels() *workflowRunCancels {
+	return &workflowRunCancels{m: make(map[string]context.CancelFunc)}
+}
+
+func (c *workflowRunCancels) register(runID string, cancel context.CancelFunc) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.m[runID] = cancel
+}
+
+func (c *workflowRunCancels) unregister(runID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.m, runID)
+}
+
+// cancel aborts the run's execution context if it executes here. Returns
+// whether an in-process execution was signalled.
+func (c *workflowRunCancels) cancel(runID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if cancel, ok := c.m[runID]; ok {
+		cancel()
+		return true
+	}
+	return false
+}
+
+// CancelWorkflowRun best-effort cancels a pending/running run.
+//
+// Idempotency choice: cancelling an already-terminal run returns the current
+// row with 200 instead of 409. The row is the source of truth (same
+// philosophy as TaskInspector), and concurrent cancel-vs-finish races must
+// not turn into client-facing conflicts.
+func (s *workflowService) CancelWorkflowRun(ctx context.Context, workflowID, runID string) (*types.WorkflowRun, error) {
+	tenantID, ok := types.TenantIDFromContext(ctx)
+	if !ok || tenantID == 0 {
+		return nil, ErrWorkflowTenantRequired
+	}
+	run, err := s.repo.GetWorkflowRunByIDAndTenant(ctx, runID, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if run.WorkflowID != workflowID {
+		return nil, apprepo.ErrWorkflowNotFound
+	}
+	if run.Status != types.WorkflowRunStatusPending && run.Status != types.WorkflowRunStatusRunning {
+		logger.Infof(ctx, "[workflow:%s] cancel of terminal run %s (status=%s) is a no-op",
+			workflowID, runID, run.Status)
+		return run, nil
+	}
+	if err := s.repo.MarkWorkflowRunCancelled(ctx, runID, tenantID); err != nil {
+		if errors.Is(err, apprepo.ErrWorkflowRunNotCancellable) {
+			// Lost the race against a terminal write — surface the winner.
+			return s.repo.GetWorkflowRunByIDAndTenant(ctx, runID, tenantID)
+		}
+		return nil, err
+	}
+	inProcess := s.cancels.cancel(runID)
+	run.Status = types.WorkflowRunStatusCancelled
+	// Close SSE subscribers with the cancelled terminal frame; the in-process
+	// execution's own terminal write is suppressed by the cancelled-row guard.
+	s.emitRunFinished(ctx, run, types.WorkflowRunStatusCancelled, "")
+	logger.Infof(ctx, "[workflow:%s] run %s cancelled (in_process=%v)", workflowID, runID, inProcess)
+	return run, nil
 }
 
 // GetWorkflowRun returns one run of a workflow in the caller's tenant.

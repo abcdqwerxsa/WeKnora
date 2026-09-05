@@ -126,6 +126,9 @@ func (r *stubWorkflowRepo) ListWorkflowRunsByTenantAndWorkflow(_ context.Context
 func (r *stubWorkflowRepo) UpdateWorkflowRun(_ context.Context, _ *types.WorkflowRun) error {
 	return nil
 }
+func (r *stubWorkflowRepo) MarkWorkflowRunCancelled(_ context.Context, _ string, _ uint64) error {
+	return nil
+}
 func (r *stubWorkflowRepo) GetWorkflowRunByIDAndTenant(_ context.Context, _ string, _ uint64) (*types.WorkflowRun, error) {
 	return nil, errWorkflowNotFoundStub
 }

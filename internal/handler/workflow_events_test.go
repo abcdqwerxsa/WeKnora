@@ -101,6 +101,9 @@ func (r *wfEventsRepoStub) UpdateWorkflowRun(_ context.Context, run *types.Workf
 func (r *wfEventsRepoStub) ListWorkflowRunsByTenantAndWorkflow(context.Context, uint64, string) ([]*types.WorkflowRun, error) {
 	return nil, nil
 }
+func (r *wfEventsRepoStub) MarkWorkflowRunCancelled(_ context.Context, _ string, _ uint64) error {
+	return nil
+}
 func (r *wfEventsRepoStub) GetWorkflowRunByIDAndTenant(_ context.Context, runID string, tenantID uint64) (*types.WorkflowRun, error) {
 	run, ok := r.runs[runID]
 	if !ok || run.TenantID != tenantID {
