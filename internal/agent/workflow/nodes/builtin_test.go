@@ -232,3 +232,83 @@ func TestRenderNilStatePassthrough(t *testing.T) {
 		t.Errorf("Render(nil state) = %q, %v", s, err)
 	}
 }
+
+func TestLLMNodePassesSystemPromptAndMaxTokens(t *testing.T) {
+	var got LLMRequest
+	n, err := New("LLM", map[string]any{
+		"prompt":        "{s@q}",
+		"system_prompt": "You are terse.",
+		"model":         "m1",
+		"temperature":   0.2,
+		"max_tokens":    512,
+	}, Deps{LLMFunc: func(_ context.Context, req LLMRequest) (string, error) {
+		got = req
+		return "ok", nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := n.Invoke(context.Background(), map[string]any{
+		StateInputKey: &fakeState{outputs: map[string]map[string]any{"s": {"q": "hi"}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SystemPrompt != "You are terse." || got.MaxTokens != 512 || got.Temperature != 0.2 || got.Model != "m1" {
+		t.Errorf("request = %+v, want system/max_tokens/temp/model wired", got)
+	}
+	if out["content"] != "ok" {
+		t.Errorf("content = %v", out["content"])
+	}
+}
+
+func TestRetrievalNodePassesThresholdsAndRerank(t *testing.T) {
+	var got RetrievalRequest
+	n, err := New("Retrieval", map[string]any{
+		"query":             "q",
+		"kb_ids":            []any{"kb1"},
+		"similarity_threshold": 0.55,
+		"keyword_threshold": 0.2,
+		"use_rerank":        true,
+		"rerank_model_id":   "rr",
+	}, Deps{RetrievalFunc: func(_ context.Context, req RetrievalRequest) (*RetrievalResult, error) {
+		got = req
+		return &RetrievalResult{Chunks: []map[string]any{{"content": "x"}}}, nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := n.Invoke(context.Background(), map[string]any{StateInputKey: &fakeState{}}); err != nil {
+		t.Fatal(err)
+	}
+	if got.VectorThreshold != 0.55 || got.KeywordThreshold != 0.2 || !got.UseRerank || got.RerankModelID != "rr" {
+		t.Errorf("request = %+v, want thresholds+rerank wired", got)
+	}
+}
+
+func TestRetrievalNodeVectorThresholdWinsOverSimilarity(t *testing.T) {
+	n, err := New("Retrieval", map[string]any{
+		"query": "q", "kb_ids": []any{"kb1"},
+		"similarity_threshold": 0.1, "vector_threshold": 0.7,
+	}, Deps{RetrievalFunc: func(_ context.Context, req RetrievalRequest) (*RetrievalResult, error) {
+		if req.VectorThreshold != 0.7 {
+			t.Errorf("vector threshold = %v, want explicit 0.7", req.VectorThreshold)
+		}
+		return &RetrievalResult{}, nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := n.Invoke(context.Background(), map[string]any{StateInputKey: &fakeState{}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRetrievalNodeRerankWithoutModelIsConfigError(t *testing.T) {
+	_, err := New("Retrieval", map[string]any{
+		"query": "q", "kb_ids": []any{"kb1"}, "use_rerank": true,
+	}, Deps{})
+	if err == nil || !strings.Contains(err.Error(), "rerank_model_id") {
+		t.Errorf("err = %v, want rerank_model_id required", err)
+	}
+}

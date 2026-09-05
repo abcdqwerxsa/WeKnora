@@ -907,9 +907,18 @@ func (s *workflowService) runLLM(ctx context.Context, req nodes.LLMRequest) (str
 	if err != nil {
 		return "", fmt.Errorf("workflow LLM model %q unavailable: %w", modelID, err)
 	}
-	resp, err := model.Chat(ctx, []chat.Message{{Role: "user", Content: req.Prompt}}, &chat.ChatOptions{
-		Temperature: req.Temperature,
-	})
+	// System prompt first (when configured), then the rendered user prompt —
+	// the same message shape the chat pipeline assembles for its LLM calls.
+	msgs := make([]chat.Message, 0, 2)
+	if req.SystemPrompt != "" {
+		msgs = append(msgs, chat.Message{Role: "system", Content: req.SystemPrompt})
+	}
+	msgs = append(msgs, chat.Message{Role: "user", Content: req.Prompt})
+	opts := &chat.ChatOptions{Temperature: req.Temperature}
+	if req.MaxTokens > 0 {
+		opts.MaxCompletionTokens = req.MaxTokens
+	}
+	resp, err := model.Chat(ctx, msgs, opts)
 	if err != nil {
 		return "", fmt.Errorf("workflow LLM call failed: %w", err)
 	}
@@ -957,8 +966,10 @@ func (s *workflowService) runRetrieval(ctx context.Context, req nodes.RetrievalR
 		hits, err := s.kbs.HybridSearch(ctx, kbID, types.SearchParams{
 			// Zero thresholds keep the retrievers' no-filter semantics
 			// (pgvector treats 0 as "score >= 0", i.e. rank-only).
-			QueryText:  req.Query,
-			MatchCount: topK,
+			QueryText:        req.Query,
+			MatchCount:       topK,
+			VectorThreshold:  req.VectorThreshold,
+			KeywordThreshold: req.KeywordThreshold,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("workflow retrieval on kb %s failed: %w", kbID, err)
@@ -974,5 +985,48 @@ func (s *workflowService) runRetrieval(ctx context.Context, req nodes.RetrievalR
 			})
 		}
 	}
+	if req.UseRerank {
+		if err := s.rerankChunks(ctx, req, result, topK); err != nil {
+			return nil, err
+		}
+	}
 	return result, nil
+}
+
+// rerankChunks reranks the merged hits of a multi-KB retrieval with the
+// requested rerank model and trims to topK. HybridSearch itself never
+// reranks (its callers do), so the workflow adapter applies the same
+// pattern the chat pipeline uses: rerank the passage texts, then reorder
+// by the returned index. Model resolution is tenant-scoped through
+// ModelService, so a cross-tenant rerank model id fails closed.
+func (s *workflowService) rerankChunks(ctx context.Context, req nodes.RetrievalRequest, result *nodes.RetrievalResult, topK int) error {
+	if len(result.Chunks) == 0 {
+		return nil
+	}
+	reranker, err := s.models.GetRerankModel(ctx, req.RerankModelID)
+	if err != nil {
+		return fmt.Errorf("workflow Retrieval: rerank model %q unavailable: %w", req.RerankModelID, err)
+	}
+	documents := make([]string, len(result.Chunks))
+	for i, c := range result.Chunks {
+		documents[i], _ = c["content"].(string)
+	}
+	ranked, err := reranker.Rerank(ctx, req.Query, documents)
+	if err != nil {
+		return fmt.Errorf("workflow Retrieval: rerank call failed: %w", err)
+	}
+	reordered := make([]map[string]any, 0, len(ranked))
+	for _, r := range ranked {
+		if r.Index < 0 || r.Index >= len(result.Chunks) {
+			continue
+		}
+		chunk := result.Chunks[r.Index]
+		chunk["rerank_score"] = r.RelevanceScore
+		reordered = append(reordered, chunk)
+	}
+	if len(reordered) > topK {
+		reordered = reordered[:topK]
+	}
+	result.Chunks = reordered
+	return nil
 }

@@ -55,9 +55,14 @@ type Deps struct {
 
 // LLMRequest is the rendered input handed to an injected LLMFunc.
 type LLMRequest struct {
-	Prompt      string
-	Model       string
-	Temperature float64
+	Prompt string
+	// SystemPrompt is the pre-rendered system message; empty = none.
+	SystemPrompt string
+	Model        string
+	Temperature  float64
+	// MaxTokens maps to the provider's completion-token cap; 0 = provider
+	// default (the adapter leaves ChatOptions.MaxCompletionTokens unset).
+	MaxTokens int
 }
 
 // LLMFunc renders-and-calls one LLM turn. Injected by the compiler.
@@ -68,6 +73,14 @@ type RetrievalRequest struct {
 	Query string
 	KBIDs []string
 	TopK  int
+	// VectorThreshold / KeywordThreshold are similarity floors (0-1);
+	// zero keeps the retriever's rank-only semantics.
+	VectorThreshold  float64
+	KeywordThreshold float64
+	// UseRerank asks the adapter to rerank the merged hits with
+	// RerankModelID (both must be set together when enabled).
+	UseRerank     bool
+	RerankModelID string
 }
 
 // RetrievalResult is the retrieval payload stored into node outputs.

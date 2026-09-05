@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 // Built-in component names. These are the canonical spellings; lookup is
@@ -74,14 +75,20 @@ func (n *answerNode) Invoke(ctx context.Context, inputs map[string]any) (map[str
 // ---- LLM -----------------------------------------------------------------
 
 type llmNode struct {
-	prompt      string
-	model       string
-	temperature float64
-	llm         LLMFunc
+	prompt        string
+	systemPrompt  string
+	model         string
+	temperature   float64
+	maxTokens     int
+	llm           LLMFunc
 }
 
 func newLLM(params map[string]any, deps Deps) (Node, error) {
 	prompt, err := strParam("LLM", "prompt", params, true)
+	if err != nil {
+		return nil, err
+	}
+	systemPrompt, err := strParam("LLM", "system_prompt", params, false)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +100,14 @@ func newLLM(params map[string]any, deps Deps) (Node, error) {
 			return nil, err
 		}
 	}
-	return &llmNode{prompt: prompt, model: model, temperature: temp, llm: deps.LLMFunc}, nil
+	maxTokens := 0
+	if v, ok := params["max_tokens"]; ok {
+		maxTokens, err = toInt("LLM", "max_tokens", v)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &llmNode{prompt: prompt, systemPrompt: systemPrompt, model: model, temperature: temp, maxTokens: maxTokens, llm: deps.LLMFunc}, nil
 }
 
 func (n *llmNode) Invoke(ctx context.Context, inputs map[string]any) (map[string]any, error) {
@@ -108,7 +122,19 @@ func (n *llmNode) Invoke(ctx context.Context, inputs map[string]any) (map[string
 	if err != nil {
 		return nil, fmt.Errorf("workflow LLM: %w", err)
 	}
-	content, err := n.llm(ctx, LLMRequest{Prompt: prompt, Model: n.model, Temperature: n.temperature})
+	system := ""
+	if n.systemPrompt != "" {
+		if system, err = Render(n.systemPrompt, st); err != nil {
+			return nil, fmt.Errorf("workflow LLM system_prompt: %w", err)
+		}
+	}
+	content, err := n.llm(ctx, LLMRequest{
+		Prompt:       prompt,
+		SystemPrompt: system,
+		Model:        n.model,
+		Temperature:  n.temperature,
+		MaxTokens:    n.maxTokens,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("workflow LLM: llm call failed: %w", err)
 	}
@@ -118,10 +144,14 @@ func (n *llmNode) Invoke(ctx context.Context, inputs map[string]any) (map[string
 // ---- Retrieval -----------------------------------------------------------
 
 type retrievalNode struct {
-	query string
-	kbIDs []string
-	topK  int
-	retr  RetrievalFunc
+	query           string
+	kbIDs           []string
+	topK            int
+	vectorThresh    float64
+	keywordThresh   float64
+	useRerank       bool
+	rerankModelID   string
+	retr            RetrievalFunc
 }
 
 func newRetrieval(params map[string]any, deps Deps) (Node, error) {
@@ -140,7 +170,41 @@ func newRetrieval(params map[string]any, deps Deps) (Node, error) {
 			return nil, err
 		}
 	}
-	return &retrievalNode{query: query, kbIDs: kbIDs, topK: topK, retr: deps.RetrievalFunc}, nil
+	// similarity_threshold is the RAGFlow-compatible alias; an explicit
+	// vector_threshold wins when both are present.
+	vecThresh := 0.0
+	if v, ok := params["similarity_threshold"]; ok {
+		if vecThresh, err = toFloat("Retrieval", "similarity_threshold", v); err != nil {
+			return nil, err
+		}
+	}
+	if v, ok := params["vector_threshold"]; ok {
+		if vecThresh, err = toFloat("Retrieval", "vector_threshold", v); err != nil {
+			return nil, err
+		}
+	}
+	kwThresh := 0.0
+	if v, ok := params["keyword_threshold"]; ok {
+		if kwThresh, err = toFloat("Retrieval", "keyword_threshold", v); err != nil {
+			return nil, err
+		}
+	}
+	useRerank := false
+	if v, ok := params["use_rerank"]; ok {
+		if useRerank, err = toBool("Retrieval", "use_rerank", v); err != nil {
+			return nil, err
+		}
+	}
+	rerankModel, _ := params["rerank_model_id"].(string)
+	if useRerank && strings.TrimSpace(rerankModel) == "" {
+		return nil, fmt.Errorf("workflow Retrieval: use_rerank=true requires rerank_model_id")
+	}
+	return &retrievalNode{
+		query: query, kbIDs: kbIDs, topK: topK,
+		vectorThresh: vecThresh, keywordThresh: kwThresh,
+		useRerank: useRerank, rerankModelID: rerankModel,
+		retr: deps.RetrievalFunc,
+	}, nil
 }
 
 func (n *retrievalNode) Invoke(ctx context.Context, inputs map[string]any) (map[string]any, error) {
@@ -155,7 +219,13 @@ func (n *retrievalNode) Invoke(ctx context.Context, inputs map[string]any) (map[
 	if err != nil {
 		return nil, fmt.Errorf("workflow Retrieval: %w", err)
 	}
-	res, err := n.retr(ctx, RetrievalRequest{Query: query, KBIDs: n.kbIDs, TopK: n.topK})
+	res, err := n.retr(ctx, RetrievalRequest{
+		Query: query, KBIDs: n.kbIDs, TopK: n.topK,
+		VectorThreshold:  n.vectorThresh,
+		KeywordThreshold: n.keywordThresh,
+		UseRerank:       n.useRerank,
+		RerankModelID:   n.rerankModelID,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("workflow Retrieval: retrieval failed: %w", err)
 	}
@@ -336,4 +406,21 @@ func toInt(nodeLabel, param string, v any) (int, error) {
 		return 0, err
 	}
 	return int(f), nil
+}
+
+// toBool coerces a JSON boolean-ish param (true/false, or the strings
+// "true"/"false") — RAGFlow DSL exports sometimes stringify flags.
+func toBool(nodeLabel, param string, v any) (bool, error) {
+	switch t := v.(type) {
+	case bool:
+		return t, nil
+	case string:
+		switch strings.ToLower(strings.TrimSpace(t)) {
+		case "true":
+			return true, nil
+		case "false":
+			return false, nil
+		}
+	}
+	return false, fmt.Errorf("workflow %s: param %q must be a boolean, got %T", nodeLabel, param, v)
 }
