@@ -3346,7 +3346,7 @@ async function createNewSession(value: string): Promise<void> {
 
       &.active {
         background: var(--td-bg-color-container, #fff);
-        color: var(--td-brand-color, #0052d9);
+        color: var(--td-brand-color);
         box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
       }
     }

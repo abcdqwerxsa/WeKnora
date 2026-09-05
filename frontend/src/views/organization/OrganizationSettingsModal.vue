@@ -2426,12 +2426,12 @@ watch(addMemberPopupVisible, (visible) => {
 
 .avatar-popover-content .avatar-emoji-btn:hover {
   border-color: var(--td-brand-color);
-  background: rgba(7, 192, 95, 0.06);
+  background: rgba(var(--td-brand-rgb), 0.06);
 }
 
 .avatar-popover-content .avatar-emoji-btn.is-selected {
   border-color: var(--td-brand-color);
-  background: rgba(7, 192, 95, 0.12);
+  background: rgba(var(--td-brand-rgb), 0.12);
 }
 
 .avatar-popover-content .avatar-clear-btn {

@@ -723,7 +723,7 @@ watch(() => props.mode, () => {
     width: 80px;
     height: 80px;
     margin: 0 auto 16px;
-    background: linear-gradient(135deg, var(--td-brand-color-light), #07c05f0d);
+    background: linear-gradient(135deg, var(--td-brand-color-light), var(--td-brand-color-light));
     border-radius: 50%;
     display: flex;
     align-items: center;

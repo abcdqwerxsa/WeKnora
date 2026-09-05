@@ -479,8 +479,8 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   margin-top: 1px;
-  background: rgba(0, 82, 217, 0.1);
-  color: #0052D9;
+  background: rgba(var(--td-brand-rgb), 0.1);
+  color: var(--td-brand-color);
 }
 
 // 三种 transport 的徽章配色：sse 流式 → 绿，http-streamable → 蓝，stdio → 橙
@@ -489,8 +489,8 @@ onMounted(() => {
   color: #118053;
 }
 .service-card--http-streamable .service-card__badge {
-  background: rgba(0, 82, 217, 0.1);
-  color: #0052D9;
+  background: rgba(var(--td-brand-rgb), 0.1);
+  color: var(--td-brand-color);
 }
 .service-card--stdio .service-card__badge {
   background: rgba(184, 92, 0, 0.12);

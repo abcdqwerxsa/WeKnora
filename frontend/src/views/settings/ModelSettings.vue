@@ -1059,14 +1059,14 @@ onMounted(() => {
   justify-content: center;
   margin-top: 1px;
   // 默认底色，被 type 修饰覆盖
-  background: rgba(0, 82, 217, 0.1);
-  color: #0052D9;
+  background: rgba(var(--td-brand-rgb), 0.1);
+  color: var(--td-brand-color);
 }
 
 // 5 种类型的徽章配色 —— 比原 tag 配色饱和度低一档，避免炫光
 .model-card--chat .model-card__badge {
-  background: rgba(0, 82, 217, 0.1);
-  color: #0052D9;
+  background: rgba(var(--td-brand-rgb), 0.1);
+  color: var(--td-brand-color);
 }
 
 .model-card--embedding .model-card__badge {

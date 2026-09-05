@@ -59,7 +59,7 @@ const hasSourceHandle = computed(() => props.kind !== 'Answer')
 
 @keyframes wf-node-pulse {
   50% {
-    box-shadow: 0 0 0 6px rgba(0, 82, 217, 0.15);
+    box-shadow: 0 0 0 6px rgba(var(--td-brand-rgb), 0.15);
   }
 }
 
