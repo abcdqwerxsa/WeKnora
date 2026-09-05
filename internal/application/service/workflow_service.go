@@ -506,6 +506,8 @@ func (s *workflowService) executeWorkflowRun(
 	compiled, cerr := wfengine.Compile(normalized, wfengine.Deps{
 		LLMFunc:       s.runLLM,
 		RetrievalFunc: s.runRetrieval,
+		HTTPFunc:      s.runHTTP,
+		DataOpsFunc:   s.runDataOps,
 		OnNodeEvent:   publishNode,
 		// Checkpoint persistence (full mode only): eino persists completed-
 		// node state per run, and the engine keeps a CanvasState side-car —

@@ -35,6 +35,8 @@ type NodeEvent struct {
 type Deps struct {
 	LLMFunc       nodes.LLMFunc
 	RetrievalFunc nodes.RetrievalFunc
+	HTTPFunc      nodes.HTTPFunc
+	DataOpsFunc   nodes.DataOpsFunc
 	OnNodeEvent   func(NodeEvent)
 
 	// CheckpointKV (optional) enables eino checkpoint persistence through
@@ -138,6 +140,8 @@ func Compile(dsl *DSL, deps Deps) (*Workflow, error) {
 		node, err := nodes.New(comp.Obj.ComponentName, comp.Obj.Params, nodes.Deps{
 			LLMFunc:       deps.LLMFunc,
 			RetrievalFunc: deps.RetrievalFunc,
+			HTTPFunc:      deps.HTTPFunc,
+			DataOpsFunc:   deps.DataOpsFunc,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("workflow: node %q: %w", id, err)

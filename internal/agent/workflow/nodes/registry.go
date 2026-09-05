@@ -51,6 +51,8 @@ type Factory func(params map[string]any, deps Deps) (Node, error)
 type Deps struct {
 	LLMFunc       LLMFunc
 	RetrievalFunc RetrievalFunc
+	HTTPFunc      HTTPFunc
+	DataOpsFunc   DataOpsFunc
 }
 
 // LLMRequest is the rendered input handed to an injected LLMFunc.
@@ -91,6 +93,44 @@ type RetrievalResult struct {
 
 // RetrievalFunc runs one knowledge-base search. Injected by the compiler.
 type RetrievalFunc func(ctx context.Context, req RetrievalRequest) (*RetrievalResult, error)
+
+// HTTPRequest is the rendered input handed to an injected HTTPFunc.
+type HTTPRequest struct {
+	Method  string
+	URL     string
+	Headers map[string]string
+	Body    string
+	// TimeoutSeconds of 0 lets the adapter apply its own default.
+	TimeoutSeconds int
+}
+
+// HTTPResult is the (already size-capped by the adapter) response.
+type HTTPResult struct {
+	StatusCode int
+	Body       string
+	Headers    map[string]string
+}
+
+// HTTPFunc executes one HTTP call. The intranet-only policy lives in the
+// adapter the service layer injects — the engine stays network-free.
+type HTTPFunc func(ctx context.Context, req HTTPRequest) (*HTTPResult, error)
+
+// DataOpsRequest carries one validated single SELECT statement plus named
+// arguments (bound by the adapter, never string-interpolated).
+type DataOpsRequest struct {
+	SQL  string
+	Args map[string]any
+}
+
+// DataOpsResult is the query outcome, row-capped by the adapter.
+type DataOpsResult struct {
+	Columns []string
+	Rows    []map[string]any
+}
+
+// DataOpsFunc executes one analytic SQL query (DuckDB in the platform
+// wiring). Injected by the compiler.
+type DataOpsFunc func(ctx context.Context, req DataOpsRequest) (*DataOpsResult, error)
 
 // registry
 
