@@ -106,7 +106,10 @@ type WorkflowService interface {
 	GetWorkflowRun(ctx context.Context, workflowID, runID string) (*types.WorkflowRun, error)
 
 	// SubscribeWorkflowRunEvents attaches a live feed to one run's node
-	// events. The returned cancel detaches the subscriber; the channel is
-	// closed after the terminal frame is delivered (or on cancel).
+	// events: the process-local broker merged with the run's redis pubsub
+	// channel (workflow:run:{run_id}) when redis is configured, deduplicated
+	// by kind|node|phase|duration. Lite mode (no redis) stays process-local.
+	// The returned cancel detaches the subscriber; the channel is closed
+	// after the terminal frame is delivered (or on cancel).
 	SubscribeWorkflowRunEvents(runID string) (<-chan types.WorkflowRunEvent, func())
 }

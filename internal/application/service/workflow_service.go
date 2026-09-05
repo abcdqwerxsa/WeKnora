@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +29,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
+	"github.com/redis/go-redis/v9"
 )
 
 // Workflow validation limits.
@@ -63,10 +65,10 @@ var (
 // contract: `components` carries the execution topology (required),
 // `graph` the canvas layout (optional at the storage layer).
 type workflowDSLShape struct {
-	Version    int                                    `json:"version"`
-	Components map[string]workflowDSLShapeComponent   `json:"components"`
-	Graph      *workflowDSLShapeGraph                 `json:"graph,omitempty"`
-	Variables  map[string]json.RawMessage             `json:"variables,omitempty"`
+	Version    int                                  `json:"version"`
+	Components map[string]workflowDSLShapeComponent `json:"components"`
+	Graph      *workflowDSLShapeGraph               `json:"graph,omitempty"`
+	Variables  map[string]json.RawMessage           `json:"variables,omitempty"`
 }
 
 type workflowDSLShapeComponent struct {
@@ -155,8 +157,11 @@ type workflowService struct {
 	models   interfaces.ModelService
 	kbs      interfaces.KnowledgeBaseService
 	enqueuer interfaces.TaskEnqueuer
-	runs     *workflowRunBroker
-	cancels  *workflowRunCancels
+	// redis, when non-nil (full mode), bridges run frames across instances
+	// for SSE. Lite mode gets nil and stays process-local.
+	redis   *redis.Client
+	runs    *workflowRunBroker
+	cancels *workflowRunCancels
 }
 
 // NewWorkflowService creates a new workflow service. models/kbs back the
@@ -169,12 +174,14 @@ func NewWorkflowService(
 	models interfaces.ModelService,
 	kbs interfaces.KnowledgeBaseService,
 	enqueuer interfaces.TaskEnqueuer,
+	redisClient *redis.Client,
 ) interfaces.WorkflowService {
 	return &workflowService{
 		repo:     repo,
 		models:   models,
 		kbs:      kbs,
 		enqueuer: enqueuer,
+		redis:    redisClient,
 		runs:     newWorkflowRunBroker(),
 		cancels:  newWorkflowRunCancels(),
 	}
@@ -468,6 +475,7 @@ func (s *workflowService) executeWorkflowRun(
 			frame.Err = ev.Err.Error()
 		}
 		s.runs.publish(frame)
+		s.publishFrameRedis(ctx, frame)
 		_ = event.Emit(ctx, event.Event{
 			Type:      event.EventWorkflowNode,
 			SessionID: run.ID,
@@ -572,11 +580,36 @@ func (s *workflowService) emitRunFinished(ctx context.Context, run *types.Workfl
 		Err:        errText,
 	}
 	s.runs.publishTerminal(frame)
+	s.publishFrameRedis(ctx, frame)
 	_ = event.Emit(ctx, event.Event{
 		Type:      event.EventWorkflowRunFinished,
 		SessionID: run.ID,
 		Data:      frame,
 	})
+}
+
+// workflowRunRedisChannel is the per-run pubsub channel bridging frames
+// between instances: workflow:run:{run_id}.
+func workflowRunRedisChannel(runID string) string {
+	return "workflow:run:" + runID
+}
+
+// publishFrameRedis mirrors one frame onto the run's redis channel so SSE
+// clients connected to OTHER instances observe the same progress. Lite mode
+// (nil client) is a no-op; publish errors are logged, never propagated —
+// the local broker and the run row remain the sources of truth.
+func (s *workflowService) publishFrameRedis(ctx context.Context, frame types.WorkflowRunEvent) {
+	if s.redis == nil {
+		return
+	}
+	payload, err := json.Marshal(frame)
+	if err != nil {
+		logger.Errorf(ctx, "workflow run frame marshal failed: %v", err)
+		return
+	}
+	if _, err := s.redis.Publish(ctx, workflowRunRedisChannel(frame.RunID), payload).Result(); err != nil {
+		logger.Warnf(ctx, "workflow run frame redis publish failed (run=%s): %v", frame.RunID, err)
+	}
 }
 
 // workflowRunCancels tracks the context.CancelFunc of every run currently
@@ -675,7 +708,78 @@ func (s *workflowService) GetWorkflowRun(ctx context.Context, workflowID, runID 
 
 // SubscribeWorkflowRunEvents attaches a live feed to one run's frames.
 func (s *workflowService) SubscribeWorkflowRunEvents(runID string) (<-chan types.WorkflowRunEvent, func()) {
-	return s.runs.subscribe(runID)
+	localCh, localCancel := s.runs.subscribe(runID)
+	if s.redis == nil {
+		// Lite mode: process-local broker only.
+		return localCh, localCancel
+	}
+
+	// Full mode: merge the local broker with the run's redis channel. The
+	// same frame can arrive twice when the run executes on THIS instance
+	// (local publish + redis echo), so frames are deduplicated by
+	// kind|node|phase|duration — bounded, progress frames carry no payload
+	// differences worth finer keys.
+	ctx, cancel := context.WithCancel(context.Background())
+	pubsub := s.redis.Subscribe(ctx, workflowRunRedisChannel(runID))
+	out := make(chan types.WorkflowRunEvent, brokerChanSize)
+	var once sync.Once
+	seen := make(map[string]struct{})
+	var mu sync.Mutex
+
+	closeOut := func() {
+		once.Do(func() {
+			cancel()
+			_ = pubsub.Close()
+			close(out)
+		})
+	}
+
+	deliver := func(frame types.WorkflowRunEvent) {
+		key := frame.Kind + "|" + frame.NodeID + "|" + frame.Phase + "|" + strconv.FormatInt(frame.DurationMS, 10)
+		mu.Lock()
+		if _, dup := seen[key]; dup {
+			mu.Unlock()
+			return
+		}
+		seen[key] = struct{}{}
+		mu.Unlock()
+		if frame.Kind == "run" {
+			// Terminal frame always reaches the subscriber, then closes.
+			select {
+			case out <- frame:
+			case <-ctx.Done():
+				return
+			}
+			closeOut()
+			return
+		}
+		select {
+		case out <- frame:
+		default:
+			// Best-effort progress; the run row is durable state.
+		}
+	}
+
+	go func() {
+		for frame := range localCh {
+			deliver(frame)
+		}
+	}()
+	go func() {
+		for msg := range pubsub.Channel() {
+			var frame types.WorkflowRunEvent
+			if err := json.Unmarshal([]byte(msg.Payload), &frame); err != nil {
+				continue
+			}
+			deliver(frame)
+		}
+	}()
+
+	stop := func() {
+		localCancel()
+		closeOut()
+	}
+	return out, stop
 }
 
 // runLLM adapts the engine's LLMFunc onto the platform ModelService.

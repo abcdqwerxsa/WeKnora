@@ -52,7 +52,7 @@ func newCancelTestService(t *testing.T) (interfaces.WorkflowService, *runRepoStu
 	wf := &types.Workflow{ID: "wf-c", TenantID: 42, Name: "wf", DSL: types.JSON(blockingLLMDSL)}
 	repo := newRunRepoStub(wf)
 	started := make(chan struct{})
-	svc := NewWorkflowService(repo, &blockingModelSvc{started: started}, nil, nil)
+	svc := NewWorkflowService(repo, &blockingModelSvc{started: started}, nil, nil, nil)
 	return svc, repo, started
 }
 
@@ -101,7 +101,7 @@ func TestCancelWorkflowRun_TerminalRunIsIdempotent(t *testing.T) {
 	wf := &types.Workflow{ID: "wf-t", TenantID: 42, Name: "wf", DSL: types.JSON(linearDSL)}
 	repo := newRunRepoStub(wf)
 	repo.seedRun(&types.WorkflowRun{ID: "run-done", TenantID: 42, WorkflowID: "wf-t", Status: types.WorkflowRunStatusSucceeded})
-	svc := NewWorkflowService(repo, nil, nil, nil)
+	svc := NewWorkflowService(repo, nil, nil, nil, nil)
 	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(42))
 
 	run, err := svc.CancelWorkflowRun(ctx, "wf-t", "run-done")
@@ -121,7 +121,7 @@ func TestCancelWorkflowRun_WorkflowMismatchIs404(t *testing.T) {
 	wf := &types.Workflow{ID: "wf-a", TenantID: 42, Name: "wf", DSL: types.JSON(linearDSL)}
 	repo := newRunRepoStub(wf)
 	repo.seedRun(&types.WorkflowRun{ID: "run-x", TenantID: 42, WorkflowID: "wf-other", Status: types.WorkflowRunStatusRunning})
-	svc := NewWorkflowService(repo, nil, nil, nil)
+	svc := NewWorkflowService(repo, nil, nil, nil, nil)
 	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(42))
 	_, err := svc.CancelWorkflowRun(ctx, "wf-a", "run-x")
 	require.ErrorIs(t, err, apprepo.ErrWorkflowNotFound)
