@@ -1201,7 +1201,7 @@ const onDragHandleMouseDown = (e: MouseEvent) => {
 
         .menu_item {
             justify-content: center;
-            padding: 9px 0;
+            padding: 8px 0;
 
             .menu_item-box {
                 justify-content: center;
@@ -1299,11 +1299,12 @@ const onDragHandleMouseDown = (e: MouseEvent) => {
     .logo_txt {
         transform: rotate(0.049deg);
         color: var(--td-text-color-primary);
-        font-family: "TencentSans";
-        font-size: 24.12px;
+        font-family: var(--app-font-family);
+        font-size: 19px;
         font-style: normal;
-        font-weight: W7;
-        line-height: 21.7px;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+        line-height: 22px;
     }
 
     .menu_top {
@@ -1396,8 +1397,8 @@ const onDragHandleMouseDown = (e: MouseEvent) => {
     }
 
     .menu_item_active {
-        border-radius: 4px;
-        background: var(--td-bg-color-secondarycontainer) !important;
+        border-radius: var(--td-radius-medium);
+        background: var(--td-brand-color-light) !important;
 
         .menu_icon,
         .menu_title {
@@ -1424,11 +1425,11 @@ const onDragHandleMouseDown = (e: MouseEvent) => {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        height: 38px;
-        padding: 8px 10px 8px var(--sidebar-inset-x);
+        height: 34px;
+        padding: 7px 10px 7px var(--sidebar-inset-x);
         box-sizing: border-box;
         margin-bottom: 2px;
-        border-radius: 4px;
+        border-radius: var(--td-radius-medium);
         transition: background-color 0.2s ease;
 
         .menu_item-box {
@@ -1437,7 +1438,7 @@ const onDragHandleMouseDown = (e: MouseEvent) => {
         }
 
         &:hover {
-            border-radius: 4px;
+            border-radius: var(--td-radius-medium);
             background: var(--td-bg-color-container-hover);
 
             .menu_icon,
@@ -1467,7 +1468,7 @@ const onDragHandleMouseDown = (e: MouseEvent) => {
         font-family: var(--app-font-family);
         font-size: 14px;
         font-style: normal;
-        font-weight: 600;
+        font-weight: 500;
         line-height: 20px;
         overflow: hidden;
         white-space: nowrap;
@@ -1556,6 +1557,7 @@ const onDragHandleMouseDown = (e: MouseEvent) => {
         font-size: 11px;
         font-weight: 600;
         color: var(--td-text-color-disabled);
+        letter-spacing: 0.3px;
         padding-top: 4px;
         padding-bottom: 1px;
         margin-top: 0;
@@ -1604,7 +1606,7 @@ const onDragHandleMouseDown = (e: MouseEvent) => {
 
         &.session-chat-row .session-list-row {
             min-height: 30px;
-            border-radius: 6px;
+            border-radius: var(--td-radius-medium);
             transition: background 0.15s ease, color 0.15s ease;
         }
 
@@ -1621,7 +1623,7 @@ const onDragHandleMouseDown = (e: MouseEvent) => {
         }
 
         &.session-chat-row--active .session-list-row {
-            background: var(--td-bg-color-container-hover);
+            background: var(--td-brand-color-light);
 
             :deep(.submenu_item) {
                 color: var(--td-brand-color);
@@ -1637,7 +1639,7 @@ const onDragHandleMouseDown = (e: MouseEvent) => {
         }
 
         &.session-chat-row--selected .session-list-row {
-            background: rgba(7, 192, 95, 0.05);
+            background: rgba(var(--td-brand-rgb), 0.08);
         }
     }
 

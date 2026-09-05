@@ -412,7 +412,7 @@ function handleMenuClick(data: { value: string }): void {
   height: 28px;
   padding: 0 8px;
   border: 1px solid var(--td-brand-color);
-  border-radius: 5px;
+  border-radius: var(--td-radius-default);
   color: var(--td-text-color-primary);
   background: var(--td-bg-color-container);
   font-size: 14px;
@@ -461,7 +461,7 @@ function handleMenuClick(data: { value: string }): void {
   height: 24px;
   padding: 0;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--td-radius-default);
   color: var(--td-text-color-placeholder);
   background: transparent;
   cursor: pointer;
@@ -510,7 +510,7 @@ function handleMenuClick(data: { value: string }): void {
     margin-top: 2px !important;
     min-width: 168px !important;
     width: max-content !important;
-    border-radius: 8px !important;
+    border-radius: var(--td-radius-medium) !important;
     background: var(--td-bg-color-container) !important;
     border: 0.5px solid var(--td-component-stroke) !important;
     box-shadow:
@@ -603,7 +603,7 @@ function handleMenuClick(data: { value: string }): void {
   min-height: 32px;
   padding: 0 12px;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--td-radius-default);
   color: var(--td-text-color-primary);
   background: transparent;
   font-size: 14px;
@@ -643,8 +643,8 @@ function handleMenuClick(data: { value: string }): void {
 }
 
 :root[theme-mode='dark'] .chat-header-menu-popup .t-popup__content {
-  background: rgba(36, 36, 36, 0.92) !important;
-  border-color: rgba(255, 255, 255, 0.08) !important;
+  background: color-mix(in srgb, var(--td-bg-color-container) 92%, transparent) !important;
+  border-color: var(--td-component-stroke) !important;
   box-shadow:
     0 0 0 0.5px rgba(255, 255, 255, 0.05),
     0 2px 6px rgba(0, 0, 0, 0.2) !important;
