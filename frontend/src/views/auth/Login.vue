@@ -1854,7 +1854,7 @@ html[theme-mode="dark"] {
   }
 
   .language-dropdown {
-    background: rgba(36, 36, 36, 0.97) !important;
+    background: color-mix(in srgb, var(--td-bg-color-container) 97%, transparent) !important;
     border-color: var(--td-component-stroke) !important;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4) !important;
   }
@@ -1864,12 +1864,12 @@ html[theme-mode="dark"] {
   }
 
   .form-card {
-    background: rgba(36, 36, 36, 0.97) !important;
+    background: color-mix(in srgb, var(--td-bg-color-container) 97%, transparent) !important;
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4) !important;
   }
 
   .register-cta__divider span {
-    background: rgba(36, 36, 36, 0.97);
+    background: color-mix(in srgb, var(--td-bg-color-container) 97%, transparent);
   }
 
   .form-content .t-input {
