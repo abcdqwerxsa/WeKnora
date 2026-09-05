@@ -6825,6 +6825,27 @@ export default {
       defaultBranch: 'Default',
       template: 'Template',
       selfLoopBlocked: 'Self-connections are not allowed'
-    }
+    },
+    run: {
+      open: 'Run',
+      title: 'Run',
+      queryPlaceholder: 'Question to send through the workflow',
+      queryRequired: 'Please enter a question',
+      syncRun: 'Run synchronously',
+      asyncRun: 'Run in background',
+      progress: 'Progress',
+      noProgress: 'No progress yet — background runs stream node progress live',
+      running: 'Running…',
+      terminalFrame: 'Run finished',
+      disconnect: 'Detach progress',
+      result: 'Result',
+      noAnswer: '(no answer)',
+      runFailed: 'Failed to run workflow',
+      history: 'Run history',
+      historyEmpty: 'No runs yet',
+      historyLoadFailed: 'Failed to load run history',
+      status: { pending: 'Queued', running: 'Running', succeeded: 'Succeeded', failed: 'Failed', cancelled: 'Cancelled' },
+      phase: { started: 'started', finished: 'finished', failed: 'failed' }
+     }
   }
 }

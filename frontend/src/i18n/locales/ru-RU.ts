@@ -6825,6 +6825,27 @@ export default {
       defaultBranch: 'По умолчанию',
       template: 'Шаблон',
       selfLoopBlocked: 'Самоподключение запрещено'
-    }
+    },
+    run: {
+      open: 'Запуск',
+      title: 'Запуск',
+      queryPlaceholder: 'Вопрос для запуска рабочего процесса',
+      queryRequired: 'Введите вопрос',
+      syncRun: 'Синхронный запуск',
+      asyncRun: 'Запуск в фоне',
+      progress: 'Прогресс',
+      noProgress: 'Прогресса пока нет — фоновые запуски показывают прогресс узлов в реальном времени',
+      running: 'Выполняется…',
+      terminalFrame: 'Запуск завершён',
+      disconnect: 'Отключить прогресс',
+      result: 'Результат',
+      noAnswer: '(нет ответа)',
+      runFailed: 'Не удалось запустить рабочий процесс',
+      history: 'История запусков',
+      historyEmpty: 'Запусков пока нет',
+      historyLoadFailed: 'Не удалось загрузить историю запусков',
+      status: { pending: 'В очереди', running: 'Выполняется', succeeded: 'Успешно', failed: 'Ошибка', cancelled: 'Отменено' },
+      phase: { started: 'начат', finished: 'завершён', failed: 'ошибка' }
+     }
   }
 }

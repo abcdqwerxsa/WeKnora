@@ -6825,6 +6825,27 @@ export default {
       defaultBranch: '기본',
       template: '템플릿',
       selfLoopBlocked: '자기 연결은 허용되지 않습니다'
-    }
+    },
+    run: {
+      open: '실행',
+      title: '실행',
+      queryPlaceholder: '워크플로우에 보낼 질문',
+      queryRequired: '질문을 입력하세요',
+      syncRun: '동기 실행',
+      asyncRun: '백그라운드 실행',
+      progress: '진행 상황',
+      noProgress: '아직 진행 없음 — 백그라운드 실행은 노드 진행을 실시간으로 표시합니다',
+      running: '실행 중…',
+      terminalFrame: '실행 종료',
+      disconnect: '진행 연결 해제',
+      result: '결과',
+      noAnswer: '(응답 없음)',
+      runFailed: '워크플로우 실행 실패',
+      history: '실행 기록',
+      historyEmpty: '실행 기록이 없습니다',
+      historyLoadFailed: '실행 기록 로드 실패',
+      status: { pending: '대기 중', running: '실행 중', succeeded: '성공', failed: '실패', cancelled: '취소됨' },
+      phase: { started: '시작', finished: '완료', failed: '실패' }
+     }
   }
 }

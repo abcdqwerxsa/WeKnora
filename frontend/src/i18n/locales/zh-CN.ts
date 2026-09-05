@@ -6827,6 +6827,27 @@ export default {
       defaultBranch: '默认分支',
       template: '输出模板',
       selfLoopBlocked: '不允许节点连接自身'
-    }
+    },
+    run: {
+      open: '运行',
+      title: '运行',
+      queryPlaceholder: '要向工作流提出的问题',
+      queryRequired: '请输入问题',
+      syncRun: '同步执行',
+      asyncRun: '后台执行',
+      progress: '执行进度',
+      noProgress: '暂无进度——后台执行可实时查看节点进度',
+      running: '执行中…',
+      terminalFrame: '运行结束',
+      disconnect: '断开进度',
+      result: '结果',
+      noAnswer: '（无回答）',
+      runFailed: '执行工作流失败',
+      history: '运行历史',
+      historyEmpty: '暂无运行记录',
+      historyLoadFailed: '加载运行历史失败',
+      status: { pending: '排队中', running: '执行中', succeeded: '已成功', failed: '已失败', cancelled: '已取消' },
+      phase: { started: '开始', finished: '完成', failed: '失败' }
+     }
   }
 }

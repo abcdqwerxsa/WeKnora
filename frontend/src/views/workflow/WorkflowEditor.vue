@@ -31,6 +31,10 @@
         <t-button theme="primary" :loading="saving" :disabled="!ready" @click="save">
           {{ $t('workflow.editor.save') }}
         </t-button>
+        <t-button variant="outline" :disabled="!ready" @click="runDrawerVisible = true">
+          <template #icon><t-icon name="play-circle" /></template>
+          {{ $t('workflow.run.open') }}
+        </t-button>
       </div>
       <input ref="importDslFile" type="file" accept="application/json,.json" class="wf-editor-file-input" @change="onImportFile" />
     </div>
@@ -60,6 +64,7 @@
             :kind="(nodeProps.data?.kind as WorkflowNodeType) ?? 'Answer'"
             :selected="nodeProps.selected"
             :subtitle="nodeSubtitle(nodeProps.data)"
+            :run-phase="runNodePhases[nodeProps.id]"
           />
         </template>
       </VueFlow>
@@ -139,6 +144,16 @@
         {{ $t('workflow.editor.selectNode') }}
       </div>
     </t-drawer>
+    <t-drawer
+      v-model:visible="runDrawerVisible"
+      :header="$t('workflow.run.title')"
+      size="420px"
+      :footer="false"
+      :close-btn="true"
+      @closed="onRunDrawerClosed"
+    >
+      <WorkflowRunPanel :workflow-id="workflowId" @node-phases="runNodePhases = $event" />
+    </t-drawer>
   </div>
 </template>
 
@@ -154,6 +169,7 @@ import { Background } from '@vue-flow/background'
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 import WfNodeCard from './components/WfNodeCard.vue'
+import WorkflowRunPanel from './components/WorkflowRunPanel.vue'
 import { WORKFLOW_NODE_TYPES, getWorkflow, updateWorkflow, type Workflow, type WorkflowDSL, type WorkflowNodeType } from '@/api/workflow'
 import { buildDsl, defaultParams, makeNodeId, normalizeDsl } from './dsl'
 
@@ -178,6 +194,15 @@ const canvasEdges = ref([]) as Ref<Edge[]>
 
 const selectedNodeId = ref<string | null>(null)
 const importDslFile = ref<HTMLInputElement | null>(null)
+
+// Run panel state: live node phases (SSE) keyed by canvas node id; cleared
+// when the drawer closes so stale highlights never survive a panel session.
+const runDrawerVisible = ref(false)
+const runNodePhases = ref<Record<string, 'running' | 'done' | 'failed'>>({})
+
+function onRunDrawerClosed() {
+  runNodePhases.value = {}
+}
 
 const ready = computed(() => !loading.value && !loadError.value)
 
