@@ -4557,7 +4557,7 @@ export default {
     loginHint: 'Войдите, чтобы продолжить, или создайте аккаунт ниже, если вы впервые здесь.',
     registerSuccess: 'Регистрация завершена. Войдите в систему',
     registerFailed: 'Ошибка регистрации',
-    subtitle: 'RAG, ReAct-агент и Wiki — корпоративный фреймворк знаний на основе больших моделей',
+    subtitle: 'LuoShu Intelligent Computing · агентная платформа',
     registerSubtitle: 'Создайте аккаунт и начните работу с WeKnora',
     emailPlaceholder: 'Введите адрес электронной почты',
     passwordPlaceholder: 'Введите пароль',

@@ -97,7 +97,7 @@
 
     <!-- Logo - Top Left -->
     <div class="header-logo">
-      <img src="@/assets/img/weknora.png" alt="WeKnora" class="logo-image" />
+      <img src="@/assets/img/LuoAG.svg" alt="LuoAG" class="logo-image" />
     </div>
 
     <!-- Header Links - Top Right -->
@@ -124,37 +124,7 @@
       </div>
     </div>
 
-    <!-- Left Showcase Section -->
-    <div class="showcase-section">
-      <div class="showcase-content">
-        <p class="showcase-subtitle">{{ $t('platform.subtitle') }}</p>
-        <p class="showcase-description">{{ $t('platform.description') }}</p>
-
-        <div class="feature-tags">
-          <span class="tag">{{ $t('platform.rag') }}</span>
-          <span class="tag">{{ $t('platform.agent') }}</span>
-          <span class="tag">{{ $t('platform.wiki') }}</span>
-          <span class="tag">{{ $t('platform.hybridSearch') }}</span>
-        </div>
-
-        <!-- Swiper Carousel -->
-        <div class="carousel-container">
-          <swiper :modules="modules" :slides-per-view="1" :loop="true" :autoplay="{
-            delay: 4000,
-            disableOnInteraction: false,
-          }" :effect="'fade'" :fade-effect="{ crossFade: true }"
-            :pagination="{ clickable: true, dynamicBullets: false }" :speed="800" class="screenshot-swiper">
-            <swiper-slide v-for="(slide, index) in slides" :key="index">
-              <div class="slide-content">
-                <img :src="slide.image" :alt="slide.title" class="slide-image" />
-              </div>
-            </swiper-slide>
-          </swiper>
-        </div>
-      </div>
-    </div>
-
-    <!-- Right Form Section -->
+    <!-- Centered Form Section -->
     <div class="form-section">
       <div class="form-panel">
         <!-- Login Card -->
@@ -293,11 +263,6 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import { useRoleLabel } from '@/composables/useRoleLabel'
 import { notifyLoginSuccess } from '@/utils/loginNotify'
 import { newPasswordRules } from '@/utils/passwordPolicy'
-import { Swiper, SwiperSlide } from 'swiper/vue'
-import { Autoplay, EffectFade, Pagination } from 'swiper/modules'
-import 'swiper/css'
-import 'swiper/css/effect-fade'
-import 'swiper/css/pagination'
 import {
   login,
   register,
@@ -313,44 +278,11 @@ import {
 import { useAuthStore } from '@/stores/auth'
 import { useI18n } from 'vue-i18n'
 
-// Import screenshot images
-import screenshot1 from '@/assets/img/screenshot-1.svg'
-import screenshot2 from '@/assets/img/screenshot-2.svg'
-import screenshot3 from '@/assets/img/screenshot-3.svg'
-import screenshot4 from '@/assets/img/screenshot-4.svg'
-
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
 const { t, tm, locale } = useI18n()
 const { formatRole, roleIcon } = useRoleLabel()
-
-// Swiper modules
-const modules = [Autoplay, EffectFade, Pagination]
-
-// Carousel slides data
-const slides = [
-  {
-    image: screenshot4,
-    title: t('platform.carousel.agenticRagTitle'),
-    description: t('platform.carousel.agenticRagDesc')
-  },
-  {
-    image: screenshot2,
-    title: t('platform.carousel.hybridSearchTitle'),
-    description: t('platform.carousel.hybridSearchDesc')
-  },
-  {
-    image: screenshot3,
-    title: t('platform.carousel.wikiTitle'),
-    description: t('platform.carousel.wikiDesc')
-  },
-  {
-    image: screenshot1,
-    title: t('platform.carousel.smartDocRetrievalTitle'),
-    description: t('platform.carousel.smartDocRetrievalDesc')
-  }
-]
 
 // Form references
 const formRef = ref()
@@ -1013,126 +945,16 @@ onMounted(async () => {
 }
 
 /* Left Showcase Section */
-.showcase-section {
-  flex: 0 0 52%;
-  display: flex;
-  align-items: flex-end;
-  padding: 100px 30px 100px 50px;
-  box-sizing: border-box;
-  position: relative;
-}
-
-.showcase-content {
-  width: 100%;
-  max-width: 600px;
-  position: relative;
-  z-index: 2;
-  display: flex;
-  flex-direction: column;
-  margin-bottom: 60px;
-}
-
-.showcase-subtitle {
-  margin-top: 0;
-  font-size: 22px;
-  color: rgba(255, 255, 255, 0.95);
-  margin: 0 0 8px 0;
-  font-family: var(--app-font-family);
-  line-height: 1.4;
-  font-weight: 500;
-}
-
-.showcase-description {
-  font-size: 15px;
-  color: rgba(255, 255, 255, 0.8);
-  margin: 0 0 28px 0;
-  font-family: var(--app-font-family);
-  line-height: 1.5;
-}
-
-.feature-tags {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 40px;
-  flex-wrap: wrap;
-}
-
-.tag {
-  display: inline-block;
-  padding: 8px 20px;
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 20px;
-  color: var(--td-text-color-anti);
-  font-size: 14px;
-  font-weight: 500;
-  font-family: var(--app-font-family);
-}
-
-/* Carousel */
-.carousel-container {
-  width: 100%;
-  margin-top: 48px;
-}
-
-.screenshot-swiper {
-  width: 100%;
-  border-radius: 16px;
-  overflow: hidden;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-  padding-bottom: 40px;
-
-  :deep(.swiper-wrapper) {
-    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  :deep(.swiper-pagination) {
-    bottom: 15px !important;
-    z-index: 10;
-  }
-
-  :deep(.swiper-pagination-bullet) {
-    width: 10px;
-    height: 10px;
-    background: rgba(255, 255, 255, 0.5);
-    opacity: 1;
-    transition: all 0.3s ease;
-    margin: 0 6px !important;
-  }
-
-  :deep(.swiper-pagination-bullet-active) {
-    background: var(--td-bg-color-container);
-    width: 28px;
-    border-radius: 5px;
-  }
-}
-
-.slide-content {
-  width: 100%;
-  height: 100%;
-  background: var(--td-bg-color-container);
-  border-radius: 16px;
-  overflow: hidden;
+/* Centered Form Section */
+.form-section {
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-.slide-image {
-  width: 100%;
-  height: 100%;
-  display: block;
-  object-fit: contain;
-}
-
-/* Right Form Section */
-.form-section {
-  flex: 0 0 48%;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  padding: 40px 50px 100px 30px;
+  padding: 40px 24px;
   box-sizing: border-box;
   position: relative;
+  min-height: 100%;
 }
 
 .form-panel {
@@ -1151,8 +973,8 @@ onMounted(async () => {
   cursor: pointer;
 
   .logo-image {
-    width: 120px;
-    height: auto;
+    width: 44px;
+    height: 44px;
   }
 }
 
@@ -1536,16 +1358,13 @@ onMounted(async () => {
     display: none;
   }
 
-  .showcase-subtitle {
-    font-size: 18px;
-  }
-
   .header-logo {
     top: 26px;
     left: 40px;
 
     .logo-image {
-      width: 100px;
+      width: 40px;
+      height: 40px;
     }
   }
 
@@ -1578,36 +1397,14 @@ onMounted(async () => {
     display: none;
   }
 
-  .showcase-section {
-    flex: 0 0 auto;
-    min-height: 50vh;
-    padding: 40px 24px;
-  }
-
-  .showcase-content {
-    max-width: 100%;
-  }
-
   .header-logo {
     top: 22px;
     left: 30px;
 
     .logo-image {
-      width: 80px;
+      width: 36px;
+      height: 36px;
     }
-  }
-
-  .showcase-subtitle {
-    font-size: 16px;
-    margin-bottom: 24px;
-  }
-
-  .feature-tags {
-    margin-bottom: 24px;
-  }
-
-  .carousel-container {
-    margin-top: 24px;
   }
 
   .form-section {
@@ -1644,26 +1441,14 @@ onMounted(async () => {
     display: none;
   }
 
-  .showcase-section {
-    padding: 32px 20px;
-  }
-
   .header-logo {
     top: 18px;
     left: 20px;
 
     .logo-image {
-      width: 70px;
+      width: 32px;
+      height: 32px;
     }
-  }
-
-  .showcase-subtitle {
-    font-size: 14px;
-  }
-
-  .tag {
-    font-size: 12px;
-    padding: 6px 16px;
   }
 
   .form-section {
@@ -1722,7 +1507,7 @@ html[theme-mode="dark"] {
   }
 
   .header-logo .logo-image {
-    filter: invert(1) hue-rotate(180deg) brightness(1.1);
+    filter: brightness(1.15) saturate(0.95);
   }
 
   .header-link {
@@ -1749,10 +1534,6 @@ html[theme-mode="dark"] {
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4) !important;
   }
 
-  .tag {
-    background: rgba(255, 255, 255, 0.12);
-  }
-
   .form-card {
     background: color-mix(in srgb, var(--td-bg-color-container) 97%, transparent) !important;
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4) !important;
@@ -1771,8 +1552,5 @@ html[theme-mode="dark"] {
     }
   }
 
-  .screenshot-swiper .swiper-pagination-bullet-active {
-    background: rgba(255, 255, 255, 0.9) !important;
-  }
 }
 </style>
