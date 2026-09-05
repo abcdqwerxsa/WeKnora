@@ -69,6 +69,15 @@ type runRequest struct {
 	query string
 	files []string
 	state *CanvasState
+	// resume, when non-nil, seeds the fresh CanvasState from a checkpoint
+	// side-car (outputs/path of previously completed nodes). Sys/Env come
+	// from the ORIGINAL run via the snapshot, so {sys.query} keeps its
+	// first-execution meaning on resume.
+	resume *CanvasState
+	// persistCheckpoint, when set, snapshots req.state to the checkpoint
+	// KV after every node completion (crash-safe resume). Called from
+	// nodeClosure on the run's goroutine.
+	persistCheckpoint func()
 }
 
 type runCtxKey struct{}
@@ -112,6 +121,12 @@ func Compile(dsl *DSL, deps Deps) (*Workflow, error) {
 			}
 			st := NewCanvasState(sys, env)
 			if req != nil {
+				if req.resume != nil {
+					// Checkpoint resume: overlay the persisted snapshot (outputs,
+					// path and the ORIGINAL sys/env — a resume continues the prior
+					// run, it does not restart it with new inputs).
+					st.Restore(req.resume.Snapshot())
+				}
 				req.state = st
 			}
 			return st
@@ -203,13 +218,83 @@ func Compile(dsl *DSL, deps Deps) (*Workflow, error) {
 	return &Workflow{dsl: norm, deps: deps, runnable: runnable}, nil
 }
 
+// RunOptions carries per-run execution options. Zero value = current
+// Run behaviour. CheckpointID, when non-empty AND the workflow was
+// compiled with Deps.CheckpointKV, enables checkpoint resume:
+//
+//   - the engine persists a CanvasState side-car under "<id>#ctx" after
+//     every completed node (crash-safe) and once more on failure;
+//   - a run with the same CheckpointID seeds its CanvasState from that
+//     side-car and short-circuits nodes whose outputs are already
+//     recorded — they are NOT re-invoked, their recorded outputs are
+//     replayed onto the graph edges instead;
+//   - eino's own WithCheckPointID is also passed through: it is a no-op
+//     on this engine today (v0.9.x persists graph checkpoints only on
+//     node interrupts, which our nodes never raise) but keeps the store
+//     consistent if interrupts are ever added.
+//
+// A missing side-car (fresh id) degrades to a normal run.
+type RunOptions struct {
+	CheckpointID string
+}
+
 // Run executes the workflow once. query/files are exposed to templates as
 // {sys.query} / {sys.files}; DSL variables become {env.*}.
 func (w *Workflow) Run(ctx context.Context, query string, files []string) (*RunResult, error) {
+	return w.RunWithOptions(ctx, query, files, RunOptions{})
+}
+
+// RunWithOptions executes the workflow with per-run options. See
+// RunOptions for the checkpoint semantics.
+func (w *Workflow) RunWithOptions(ctx context.Context, query string, files []string, opts RunOptions) (*RunResult, error) {
 	req := &runRequest{query: query, files: files}
+
+	ckptEnabled := opts.CheckpointID != "" && w.deps.CheckpointKV != nil
+	var invokeOpts []compose.Option
+	if ckptEnabled {
+		invokeOpts = append(invokeOpts, compose.WithCheckPointID(opts.CheckpointID))
+		// Seed the run's CanvasState from the side-car so {node@param}
+		// template refs resolve for nodes eino is about to skip. A miss is
+		// the normal first-run case: req.resume stays nil.
+		if data, ok, gerr := w.deps.CheckpointKV.Get(ctx, ctxStateKey(opts.CheckpointID)); gerr == nil && ok {
+			if st, ierr := ImportState(data); ierr == nil {
+				req.resume = st
+			}
+		}
+	}
+
 	ctx = context.WithValue(ctx, runCtxKey{}, req)
-	if _, err := w.runnable.Invoke(ctx, map[string]any{"query": query, "files": files}); err != nil {
-		return nil, err
+	if ckptEnabled {
+		// Crash-safe resume: persist the side-car after every node
+		// completion (hook consumed by nodeClosure). Failures degrade the
+		// resume to a fresh run, never the run itself.
+		req.persistCheckpoint = func() {
+			if data, merr := ExportState(req.state); merr == nil {
+				_ = w.deps.CheckpointKV.Set(ctx, ctxStateKey(opts.CheckpointID), data, w.deps.CheckpointTTL)
+			}
+		}
+	}
+	_, invokeErr := w.runnable.Invoke(ctx, map[string]any{"query": query, "files": files}, invokeOpts...)
+
+	// Persist the terminal CanvasState side-car for failed/interrupted
+	// runs (that is exactly what makes the NEXT RunWithOptions resumable).
+	// On success both the side-car and eino's raw checkpoint are deleted
+	// best-effort — TTL bounds anything the deletes miss. Side-car errors
+	// are swallowed deliberately: a failed persistence downgrades the next
+	// resume to a fresh run, which is always a correct outcome.
+	if ckptEnabled && req.state != nil {
+		if invokeErr != nil {
+			if data, merr := ExportState(req.state); merr == nil {
+				_ = w.deps.CheckpointKV.Set(ctx, ctxStateKey(opts.CheckpointID), data, w.deps.CheckpointTTL)
+			}
+		} else {
+			_ = w.deps.CheckpointKV.Delete(ctx, ctxStateKey(opts.CheckpointID))
+			_ = w.deps.CheckpointKV.Delete(ctx, opts.CheckpointID)
+		}
+	}
+
+	if invokeErr != nil {
+		return nil, invokeErr
 	}
 
 	state := req.state
@@ -234,6 +319,10 @@ func (w *Workflow) Run(ctx context.Context, query string, files []string) (*RunR
 	return res, nil
 }
 
+// ctxStateKey derives the CanvasState side-car key from a checkpoint id.
+// "#ctx" cannot collide with eino's raw checkpoint ids (run UUIDs).
+func ctxStateKey(checkpointID string) string { return checkpointID + "#ctx" }
+
 // nodeClosure wraps a Node with path tracking, output recording, event
 // emission, panic recovery and timing. It is the single place node
 // lifecycle semantics live.
@@ -244,6 +333,17 @@ func nodeClosure(id string, node nodes.Node, deps Deps) func(ctx context.Context
 		}
 	}
 	return func(ctx context.Context, in map[string]any) (map[string]any, error) {
+		// Checkpoint resume: a node whose outputs are already recorded in
+		// the restored state completed in a previous attempt — replay its
+		// recorded outputs onto the graph edge instead of re-invoking it.
+		// (Nodes with no recorded outputs — interrupted mid-flight — re-run
+		// normally.) No lifecycle events are emitted for skipped nodes.
+		if req, _ := ctx.Value(runCtxKey{}).(*runRequest); req != nil && req.resume != nil {
+			if cached := req.resume.OutputsOf(id); len(cached) > 0 {
+				return cached, nil
+			}
+		}
+
 		emit(NodeEvent{NodeID: id, Phase: PhaseStarted})
 		start := time.Now()
 
@@ -284,6 +384,9 @@ func nodeClosure(id string, node nodes.Node, deps Deps) func(ctx context.Context
 				continue
 			}
 			cs.SetOutput(id, k, v)
+		}
+		if req, _ := ctx.Value(runCtxKey{}).(*runRequest); req != nil && req.persistCheckpoint != nil {
+			req.persistCheckpoint()
 		}
 		emit(NodeEvent{NodeID: id, Phase: PhaseFinished, DurationMS: msSince(start)})
 		return out, nil

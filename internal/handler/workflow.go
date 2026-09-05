@@ -328,6 +328,46 @@ func (h *WorkflowHandler) CancelWorkflowRun(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"run": run})
 }
 
+// ResumeWorkflowRun godoc
+// @Summary      断点续跑失败的工作流运行
+// @Description  仅 status=failed 的运行可续跑：已完成节点从 checkpoint 回放（不重复执行），失败尝试重跑；重新入异步队列，行在 worker 接手前保持 failed。非 failed 状态返回 409（cancelled 是用户显式中止，恢复路径是新开运行而非续跑）
+// @Tags         工作流
+// @Produce      json
+// @Param        id      path string true "工作流 ID"
+// @Param        run_id  path string true "运行 ID"
+// @Success      200 {object} map[string]interface{}
+// @Failure      404 {object} apperrors.AppError
+// @Failure      409 {object} apperrors.AppError
+// @Failure      500 {object} apperrors.AppError
+// @Security     Bearer
+// @Router       /workflows/{id}/runs/{run_id}/resume [post]
+func (h *WorkflowHandler) ResumeWorkflowRun(c *gin.Context) {
+	ctx := c.Request.Context()
+	run, err := h.service.ResumeWorkflowRun(ctx, c.Param("id"), c.Param("run_id"))
+	if err != nil {
+		if errors.Is(err, apprepo.ErrWorkflowNotFound) {
+			c.Error(apperrors.NewNotFoundError("workflow run not found"))
+			return
+		}
+		if errors.Is(err, service.ErrWorkflowRunNotResumable) {
+			c.Error(apperrors.NewConflictError(err.Error()))
+			return
+		}
+		if errors.Is(err, service.ErrWorkflowInvalidDSL) {
+			c.Error(apperrors.NewValidationError("invalid workflow DSL").WithDetails(err.Error()))
+			return
+		}
+		if run != nil && err != nil {
+			// Enqueue failed after validation — surface the row + error.
+			c.Error(apperrors.NewInternalServerError("failed to enqueue workflow run resume").WithDetails(err.Error()))
+			return
+		}
+		c.Error(apperrors.NewInternalServerError("failed to resume workflow run").WithDetails(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"run": run})
+}
+
 // GetWorkflowRunEvents godoc
 // @Summary      工作流运行事件流（SSE）
 // @Description  以 SSE 推送一次运行的过程事件：kind=node（节点 started/finished/failed）与终态帧 kind=run（含 status，随后关流）。run 已终态时立即下发终态帧并关流

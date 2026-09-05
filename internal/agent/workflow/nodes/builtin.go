@@ -10,11 +10,11 @@ import (
 // Built-in component names. These are the canonical spellings; lookup is
 // case-insensitive so a DSL may carry "start"/"START" as well.
 const (
-	ComponentStart    = "Start"
-	ComponentAnswer   = "Answer"
-	ComponentLLM      = "LLM"
+	ComponentStart     = "Start"
+	ComponentAnswer    = "Answer"
+	ComponentLLM       = "LLM"
 	ComponentRetrieval = "Retrieval"
-	ComponentSwitch   = "Switch"
+	ComponentSwitch    = "Switch"
 )
 
 func init() {
@@ -182,9 +182,9 @@ type SwitchCase struct {
 }
 
 type switchNode struct {
-	value       string
-	cases       []SwitchCase
-	defaultTo   string
+	value     string
+	cases     []SwitchCase
+	defaultTo string
 }
 
 func newSwitch(params map[string]any, deps Deps) (Node, error) {

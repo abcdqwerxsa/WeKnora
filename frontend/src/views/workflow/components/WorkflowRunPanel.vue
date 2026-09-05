@@ -87,6 +87,18 @@
           </t-tag>
           <span class="wf-run-history-time">{{ formatTime(item.created_at) }}</span>
           <span class="wf-run-history-error" :title="item.error">{{ item.error }}</span>
+          <t-button
+            v-if="item.status === 'failed'"
+            class="wf-run-history-resume"
+            variant="text"
+            size="small"
+            theme="primary"
+            :loading="resumingRunId === item.id"
+            :disabled="!!resumingRunId"
+            @click.stop="resumeRun(item)"
+          >
+            {{ $t('workflow.run.resume') }}
+          </t-button>
         </li>
       </ul>
     </section>
@@ -97,7 +109,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
-import { runWorkflow, listWorkflowRuns, cancelWorkflowRun, type WorkflowRun } from '@/api/workflow'
+import { runWorkflow, listWorkflowRuns, cancelWorkflowRun, resumeWorkflowRun, type WorkflowRun } from '@/api/workflow'
 import { useWorkflowRunStream } from '../useWorkflowRunStream'
 
 const props = defineProps<{ workflowId: string }>()
@@ -120,6 +132,9 @@ const activeRunId = ref('')
 // even when the SSE stream is detached (disconnect ≠ cancel).
 const activeStatus = ref('')
 const cancelling = ref(false)
+// Id of the run whose resume request is in flight (drives per-row loading
+// state); empty string when idle.
+const resumingRunId = ref('')
 
 const history = ref<WorkflowRun[]>([])
 const historyError = ref(false)
@@ -253,6 +268,35 @@ async function cancelActiveRun() {
     MessagePlugin.error(error instanceof Error ? error.message : t('workflow.run.cancelFailed'))
   } finally {
     cancelling.value = false
+  }
+}
+
+/**
+ * Resume a failed run from its checkpoint. The backend flips the row to
+ * running and re-executes asynchronously; follow() replaces any attached
+ * stream (it stops the previous controller first), so resumed progress
+ * renders in the same timeline without leaking the old subscription.
+ * 409/404 paths surface the server message and refresh history so the row
+ * shows its real state.
+ */
+async function resumeRun(run: WorkflowRun) {
+  if (resumingRunId.value) return
+  resumingRunId.value = run.id
+  try {
+    const response = await resumeWorkflowRun(props.workflowId, run.id)
+    const resumed = response?.run
+    if (!resumed) throw new Error(response?.message || t('workflow.run.resumeFailed'))
+    activeRunId.value = resumed.id
+    activeStatus.value = resumed.status
+    answer.value = null
+    resultError.value = ''
+    follow(resumed.id)
+    MessagePlugin.info(t('workflow.run.resumedNotice'))
+  } catch (error) {
+    MessagePlugin.error(error instanceof Error ? error.message : t('workflow.run.resumeFailed'))
+  } finally {
+    resumingRunId.value = ''
+    void loadHistory()
   }
 }
 
@@ -417,6 +461,12 @@ defineExpose({ loadHistory })
 .wf-run-history-time {
   color: var(--td-text-color-placeholder);
   flex: none;
+}
+
+.wf-run-history-resume {
+  margin-left: auto;
+  flex: none;
+  padding: 0 4px;
 }
 
 .wf-run-history-error {
