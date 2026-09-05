@@ -419,7 +419,7 @@ async function onImportFile(event: Event) {
 }
 
 function goBack() {
-  router.push('/workflow')
+  router.push('/platform/workflow')
 }
 
 load()

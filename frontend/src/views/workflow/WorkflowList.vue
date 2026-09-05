@@ -114,7 +114,7 @@ async function loadWorkflows() {
   loadErrorDetail.value = ''
   try {
     const response = await listWorkflows()
-    workflows.value = Array.isArray(response?.data) ? response.data : []
+    workflows.value = Array.isArray(response?.data?.workflows) ? response.data.workflows : []
   } catch (error) {
     loadError.value = true
     loadErrorDetail.value = error instanceof Error ? error.message : String(error)
@@ -125,7 +125,7 @@ async function loadWorkflows() {
 }
 
 function goEdit(workflow: Workflow) {
-  router.push(`/workflow/${workflow.id}/edit`)
+  router.push(`/platform/workflow/${workflow.id}/edit`)
 }
 
 function openCreate() {
@@ -146,7 +146,7 @@ async function submitCreate() {
     if (response?.success && created?.id) {
       createVisible.value = false
       MessagePlugin.success(t('workflow.created'))
-      router.push(`/workflow/${created.id}/edit`)
+      router.push(`/platform/workflow/${created.id}/edit`)
     } else {
       MessagePlugin.error(response?.message || t('workflow.createFailed'))
     }

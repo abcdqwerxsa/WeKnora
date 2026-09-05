@@ -123,6 +123,18 @@ const router = createRouter({
           meta: { requiresInit: true, requiresAuth: true }
         },
         {
+          path: "workflow",
+          name: "workflowList",
+          component: () => import("../views/workflow/WorkflowList.vue"),
+          meta: { requiresInit: true, requiresAuth: true }
+        },
+        {
+          path: "workflow/:id/edit",
+          name: "workflowEditor",
+          component: () => import("../views/workflow/WorkflowEditor.vue"),
+          meta: { requiresInit: true, requiresAuth: true }
+        },
+        {
           path: "knowledge-search",
           // 旧路径保留为重定向，打开全局命令面板（⌘K），带上可选的 q 参数
           redirect: (to) => {
@@ -219,18 +231,6 @@ const router = createRouter({
     // Workflow orchestration canvas (MVP). Guards match the other feature
     // pages (auth + init) so the global beforeEach handles login/onboarding
     // the same way as /platform children.
-    {
-      path: '/workflow',
-      name: 'workflowList',
-      component: () => import('../views/workflow/WorkflowList.vue'),
-      meta: { requiresInit: true, requiresAuth: true }
-    },
-    {
-      path: '/workflow/:id/edit',
-      name: 'workflowEditor',
-      component: () => import('../views/workflow/WorkflowEditor.vue'),
-      meta: { requiresInit: true, requiresAuth: true }
-    },
   ],
 });
 

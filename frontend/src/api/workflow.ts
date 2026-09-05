@@ -71,7 +71,14 @@ export interface Workflow {
 
 export interface WorkflowListResponse {
   success: boolean
-  data: Workflow[]
+  message?: string
+  // Backend wraps the page: { workflows: Workflow[], total, page, page_size }.
+  data: {
+    workflows: Workflow[]
+    total: number
+    page?: number
+    page_size?: number
+  }
 }
 
 export interface WorkflowMutationResponse {

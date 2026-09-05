@@ -1075,7 +1075,7 @@ const handleMenuClick = async (path: string) => {
         }
     } else if (path === 'workflows') {
         // 工作流菜单项：路由挂在 /workflow（不在 /platform 前缀下）
-        router.push('/workflow')
+        router.push('/platform/workflow')
     } else if (path === 'agents') {
         router.push('/platform/agents')
     } else if (path === 'organizations') {
