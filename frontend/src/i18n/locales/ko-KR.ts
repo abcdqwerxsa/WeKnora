@@ -6742,6 +6742,7 @@ export default {
   },
   menu: {
     knowledgeBase: '지식베이스',
+    workflow: '워크플로',
     agents: '에이전트',
     organizations: '공유 공간',
     newChat: '새 대화',

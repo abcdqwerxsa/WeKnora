@@ -6742,6 +6742,7 @@ export default {
   },
   menu: {
     knowledgeBase: 'База знаний',
+    workflow: 'Рабочие процессы',
     agents: 'Агенты',
     organizations: 'Общие пространства',
     newChat: 'Новый диалог',

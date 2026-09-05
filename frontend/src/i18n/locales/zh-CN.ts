@@ -6744,6 +6744,7 @@ export default {
   },
   menu: {
     knowledgeBase: '知识库',
+    workflow: '工作流',
     agents: '智能体',
     organizations: '共享空间',
     newChat: '新对话',
