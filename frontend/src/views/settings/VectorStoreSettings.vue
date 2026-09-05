@@ -910,8 +910,8 @@ onMounted(async () => {
   font-size: 15px;
   font-weight: 600;
   letter-spacing: 0.02em;
-  background: rgba(0, 82, 217, 0.1);
-  color: #0052D9;
+  background: rgba(var(--td-brand-rgb), 0.1);
+  color: var(--td-brand-color);
 }
 
 // 真实品牌 logo 的渲染：保留每个 engine 类的 color 作为品牌色，
@@ -955,8 +955,8 @@ onMounted(async () => {
   color: #0089FF;
 }
 .store-card--weaviate .store-card__badge {
-  background: rgba(7, 192, 95, 0.12);
-  color: #07A050;
+  background: rgba(var(--td-brand-rgb), 0.12);
+  color: var(--td-brand-color);
 }
 .store-card--elasticsearch .store-card__badge,
 .store-card--elasticfaiss .store-card__badge {
@@ -964,8 +964,8 @@ onMounted(async () => {
   color: #D97706;
 }
 .store-card--postgres .store-card__badge {
-  background: rgba(0, 82, 217, 0.1);
-  color: #0052D9;
+  background: rgba(var(--td-brand-rgb), 0.1);
+  color: var(--td-brand-color);
 }
 .store-card--opensearch .store-card__badge {
   background: rgba(98, 53, 187, 0.12);
@@ -976,8 +976,8 @@ onMounted(async () => {
   color: #6235BB;
 }
 .store-card--tencent_vectordb .store-card__badge {
-  background: rgba(0, 82, 217, 0.1);
-  color: #0052D9;
+  background: rgba(var(--td-brand-rgb), 0.1);
+  color: var(--td-brand-color);
 }
 .store-card--doris .store-card__badge {
   background: rgba(255, 90, 0, 0.12);
@@ -1022,7 +1022,7 @@ onMounted(async () => {
   font-size: 11px;
   font-weight: 500;
   line-height: 16px;
-  border-radius: 3px;
+  border-radius: var(--td-radius-small);
   color: var(--td-warning-color-7, #B85C00);
   background: var(--td-warning-color-1, #FEF3E6);
 }
@@ -1301,8 +1301,8 @@ onMounted(async () => {
   color: #0089FF;
 }
 .vectorstore-drawer--weaviate .setting-drawer__header-icon {
-  background: rgba(7, 192, 95, 0.12);
-  color: #07A050;
+  background: rgba(var(--td-brand-rgb), 0.12);
+  color: var(--td-brand-color);
 }
 .vectorstore-drawer--elasticsearch .setting-drawer__header-icon,
 .vectorstore-drawer--elasticfaiss .setting-drawer__header-icon {
@@ -1310,8 +1310,8 @@ onMounted(async () => {
   color: #D97706;
 }
 .vectorstore-drawer--postgres .setting-drawer__header-icon {
-  background: rgba(0, 82, 217, 0.1);
-  color: #0052D9;
+  background: rgba(var(--td-brand-rgb), 0.1);
+  color: var(--td-brand-color);
 }
 .vectorstore-drawer--opensearch .setting-drawer__header-icon {
   background: rgba(98, 53, 187, 0.12);
@@ -1322,8 +1322,8 @@ onMounted(async () => {
   color: #6235BB;
 }
 .vectorstore-drawer--tencent_vectordb .setting-drawer__header-icon {
-  background: rgba(0, 82, 217, 0.1);
-  color: #0052D9;
+  background: rgba(var(--td-brand-rgb), 0.1);
+  color: var(--td-brand-color);
 }
 .vectorstore-drawer--doris .setting-drawer__header-icon {
   background: rgba(255, 90, 0, 0.12);

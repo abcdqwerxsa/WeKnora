@@ -1330,7 +1330,7 @@ const handleClose = () => {
   height: 16px;
   font-size: 10px;
   font-weight: 500;
-  border-radius: 3px;
+  border-radius: var(--td-radius-small);
 
   &--ok {
     color: var(--td-success-color);
@@ -1356,7 +1356,7 @@ const handleClose = () => {
 }
 
 .mcp-drawer--http-streamable .setting-drawer__header-icon {
-  background: rgba(0, 82, 217, 0.1);
-  color: #0052D9;
+  background: rgba(var(--td-brand-rgb), 0.1);
+  color: var(--td-brand-color);
 }
 </style>

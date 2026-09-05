@@ -1038,15 +1038,15 @@ onBeforeUnmount(() => {
   transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
 
   &:hover {
-    border-color: rgba(7, 192, 95, 0.45);
-    background: rgba(7, 192, 95, 0.06);
+    border-color: rgba(var(--td-brand-rgb), 0.45);
+    background: rgba(var(--td-brand-rgb), 0.06);
     color: var(--td-brand-color);
-    box-shadow: 0 2px 6px rgba(7, 192, 95, 0.1);
+    box-shadow: 0 2px 6px rgba(var(--td-brand-rgb), 0.1);
   }
 
   &.is-preview {
-    border-color: rgba(7, 192, 95, 0.5);
-    background: rgba(7, 192, 95, 0.1);
+    border-color: rgba(var(--td-brand-rgb), 0.5);
+    background: rgba(var(--td-brand-rgb), 0.1);
     color: var(--td-brand-color);
   }
 
@@ -1097,7 +1097,7 @@ onBeforeUnmount(() => {
 }
 
 .toolbar-btn:hover {
-  background: rgba(7, 192, 95, 0.08);
+  background: rgba(var(--td-brand-rgb), 0.08);
   color: var(--td-brand-color);
   
   .t-icon {
@@ -1106,7 +1106,7 @@ onBeforeUnmount(() => {
 }
 
 .toolbar-btn.active {
-  background: rgba(7, 192, 95, 0.12);
+  background: rgba(var(--td-brand-rgb), 0.12);
   color: var(--td-brand-color);
   
   .t-icon {
@@ -1116,11 +1116,11 @@ onBeforeUnmount(() => {
 
 .toolbar-btn:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px rgba(7, 192, 95, 0.25);
+  box-shadow: 0 0 0 2px rgba(var(--td-brand-rgb), 0.25);
 }
 
 .toolbar-btn:active {
-  background: rgba(7, 192, 95, 0.15);
+  background: rgba(var(--td-brand-rgb), 0.15);
   transform: translateY(0.5px);
 }
 
@@ -1139,7 +1139,7 @@ onBeforeUnmount(() => {
 
   &:focus-within {
     border-color: var(--td-brand-color);
-    box-shadow: 0 0 0 2px rgba(7, 192, 95, 0.1);
+    box-shadow: 0 0 0 2px rgba(var(--td-brand-rgb), 0.1);
   }
 }
 
@@ -1218,7 +1218,7 @@ onBeforeUnmount(() => {
     padding-left: 12px;
     color: var(--td-text-color-secondary);
     margin: 16px 0;
-    background: rgba(7, 192, 95, 0.08);
+    background: rgba(var(--td-brand-rgb), 0.08);
   }
 
   :deep(a) {

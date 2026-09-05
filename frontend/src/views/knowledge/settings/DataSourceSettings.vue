@@ -456,8 +456,8 @@ onBeforeUnmount(stopPolling)
     font-size: 15px;
     font-weight: 600;
     letter-spacing: 0.02em;
-    background: rgba(7, 192, 95, 0.12);
-    color: #07c05f;
+    background: rgba(var(--td-brand-rgb), 0.12);
+    color: var(--td-brand-color);
     overflow: hidden;
   }
 

@@ -501,10 +501,10 @@ const handleAction = (action: 'download' | 'edit' | 'reparse' | 'cancel-parse' |
   width: 100%;
   background: var(--td-bg-color-container);
   border: 1px solid var(--td-component-stroke);
-  border-radius: 9px;
+  border-radius: var(--td-radius-medium);
   /* 不能用 overflow:hidden，否则表头 position:sticky 相对外层滚动区失效 */
   overflow: visible;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--td-shadow-1);
   animation: doc-list-fade-in 0.32s ease-out;
 }
 

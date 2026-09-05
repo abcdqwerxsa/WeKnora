@@ -2445,8 +2445,8 @@ watch(
 }
 
 :root[theme-mode='dark'] .permissions-popup-overlay .t-popup__content {
-  background: rgba(36, 36, 36, 0.92) !important;
-  border-color: rgba(255, 255, 255, 0.08) !important;
+  background: color-mix(in srgb, var(--td-bg-color-container) 92%, transparent) !important;
+  border-color: var(--td-component-stroke) !important;
   box-shadow:
     0 0 0 0.5px rgba(255, 255, 255, 0.05),
     0 2px 4px rgba(0, 0, 0, 0.12),
@@ -2480,8 +2480,8 @@ watch(
 }
 
 :root[theme-mode='dark'] .member-invite-popup-overlay .t-popup__content {
-  background: rgba(36, 36, 36, 0.92) !important;
-  border-color: rgba(255, 255, 255, 0.08) !important;
+  background: color-mix(in srgb, var(--td-bg-color-container) 92%, transparent) !important;
+  border-color: var(--td-component-stroke) !important;
   box-shadow:
     0 0 0 0.5px rgba(255, 255, 255, 0.05),
     0 2px 4px rgba(0, 0, 0, 0.12),

@@ -2426,12 +2426,12 @@ watch(addMemberPopupVisible, (visible) => {
 
 .avatar-popover-content .avatar-emoji-btn:hover {
   border-color: var(--td-brand-color);
-  background: rgba(7, 192, 95, 0.06);
+  background: rgba(var(--td-brand-rgb), 0.06);
 }
 
 .avatar-popover-content .avatar-emoji-btn.is-selected {
   border-color: var(--td-brand-color);
-  background: rgba(7, 192, 95, 0.12);
+  background: rgba(var(--td-brand-rgb), 0.12);
 }
 
 .avatar-popover-content .avatar-clear-btn {
@@ -2791,7 +2791,7 @@ watch(addMemberPopupVisible, (visible) => {
     align-items: center;
     padding: 0 5px;
     height: 16px;
-    border-radius: 3px;
+    border-radius: var(--td-radius-small);
     font-size: 10px;
     font-weight: 500;
     flex-shrink: 0;
@@ -3072,7 +3072,7 @@ watch(addMemberPopupVisible, (visible) => {
 
 .settings-nav::-webkit-scrollbar-thumb {
   background: var(--td-gray-color-5);
-  border-radius: 3px;
+  border-radius: var(--td-radius-small);
 }
 
 .settings-nav::-webkit-scrollbar-thumb:hover {
@@ -3085,7 +3085,7 @@ watch(addMemberPopupVisible, (visible) => {
 
 .content-wrapper::-webkit-scrollbar-thumb {
   background: var(--td-gray-color-5);
-  border-radius: 3px;
+  border-radius: var(--td-radius-small);
 }
 
 .content-wrapper::-webkit-scrollbar-thumb:hover {
@@ -3315,8 +3315,8 @@ watch(addMemberPopupVisible, (visible) => {
 }
 
 :root[theme-mode='dark'] .org-permissions-popup-overlay .t-popup__content {
-  background: rgba(36, 36, 36, 0.92) !important;
-  border-color: rgba(255, 255, 255, 0.08) !important;
+  background: color-mix(in srgb, var(--td-bg-color-container) 92%, transparent) !important;
+  border-color: var(--td-component-stroke) !important;
   box-shadow:
     0 0 0 0.5px rgba(255, 255, 255, 0.05),
     0 2px 4px rgba(0, 0, 0, 0.12),

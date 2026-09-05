@@ -1836,12 +1836,12 @@ const handleUploadFinishedEvent = (event: Event) => {
 }
 
 .kb-create-btn {
-  background: linear-gradient(135deg, var(--td-brand-color) 0%, #00a67e 100%);
+  background: linear-gradient(135deg, var(--td-brand-color-6) 0%, var(--td-brand-color-7) 100%);
   border: none;
   color: var(--td-text-color-anti);
 
   &:hover {
-    background: linear-gradient(135deg, var(--td-brand-color) 0%, var(--td-brand-color-active) 100%);
+    background: linear-gradient(135deg, var(--td-brand-color-7) 0%, var(--td-brand-color-8) 100%);
   }
 }
 
@@ -1870,7 +1870,7 @@ const handleUploadFinishedEvent = (event: Event) => {
   display: inline-flex;
   align-items: center;
   padding: 2px 6px;
-  background: rgba(7, 192, 95, 0.1);
+  background: rgba(var(--td-brand-rgb), 0.1);
   border-radius: 4px;
   font-size: 12px;
   color: var(--td-brand-color);
@@ -1966,7 +1966,7 @@ const handleUploadFinishedEvent = (event: Event) => {
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
-  background: rgba(7, 192, 95, 0.1);
+  background: rgba(var(--td-brand-rgb), 0.1);
   border-radius: 4px;
   font-size: 12px;
   color: var(--td-brand-color);
@@ -1983,7 +1983,7 @@ const handleUploadFinishedEvent = (event: Event) => {
   align-items: center;
   gap: 5px;
   padding: 3px 8px;
-  background: rgba(7, 192, 95, 0.06);
+  background: rgba(var(--td-brand-rgb), 0.06);
   border-radius: 6px;
   font-size: 12px;
   line-height: 1.4;
@@ -2017,7 +2017,7 @@ const handleUploadFinishedEvent = (event: Event) => {
   align-items: center;
   gap: 5px;
   padding: 3px 8px;
-  background: rgba(7, 192, 95, 0.06);
+  background: rgba(var(--td-brand-rgb), 0.06);
   border-radius: 6px;
   font-size: 11px;
   line-height: 1.4;
@@ -2040,35 +2040,35 @@ const handleUploadFinishedEvent = (event: Event) => {
 
   // 共享知识库根据类型显示不同样式
   &.kb-type-document {
-    background: linear-gradient(135deg, var(--td-bg-color-container) 0%, rgba(7, 192, 95, 0.04) 100%) !important;
+    background: linear-gradient(135deg, var(--td-bg-color-container) 0%, rgba(var(--td-brand-rgb), 0.04) 100%) !important;
 
     &:hover {
       border-color: var(--td-brand-color) !important;
-      box-shadow: 0 4px 12px rgba(7, 192, 95, 0.12) !important;
-      background: linear-gradient(135deg, var(--td-bg-color-container) 0%, rgba(7, 192, 95, 0.08) 100%) !important;
+      box-shadow: 0 4px 12px rgba(var(--td-brand-rgb), 0.12) !important;
+      background: linear-gradient(135deg, var(--td-bg-color-container) 0%, rgba(var(--td-brand-rgb), 0.08) 100%) !important;
     }
 
     &::after {
-      background: linear-gradient(135deg, rgba(7, 192, 95, 0.08) 0%, transparent 100%) !important;
+      background: linear-gradient(135deg, rgba(var(--td-brand-rgb), 0.08) 0%, transparent 100%) !important;
     }
   }
 
   &.kb-type-faq {
-    background: linear-gradient(135deg, var(--td-bg-color-container) 0%, rgba(0, 82, 217, 0.04) 100%) !important;
+    background: linear-gradient(135deg, var(--td-bg-color-container) 0%, rgba(var(--td-brand-rgb), 0.04) 100%) !important;
 
     &:hover {
       border-color: var(--td-brand-color) !important;
-      box-shadow: 0 4px 12px rgba(0, 82, 217, 0.12) !important;
-      background: linear-gradient(135deg, var(--td-bg-color-container) 0%, rgba(0, 82, 217, 0.08) 100%) !important;
+      box-shadow: 0 4px 12px rgba(var(--td-brand-rgb), 0.12) !important;
+      background: linear-gradient(135deg, var(--td-bg-color-container) 0%, rgba(var(--td-brand-rgb), 0.08) 100%) !important;
     }
 
     &::after {
-      background: linear-gradient(135deg, rgba(0, 82, 217, 0.08) 0%, transparent 100%) !important;
+      background: linear-gradient(135deg, rgba(var(--td-brand-rgb), 0.08) 0%, transparent 100%) !important;
     }
 
     // FAQ 类型共享标识使用蓝色
     .shared-badge {
-      background: rgba(0, 82, 217, 0.1);
+      background: rgba(var(--td-brand-rgb), 0.1);
       color: var(--td-brand-color);
 
       .t-icon {
@@ -2082,9 +2082,9 @@ const handleUploadFinishedEvent = (event: Event) => {
     align-items: center;
     gap: 4px;
     font-size: 12px;
-    border-color: rgba(0, 82, 217, 0.15);
+    border-color: rgba(var(--td-brand-rgb), 0.15);
     color: var(--td-brand-color);
-    background: rgba(0, 82, 217, 0.04);
+    background: rgba(var(--td-brand-rgb), 0.04);
     font-weight: 500;
     padding: 2px 8px;
     border-radius: 4px;
@@ -2239,7 +2239,7 @@ const handleUploadFinishedEvent = (event: Event) => {
   }
 
   &:focus-visible {
-    box-shadow: 0 0 0 2px var(--td-brand-color-focus, rgba(0, 82, 217, 0.2));
+    box-shadow: 0 0 0 2px var(--td-brand-color-focus, rgba(var(--td-brand-rgb), 0.2));
   }
 
   // Icons inherit the section header's text color so the whole row
@@ -2284,10 +2284,10 @@ const handleUploadFinishedEvent = (event: Event) => {
 
 .kb-card {
   border: 1px solid var(--td-component-stroke);
-  border-radius: 8px;
+  border-radius: var(--td-radius-medium);
   overflow: hidden;
   box-sizing: border-box;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--td-shadow-1);
   background: var(--td-bg-color-container);
   position: relative;
   cursor: pointer;
@@ -2316,7 +2316,7 @@ const handleUploadFinishedEvent = (event: Event) => {
 
   &:hover {
     border-color: var(--td-brand-color);
-    box-shadow: 0 4px 12px rgba(7, 192, 95, 0.12);
+    box-shadow: 0 4px 12px rgba(var(--td-brand-rgb), 0.12);
   }
 
   &.uninitialized {
@@ -2325,11 +2325,11 @@ const handleUploadFinishedEvent = (event: Event) => {
 
   // 文档类型样式
   &.kb-type-document {
-    background: linear-gradient(135deg, var(--td-bg-color-container) 0%, rgba(7, 192, 95, 0.04) 100%);
+    background: linear-gradient(135deg, var(--td-bg-color-container) 0%, rgba(var(--td-brand-rgb), 0.04) 100%);
 
     &:hover {
       border-color: var(--td-brand-color);
-      background: linear-gradient(135deg, var(--td-bg-color-container) 0%, rgba(7, 192, 95, 0.08) 100%);
+      background: linear-gradient(135deg, var(--td-bg-color-container) 0%, rgba(var(--td-brand-rgb), 0.08) 100%);
     }
 
     // 右上角装饰
@@ -2340,7 +2340,7 @@ const handleUploadFinishedEvent = (event: Event) => {
       right: 0;
       width: 60px;
       height: 60px;
-      background: linear-gradient(135deg, rgba(7, 192, 95, 0.08) 0%, transparent 100%);
+      background: linear-gradient(135deg, rgba(var(--td-brand-rgb), 0.08) 0%, transparent 100%);
       border-radius: 0 12px 0 100%;
       pointer-events: none;
       z-index: 0;
@@ -2349,12 +2349,12 @@ const handleUploadFinishedEvent = (event: Event) => {
 
   // 问答类型样式
   &.kb-type-faq {
-    background: linear-gradient(135deg, var(--td-bg-color-container) 0%, rgba(0, 82, 217, 0.04) 100%);
+    background: linear-gradient(135deg, var(--td-bg-color-container) 0%, rgba(var(--td-brand-rgb), 0.04) 100%);
 
     &:hover {
       border-color: var(--td-brand-color);
-      box-shadow: 0 4px 12px rgba(0, 82, 217, 0.12);
-      background: linear-gradient(135deg, var(--td-bg-color-container) 0%, rgba(0, 82, 217, 0.08) 100%);
+      box-shadow: 0 4px 12px rgba(var(--td-brand-rgb), 0.12);
+      background: linear-gradient(135deg, var(--td-bg-color-container) 0%, rgba(var(--td-brand-rgb), 0.08) 100%);
     }
 
     // 右上角装饰
@@ -2365,7 +2365,7 @@ const handleUploadFinishedEvent = (event: Event) => {
       right: 0;
       width: 60px;
       height: 60px;
-      background: linear-gradient(135deg, rgba(0, 82, 217, 0.08) 0%, transparent 100%);
+      background: linear-gradient(135deg, rgba(var(--td-brand-rgb), 0.08) 0%, transparent 100%);
       border-radius: 0 12px 0 100%;
       pointer-events: none;
       z-index: 0;
@@ -2622,14 +2622,14 @@ const handleUploadFinishedEvent = (event: Event) => {
   transition: background 0.2s ease;
 
   &.type-document {
-    background: rgba(7, 192, 95, 0.08);
+    background: rgba(var(--td-brand-rgb), 0.08);
     color: var(--td-brand-color-active);
     width: auto;
     padding: 0 6px;
     gap: 3px;
 
     &:hover {
-      background: rgba(7, 192, 95, 0.12);
+      background: rgba(var(--td-brand-rgb), 0.12);
     }
 
     .badge-count {
@@ -2643,14 +2643,14 @@ const handleUploadFinishedEvent = (event: Event) => {
   }
 
   &.type-faq {
-    background: rgba(0, 82, 217, 0.08);
+    background: rgba(var(--td-brand-rgb), 0.08);
     color: var(--td-brand-color);
     width: auto;
     padding: 0 6px;
     gap: 3px;
 
     &:hover {
-      background: rgba(0, 82, 217, 0.12);
+      background: rgba(var(--td-brand-rgb), 0.12);
     }
 
     .badge-count {
@@ -2691,20 +2691,20 @@ const handleUploadFinishedEvent = (event: Event) => {
   }
 
   &.shared {
-    background: rgba(0, 82, 217, 0.08);
+    background: rgba(var(--td-brand-rgb), 0.08);
     color: var(--td-brand-color);
 
     &:hover {
-      background: rgba(0, 82, 217, 0.12);
+      background: rgba(var(--td-brand-rgb), 0.12);
     }
   }
 
   &.role-admin {
-    background: rgba(7, 192, 95, 0.1);
+    background: rgba(var(--td-brand-rgb), 0.1);
     color: var(--td-brand-color-active);
 
     &:hover {
-      background: rgba(7, 192, 95, 0.15);
+      background: rgba(var(--td-brand-rgb), 0.15);
     }
   }
 
@@ -2740,19 +2740,19 @@ const handleUploadFinishedEvent = (event: Event) => {
 @keyframes highlightFlash {
   0% {
     border-color: var(--td-brand-color);
-    box-shadow: 0 0 0 0 rgba(7, 192, 95, 0.4);
+    box-shadow: 0 0 0 0 rgba(var(--td-brand-rgb), 0.4);
     transform: scale(1);
   }
 
   50% {
     border-color: var(--td-brand-color);
-    box-shadow: 0 0 0 8px rgba(7, 192, 95, 0);
+    box-shadow: 0 0 0 8px rgba(var(--td-brand-rgb), 0);
     transform: scale(1.02);
   }
 
   100% {
     border-color: var(--td-brand-color);
-    box-shadow: 0 0 0 0 rgba(7, 192, 95, 0);
+    box-shadow: 0 0 0 0 rgba(var(--td-brand-rgb), 0);
     transform: scale(1);
   }
 }
@@ -2760,7 +2760,7 @@ const handleUploadFinishedEvent = (event: Event) => {
 .kb-card.highlight-flash {
   animation: highlightFlash 0.6s ease-in-out 3;
   border-color: var(--td-brand-color) !important;
-  box-shadow: 0 0 12px rgba(7, 192, 95, 0.3) !important;
+  box-shadow: 0 0 12px rgba(var(--td-brand-rgb), 0.3) !important;
 }
 
 .card-time {
@@ -2947,7 +2947,7 @@ const handleUploadFinishedEvent = (event: Event) => {
   }
 
   &:hover {
-    background: rgba(7, 192, 95, 0.08);
+    background: rgba(var(--td-brand-rgb), 0.08);
     color: var(--td-brand-color);
   }
 }

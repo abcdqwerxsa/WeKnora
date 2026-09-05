@@ -3690,14 +3690,14 @@ watch(() => entries.value.map(e => ({
 
     &:hover {
       border-color: var(--td-brand-color);
-      box-shadow: 0 2px 8px rgba(7, 192, 95, 0.1);
+      box-shadow: 0 2px 8px rgba(var(--td-brand-rgb), 0.1);
     }
   }
 
   &.selected {
     border-color: var(--td-brand-color);
     background: var(--td-success-color-light);
-    box-shadow: 0 2px 8px rgba(7, 192, 95, 0.15);
+    box-shadow: 0 2px 8px rgba(var(--td-brand-rgb), 0.15);
   }
 }
 
@@ -4464,7 +4464,7 @@ watch(() => entries.value.map(e => ({
 
   &:hover {
     border-color: var(--td-brand-color);
-    box-shadow: 0 2px 4px rgba(7, 192, 95, 0.08);
+    box-shadow: 0 2px 4px rgba(var(--td-brand-rgb), 0.08);
   }
 }
 
@@ -4618,7 +4618,7 @@ watch(() => entries.value.map(e => ({
       background: var(--td-brand-color) !important;
       border-color: var(--td-brand-color-active) !important;
       transform: scale(1.05);
-      box-shadow: 0 2px 8px rgba(7, 192, 95, 0.3);
+      box-shadow: 0 2px 8px rgba(var(--td-brand-rgb), 0.3);
     }
 
     &:active:not(:disabled) {
@@ -4687,7 +4687,7 @@ watch(() => entries.value.map(e => ({
   &:hover {
     background: var(--td-bg-color-secondarycontainer);
     border-color: var(--td-brand-color);
-    box-shadow: 0 2px 8px rgba(7, 192, 95, 0.12);
+    box-shadow: 0 2px 8px rgba(var(--td-brand-rgb), 0.12);
     transform: translateY(-1px);
   }
 
@@ -4991,7 +4991,7 @@ watch(() => entries.value.map(e => ({
 
   &:focus-within {
     border-color: var(--td-brand-color);
-    box-shadow: 0 0 0 3px rgba(7, 192, 95, 0.1);
+    box-shadow: 0 0 0 3px rgba(var(--td-brand-rgb), 0.1);
   }
 
   .t-input__inner {
@@ -5036,7 +5036,7 @@ watch(() => entries.value.map(e => ({
 
   &:focus-within {
     border-color: var(--td-brand-color);
-    box-shadow: 0 0 0 3px rgba(7, 192, 95, 0.1);
+    box-shadow: 0 0 0 3px rgba(var(--td-brand-rgb), 0.1);
   }
 
   .t-textarea__inner {
@@ -5247,7 +5247,7 @@ watch(() => entries.value.map(e => ({
 
   &:hover:not(:disabled) {
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(7, 192, 95, 0.3);
+    box-shadow: 0 4px 12px rgba(var(--td-brand-rgb), 0.3);
   }
 
   &:active:not(:disabled) {
@@ -5319,7 +5319,7 @@ watch(() => entries.value.map(e => ({
 
   &:hover {
     border-color: var(--td-brand-color);
-    box-shadow: 0 2px 8px rgba(7, 192, 95, 0.12);
+    box-shadow: 0 2px 8px rgba(var(--td-brand-rgb), 0.12);
   }
 }
 

@@ -81,7 +81,7 @@ const displayName = computed(() => {
 
 .vs-badge-env {
   background: var(--td-brand-color-1, #ecf2fe);
-  color: var(--td-brand-color-7, #0052d9);
+  color: var(--td-brand-color-7);
 }
 
 .vs-badge-user {

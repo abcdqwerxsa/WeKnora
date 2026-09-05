@@ -761,7 +761,7 @@ const scrollToItem = (index: number) => {
 }
 
 .mention-item.active .faq-icon {
-  color: var(--weknora-faq-color, #0052d9);
+  color: var(--weknora-faq-color, var(--td-brand-color));
 }
 
 .item-main {
@@ -878,9 +878,9 @@ const scrollToItem = (index: number) => {
   color: var(--td-brand-color);
 }
 .mention-detail-content .detail-type-badge.faq {
-  border-color: rgba(0, 82, 217, 0.16);
-  background: rgba(0, 82, 217, 0.08);
-  color: var(--weknora-faq-color, #0052d9);
+  border-color: rgba(var(--td-brand-rgb), 0.16);
+  background: rgba(var(--td-brand-rgb), 0.08);
+  color: var(--weknora-faq-color, var(--td-brand-color));
 }
 .mention-detail-content .detail-desc {
   margin: 0 0 8px;
@@ -965,7 +965,7 @@ const scrollToItem = (index: number) => {
   transition: color 0.2s, text-decoration-color 0.2s;
 }
 .mention-detail-content .detail-value.clickable:hover {
-  color: var(--td-brand-color, #07c05f);
-  text-decoration-color: var(--td-brand-color, #07c05f);
+  color: var(--td-brand-color);
+  text-decoration-color: var(--td-brand-color);
 }
 </style>
