@@ -159,7 +159,11 @@ type workflowService struct {
 	enqueuer interfaces.TaskEnqueuer
 	// redis, when non-nil (full mode), bridges run frames across instances
 	// for SSE. Lite mode gets nil and stays process-local.
-	redis   *redis.Client
+	redis *redis.Client
+	// ckptKV adapts the same redis client onto the engine's KVStore for
+	// run checkpoints (resume). nil in Lite mode — runs there execute
+	// inline and do not survive process restarts anyway, so no KV.
+	ckptKV  wfengine.KVStore
 	runs    *workflowRunBroker
 	cancels *workflowRunCancels
 }
@@ -176,12 +180,19 @@ func NewWorkflowService(
 	enqueuer interfaces.TaskEnqueuer,
 	redisClient *redis.Client,
 ) interfaces.WorkflowService {
+	// Lite (nil redis): no checkpoint KV — engine treats nil Deps.CheckpointKV
+	// as "no persistence" and every run executes fresh (current behaviour).
+	var ckptKV wfengine.KVStore
+	if redisClient != nil {
+		ckptKV = newRedisCheckpointKV(redisClient)
+	}
 	return &workflowService{
 		repo:     repo,
 		models:   models,
 		kbs:      kbs,
 		enqueuer: enqueuer,
 		redis:    redisClient,
+		ckptKV:   ckptKV,
 		runs:     newWorkflowRunBroker(),
 		cancels:  newWorkflowRunCancels(),
 	}
@@ -487,6 +498,12 @@ func (s *workflowService) executeWorkflowRun(
 		LLMFunc:       s.runLLM,
 		RetrievalFunc: s.runRetrieval,
 		OnNodeEvent:   publishNode,
+		// Checkpoint persistence (full mode only): eino persists completed-
+		// node state per run, and the engine keeps a CanvasState side-car —
+		// together these make a failed/timed-out run resumable via
+		// POST /:id/runs/:run_id/resume. Lite mode: nil, runs stay fresh.
+		CheckpointKV:  s.ckptKV,
+		CheckpointTTL: workflowCheckpointTTL,
 	})
 	if cerr != nil {
 		s.failWorkflowRun(ctx, run, cerr)
