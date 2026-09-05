@@ -810,15 +810,25 @@ func (s *workflowService) runLLM(ctx context.Context, req nodes.LLMRequest) (str
 
 // defaultChatModelID resolves the tenant's default chat model via the
 // existing ListModels surface (models.is_default, no schema change).
+// ListModels is tenant-scoped, so no other tenant's default can surface.
+// When several rows carry is_default (legacy data), the most recently
+// updated one wins — a documented tie-break, not a schema constraint.
 func (s *workflowService) defaultChatModelID(ctx context.Context) (string, error) {
 	models, err := s.models.ListModels(ctx)
 	if err != nil {
 		return "", fmt.Errorf("workflow LLM: default-model lookup failed: %w", err)
 	}
+	var best *types.Model
 	for _, m := range models {
-		if m != nil && m.IsDefault && m.Type == types.ModelTypeKnowledgeQA {
-			return m.ID, nil
+		if m == nil || !m.IsDefault || m.Type != types.ModelTypeKnowledgeQA {
+			continue
 		}
+		if best == nil || m.UpdatedAt.After(best.UpdatedAt) {
+			best = m
+		}
+	}
+	if best != nil {
+		return best.ID, nil
 	}
 	return "", errors.New("workflow LLM node requires a model id in its params (no default chat model configured for this workspace)")
 }

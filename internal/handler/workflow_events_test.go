@@ -11,8 +11,8 @@ import (
 
 	apprepo "github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/application/service"
-	"github.com/Tencent/WeKnora/internal/types"
 	apperrors "github.com/Tencent/WeKnora/internal/errors"
+	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/gin-gonic/gin"
 	"github.com/hibiken/asynq"
 	"github.com/stretchr/testify/assert"
@@ -53,12 +53,17 @@ func (r *wfEventsBaseRepo) GetWorkflowByIDAndTenant(_ context.Context, id string
 func (r *wfEventsBaseRepo) ListWorkflowsByTenantID(_ context.Context, _ uint64, _, _ int) ([]*types.Workflow, int64, error) {
 	return nil, 0, nil
 }
-func (r *wfEventsBaseRepo) UpdateWorkflow(_ context.Context, wf *types.Workflow) error { r.saved = wf; return nil }
+func (r *wfEventsBaseRepo) UpdateWorkflow(_ context.Context, wf *types.Workflow) error {
+	r.saved = wf
+	return nil
+}
 func (r *wfEventsBaseRepo) DeleteWorkflow(_ context.Context, _ string, _ uint64) error { return nil }
 func (r *wfEventsBaseRepo) CreateWorkflowRun(_ context.Context, _ *types.WorkflowRun) error {
 	return nil
 }
-func (r *wfEventsBaseRepo) UpdateWorkflowRun(_ context.Context, _ *types.WorkflowRun) error { return nil }
+func (r *wfEventsBaseRepo) UpdateWorkflowRun(_ context.Context, _ *types.WorkflowRun) error {
+	return nil
+}
 func (r *wfEventsBaseRepo) ListWorkflowRunsByTenantAndWorkflow(context.Context, uint64, string) ([]*types.WorkflowRun, error) {
 	return nil, nil
 }
