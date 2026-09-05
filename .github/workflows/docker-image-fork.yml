@@ -217,4 +217,4 @@ jobs:
 
       - name: Inspect image
         run: |
-          docker buildx imagetools inspect ${{ env.IMAGE_PREFIX }}/weknora-app:sha-${{ github.sha }}
+          docker buildx imagetools inspect ${{ env.IMAGE_PREFIX }}/weknora-app:${{ steps.meta.outputs.version }}
