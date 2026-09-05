@@ -13,7 +13,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -27,6 +29,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
+	"github.com/redis/go-redis/v9"
 )
 
 // Workflow validation limits.
@@ -62,10 +65,10 @@ var (
 // contract: `components` carries the execution topology (required),
 // `graph` the canvas layout (optional at the storage layer).
 type workflowDSLShape struct {
-	Version    int                                    `json:"version"`
-	Components map[string]workflowDSLShapeComponent   `json:"components"`
-	Graph      *workflowDSLShapeGraph                 `json:"graph,omitempty"`
-	Variables  map[string]json.RawMessage             `json:"variables,omitempty"`
+	Version    int                                  `json:"version"`
+	Components map[string]workflowDSLShapeComponent `json:"components"`
+	Graph      *workflowDSLShapeGraph               `json:"graph,omitempty"`
+	Variables  map[string]json.RawMessage           `json:"variables,omitempty"`
 }
 
 type workflowDSLShapeComponent struct {
@@ -154,7 +157,11 @@ type workflowService struct {
 	models   interfaces.ModelService
 	kbs      interfaces.KnowledgeBaseService
 	enqueuer interfaces.TaskEnqueuer
-	runs     *workflowRunBroker
+	// redis, when non-nil (full mode), bridges run frames across instances
+	// for SSE. Lite mode gets nil and stays process-local.
+	redis   *redis.Client
+	runs    *workflowRunBroker
+	cancels *workflowRunCancels
 }
 
 // NewWorkflowService creates a new workflow service. models/kbs back the
@@ -167,13 +174,16 @@ func NewWorkflowService(
 	models interfaces.ModelService,
 	kbs interfaces.KnowledgeBaseService,
 	enqueuer interfaces.TaskEnqueuer,
+	redisClient *redis.Client,
 ) interfaces.WorkflowService {
 	return &workflowService{
 		repo:     repo,
 		models:   models,
 		kbs:      kbs,
 		enqueuer: enqueuer,
+		redis:    redisClient,
 		runs:     newWorkflowRunBroker(),
+		cancels:  newWorkflowRunCancels(),
 	}
 }
 
@@ -465,6 +475,7 @@ func (s *workflowService) executeWorkflowRun(
 			frame.Err = ev.Err.Error()
 		}
 		s.runs.publish(frame)
+		s.publishFrameRedis(ctx, frame)
 		_ = event.Emit(ctx, event.Event{
 			Type:      event.EventWorkflowNode,
 			SessionID: run.ID,
@@ -483,7 +494,14 @@ func (s *workflowService) executeWorkflowRun(
 	}
 
 	runCtx, cancel := context.WithTimeout(ctx, workflowRunTimeout)
-	defer cancel()
+	// Expose the run's abort handle so CancelWorkflowRun can stop this
+	// execution in-process. Registered for the whole run; engine propagation
+	// then flows runCtx -> node Invoke -> adapters.
+	s.cancels.register(run.ID, cancel)
+	defer func() {
+		s.cancels.unregister(run.ID)
+		cancel()
+	}()
 	result, rerr := compiled.Run(runCtx, req.Query, req.Files)
 	if rerr != nil {
 		s.failWorkflowRun(ctx, run, rerr)
@@ -500,6 +518,12 @@ func (s *workflowService) executeWorkflowRun(
 		s.failWorkflowRun(ctx, run, merr)
 		return merr
 	}
+	if s.runAlreadyCancelled(ctx, run) {
+		// Cancel raced the successful completion — cancelled wins; the
+		// outputs are discarded with the row (rerun is the recovery path).
+		logger.Infof(ctx, "[workflow:%s] run %s success suppressed: row already cancelled", wf.ID, run.ID)
+		return fmt.Errorf("workflow run %s cancelled", run.ID)
+	}
 	run.Status = types.WorkflowRunStatusSucceeded
 	run.Output = types.JSON(outJSON)
 	if uerr := s.repo.UpdateWorkflowRun(ctx, run); uerr != nil {
@@ -512,14 +536,36 @@ func (s *workflowService) executeWorkflowRun(
 }
 
 // failWorkflowRun persists the terminal failed state of a run and emits the
-// terminal run event.
+// terminal run event. A row already flipped to cancelled (user cancel
+// racing the failure) is left alone — cancelled is also terminal and the
+// cancel path already closed SSE subscribers.
 func (s *workflowService) failWorkflowRun(ctx context.Context, run *types.WorkflowRun, cause error) {
+	if s.runAlreadyCancelled(ctx, run) {
+		logger.Infof(ctx, "[workflow:%s] run %s failure suppressed: row already cancelled (%v)",
+			run.WorkflowID, run.ID, cause)
+		return
+	}
 	run.Status = types.WorkflowRunStatusFailed
 	run.Error = cause.Error()
 	if err := s.repo.UpdateWorkflowRun(ctx, run); err != nil {
 		logger.Errorf(ctx, "workflow run %s failure update failed: %v", run.ID, err)
 	}
 	s.emitRunFinished(ctx, run, types.WorkflowRunStatusFailed, cause.Error())
+}
+
+// runAlreadyCancelled re-reads the run row and reports whether a cancel
+// landed while the engine was aborting. Terminal-write suppression relies
+// on this instead of comparing in-memory state, because CancelWorkflowRun
+// may run on a different request goroutine (and, for async runs, a
+// different instance entirely).
+func (s *workflowService) runAlreadyCancelled(ctx context.Context, run *types.WorkflowRun) bool {
+	cur, err := s.repo.GetWorkflowRunByIDAndTenant(ctx, run.ID, run.TenantID)
+	if err != nil {
+		// Read failure: fall through to the plain write — the state-guarded
+		// MarkWorkflowRunCancelled is the hard barrier; this is a soft check.
+		return false
+	}
+	return cur.Status == types.WorkflowRunStatusCancelled
 }
 
 // emitRunFinished delivers the terminal frame to SSE subscribers (closing
@@ -534,11 +580,113 @@ func (s *workflowService) emitRunFinished(ctx context.Context, run *types.Workfl
 		Err:        errText,
 	}
 	s.runs.publishTerminal(frame)
+	s.publishFrameRedis(ctx, frame)
 	_ = event.Emit(ctx, event.Event{
 		Type:      event.EventWorkflowRunFinished,
 		SessionID: run.ID,
 		Data:      frame,
 	})
+}
+
+// workflowRunRedisChannel is the per-run pubsub channel bridging frames
+// between instances: workflow:run:{run_id}.
+func workflowRunRedisChannel(runID string) string {
+	return "workflow:run:" + runID
+}
+
+// publishFrameRedis mirrors one frame onto the run's redis channel so SSE
+// clients connected to OTHER instances observe the same progress. Lite mode
+// (nil client) is a no-op; publish errors are logged, never propagated —
+// the local broker and the run row remain the sources of truth.
+func (s *workflowService) publishFrameRedis(ctx context.Context, frame types.WorkflowRunEvent) {
+	if s.redis == nil {
+		return
+	}
+	payload, err := json.Marshal(frame)
+	if err != nil {
+		logger.Errorf(ctx, "workflow run frame marshal failed: %v", err)
+		return
+	}
+	if _, err := s.redis.Publish(ctx, workflowRunRedisChannel(frame.RunID), payload).Result(); err != nil {
+		logger.Warnf(ctx, "workflow run frame redis publish failed (run=%s): %v", frame.RunID, err)
+	}
+}
+
+// workflowRunCancels tracks the context.CancelFunc of every run currently
+// executing in THIS process, keyed by run id. CancelWorkflowRun uses it to
+// abort in-process executions; async runs executing on another instance are
+// handled by the row-level guard alone (the idempotent asynq handler skips
+// non-pending rows, so a cancelled row never re-executes).
+type workflowRunCancels struct {
+	mu sync.Mutex
+	m  map[string]context.CancelFunc
+}
+
+func newWorkflowRunCancels() *workflowRunCancels {
+	return &workflowRunCancels{m: make(map[string]context.CancelFunc)}
+}
+
+func (c *workflowRunCancels) register(runID string, cancel context.CancelFunc) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.m[runID] = cancel
+}
+
+func (c *workflowRunCancels) unregister(runID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.m, runID)
+}
+
+// cancel aborts the run's execution context if it executes here. Returns
+// whether an in-process execution was signalled.
+func (c *workflowRunCancels) cancel(runID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if cancel, ok := c.m[runID]; ok {
+		cancel()
+		return true
+	}
+	return false
+}
+
+// CancelWorkflowRun best-effort cancels a pending/running run.
+//
+// Idempotency choice: cancelling an already-terminal run returns the current
+// row with 200 instead of 409. The row is the source of truth (same
+// philosophy as TaskInspector), and concurrent cancel-vs-finish races must
+// not turn into client-facing conflicts.
+func (s *workflowService) CancelWorkflowRun(ctx context.Context, workflowID, runID string) (*types.WorkflowRun, error) {
+	tenantID, ok := types.TenantIDFromContext(ctx)
+	if !ok || tenantID == 0 {
+		return nil, ErrWorkflowTenantRequired
+	}
+	run, err := s.repo.GetWorkflowRunByIDAndTenant(ctx, runID, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if run.WorkflowID != workflowID {
+		return nil, apprepo.ErrWorkflowNotFound
+	}
+	if run.Status != types.WorkflowRunStatusPending && run.Status != types.WorkflowRunStatusRunning {
+		logger.Infof(ctx, "[workflow:%s] cancel of terminal run %s (status=%s) is a no-op",
+			workflowID, runID, run.Status)
+		return run, nil
+	}
+	if err := s.repo.MarkWorkflowRunCancelled(ctx, runID, tenantID); err != nil {
+		if errors.Is(err, apprepo.ErrWorkflowRunNotCancellable) {
+			// Lost the race against a terminal write — surface the winner.
+			return s.repo.GetWorkflowRunByIDAndTenant(ctx, runID, tenantID)
+		}
+		return nil, err
+	}
+	inProcess := s.cancels.cancel(runID)
+	run.Status = types.WorkflowRunStatusCancelled
+	// Close SSE subscribers with the cancelled terminal frame; the in-process
+	// execution's own terminal write is suppressed by the cancelled-row guard.
+	s.emitRunFinished(ctx, run, types.WorkflowRunStatusCancelled, "")
+	logger.Infof(ctx, "[workflow:%s] run %s cancelled (in_process=%v)", workflowID, runID, inProcess)
+	return run, nil
 }
 
 // GetWorkflowRun returns one run of a workflow in the caller's tenant.
@@ -560,7 +708,78 @@ func (s *workflowService) GetWorkflowRun(ctx context.Context, workflowID, runID 
 
 // SubscribeWorkflowRunEvents attaches a live feed to one run's frames.
 func (s *workflowService) SubscribeWorkflowRunEvents(runID string) (<-chan types.WorkflowRunEvent, func()) {
-	return s.runs.subscribe(runID)
+	localCh, localCancel := s.runs.subscribe(runID)
+	if s.redis == nil {
+		// Lite mode: process-local broker only.
+		return localCh, localCancel
+	}
+
+	// Full mode: merge the local broker with the run's redis channel. The
+	// same frame can arrive twice when the run executes on THIS instance
+	// (local publish + redis echo), so frames are deduplicated by
+	// kind|node|phase|duration — bounded, progress frames carry no payload
+	// differences worth finer keys.
+	ctx, cancel := context.WithCancel(context.Background())
+	pubsub := s.redis.Subscribe(ctx, workflowRunRedisChannel(runID))
+	out := make(chan types.WorkflowRunEvent, brokerChanSize)
+	var once sync.Once
+	seen := make(map[string]struct{})
+	var mu sync.Mutex
+
+	closeOut := func() {
+		once.Do(func() {
+			cancel()
+			_ = pubsub.Close()
+			close(out)
+		})
+	}
+
+	deliver := func(frame types.WorkflowRunEvent) {
+		key := frame.Kind + "|" + frame.NodeID + "|" + frame.Phase + "|" + strconv.FormatInt(frame.DurationMS, 10)
+		mu.Lock()
+		if _, dup := seen[key]; dup {
+			mu.Unlock()
+			return
+		}
+		seen[key] = struct{}{}
+		mu.Unlock()
+		if frame.Kind == "run" {
+			// Terminal frame always reaches the subscriber, then closes.
+			select {
+			case out <- frame:
+			case <-ctx.Done():
+				return
+			}
+			closeOut()
+			return
+		}
+		select {
+		case out <- frame:
+		default:
+			// Best-effort progress; the run row is durable state.
+		}
+	}
+
+	go func() {
+		for frame := range localCh {
+			deliver(frame)
+		}
+	}()
+	go func() {
+		for msg := range pubsub.Channel() {
+			var frame types.WorkflowRunEvent
+			if err := json.Unmarshal([]byte(msg.Payload), &frame); err != nil {
+				continue
+			}
+			deliver(frame)
+		}
+	}()
+
+	stop := func() {
+		localCancel()
+		closeOut()
+	}
+	return out, stop
 }
 
 // runLLM adapts the engine's LLMFunc onto the platform ModelService.
@@ -591,15 +810,25 @@ func (s *workflowService) runLLM(ctx context.Context, req nodes.LLMRequest) (str
 
 // defaultChatModelID resolves the tenant's default chat model via the
 // existing ListModels surface (models.is_default, no schema change).
+// ListModels is tenant-scoped, so no other tenant's default can surface.
+// When several rows carry is_default (legacy data), the most recently
+// updated one wins — a documented tie-break, not a schema constraint.
 func (s *workflowService) defaultChatModelID(ctx context.Context) (string, error) {
 	models, err := s.models.ListModels(ctx)
 	if err != nil {
 		return "", fmt.Errorf("workflow LLM: default-model lookup failed: %w", err)
 	}
+	var best *types.Model
 	for _, m := range models {
-		if m != nil && m.IsDefault && m.Type == types.ModelTypeKnowledgeQA {
-			return m.ID, nil
+		if m == nil || !m.IsDefault || m.Type != types.ModelTypeKnowledgeQA {
+			continue
 		}
+		if best == nil || m.UpdatedAt.After(best.UpdatedAt) {
+			best = m
+		}
+	}
+	if best != nil {
+		return best.ID, nil
 	}
 	return "", errors.New("workflow LLM node requires a model id in its params (no default chat model configured for this workspace)")
 }

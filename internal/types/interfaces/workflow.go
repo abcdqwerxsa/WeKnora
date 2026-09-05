@@ -50,6 +50,12 @@ type WorkflowRepository interface {
 	// tenantID; ErrWorkflowNotFound otherwise. Used by the SSE endpoint to
 	// validate the subscription target before streaming.
 	GetWorkflowRunByIDAndTenant(ctx context.Context, runID string, tenantID uint64) (*types.WorkflowRun, error)
+
+	// MarkWorkflowRunCancelled flips a pending/running run to cancelled with
+	// a state-guarded UPDATE. Returns ErrWorkflowRunNotCancellable when the
+	// row already reached a terminal state (callers re-read and surface the
+	// current row — cancellation is idempotent at the API level).
+	MarkWorkflowRunCancelled(ctx context.Context, runID string, tenantID uint64) error
 }
 
 // WorkflowService defines the CRUD surface exposed over REST. Tenant and
@@ -84,6 +90,12 @@ type WorkflowService interface {
 	// synchronous (120s cap).
 	RunWorkflow(ctx context.Context, id string, req *types.RunWorkflowRequest) (*types.WorkflowRun, error)
 
+	// CancelWorkflowRun best-effort cancels a pending/running run: flips the
+	// row to cancelled (state-guarded), aborts an in-process execution via
+	// the run-scoped context, and closes SSE subscribers. Terminal runs are
+	// returned as-is (idempotent); the run row is the source of truth.
+	CancelWorkflowRun(ctx context.Context, workflowID, runID string) (*types.WorkflowRun, error)
+
 	// ProcessWorkflowRun is the asynq handler for types.TypeWorkflowRun. It
 	// restores the tenant context from the payload and drives the pending
 	// run to a terminal state. Returns nil for execution failures (the run
@@ -94,7 +106,10 @@ type WorkflowService interface {
 	GetWorkflowRun(ctx context.Context, workflowID, runID string) (*types.WorkflowRun, error)
 
 	// SubscribeWorkflowRunEvents attaches a live feed to one run's node
-	// events. The returned cancel detaches the subscriber; the channel is
-	// closed after the terminal frame is delivered (or on cancel).
+	// events: the process-local broker merged with the run's redis pubsub
+	// channel (workflow:run:{run_id}) when redis is configured, deduplicated
+	// by kind|node|phase|duration. Lite mode (no redis) stays process-local.
+	// The returned cancel detaches the subscriber; the channel is closed
+	// after the terminal frame is delivered (or on cancel).
 	SubscribeWorkflowRunEvents(runID string) (<-chan types.WorkflowRunEvent, func())
 }

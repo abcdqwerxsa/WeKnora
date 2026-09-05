@@ -1,11 +1,12 @@
 package service
 
 import (
-	"sync"
 	"context"
 	"errors"
+	"sync"
 	"testing"
 
+	apprepo "github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/models/chat"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
@@ -18,6 +19,7 @@ type runRepoStub struct {
 	*stubWorkflowRepo
 	created []*types.WorkflowRun
 	updated []*types.WorkflowRun
+	runs    map[string]*types.WorkflowRun
 	mu      sync.Mutex
 }
 
@@ -27,11 +29,16 @@ func newRunRepoStub(wf *types.Workflow) *runRepoStub {
 }
 
 func (r *runRepoStub) CreateWorkflowRun(_ context.Context, run *types.WorkflowRun) error {
-	// Store a copy so later mutations of the same pointer (status flips)
-	// don't rewrite history — the test asserts the create-time status.
+	// History copies (status flips never rewrite history) plus the runs map
+	// as the single current-state store the lookup reads.
 	cp := *run
 	r.mu.Lock()
 	r.created = append(r.created, &cp)
+	if r.runs == nil {
+		r.runs = map[string]*types.WorkflowRun{}
+	}
+	cur := cp
+	r.runs[run.ID] = &cur
 	r.mu.Unlock()
 	return nil
 }
@@ -39,26 +46,19 @@ func (r *runRepoStub) UpdateWorkflowRun(_ context.Context, run *types.WorkflowRu
 	cp := *run
 	r.mu.Lock()
 	r.updated = append(r.updated, &cp)
+	r.runs[run.ID] = &cp
 	r.mu.Unlock()
 	return nil
 }
 func (r *runRepoStub) GetWorkflowRunByIDAndTenant(_ context.Context, runID string, tenantID uint64) (*types.WorkflowRun, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for _, run := range r.created {
-		if run.ID == runID && run.TenantID == tenantID {
-			// Return the latest known state: the most recent update for this
-			// row if any, else the create-time copy.
-			latest := run
-			for _, u := range r.updated {
-				if u.ID == runID {
-					latest = u
-				}
-			}
-			return latest, nil
-		}
+	if run, ok := r.runs[runID]; ok && run.TenantID == tenantID {
+		return run, nil
 	}
-	return nil, errWorkflowNotFoundStub
+	// Real sentinel: service/handler errors.Is(apprepo.ErrWorkflowNotFound)
+	// mapping must behave exactly like production.
+	return nil, apprepo.ErrWorkflowNotFound
 }
 
 // wfStubModelSvc embeds the wide ModelService interface (nil) and
@@ -101,7 +101,7 @@ func runTestWorkflow(t *testing.T, dsl string) (*runRepoStub, *types.WorkflowRun
 	repo := newRunRepoStub(wf)
 	svc := NewWorkflowService(repo, &wfStubModelSvc{reply: "llm-answer"}, &wfStubKBSvc{
 		hits: []*types.SearchResult{{ID: "c1", Content: "chunk text", KnowledgeTitle: "doc"}},
-	}, nil)
+	}, nil, nil)
 	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(10001))
 	run, err := svc.RunWorkflow(ctx, "wf-1", &types.RunWorkflowRequest{Query: "hello"})
 	return repo, run, err
@@ -181,7 +181,43 @@ func TestRunWorkflow_CompileCyclePersistsFailedRun(t *testing.T) {
 }
 
 func TestRunWorkflow_MissingTenantRejected(t *testing.T) {
-	svc := NewWorkflowService(newRunRepoStub(nil), nil, nil, nil)
+	svc := NewWorkflowService(newRunRepoStub(nil), nil, nil, nil, nil)
 	_, err := svc.RunWorkflow(context.Background(), "wf-1", &types.RunWorkflowRequest{Query: "q"})
 	assert.ErrorIs(t, err, ErrWorkflowTenantRequired)
+}
+
+// MarkWorkflowRunCancelled mirrors the real repo's state-guarded update:
+// only pending/running rows flip; terminal rows report not-cancellable.
+func (r *runRepoStub) MarkWorkflowRunCancelled(_ context.Context, runID string, tenantID uint64) error {
+	cur := r.runs[runID]
+	if cur == nil || cur.TenantID != tenantID {
+		return apprepo.ErrWorkflowNotFound
+	}
+	if cur.Status != types.WorkflowRunStatusPending && cur.Status != types.WorkflowRunStatusRunning {
+		return apprepo.ErrWorkflowRunNotCancellable
+	}
+	cur.Status = types.WorkflowRunStatusCancelled
+	return nil
+}
+
+// seedRun inserts a pre-existing run row (terminal-state tests).
+func (r *runRepoStub) seedRun(run *types.WorkflowRun) {
+	if r.runs == nil {
+		r.runs = map[string]*types.WorkflowRun{}
+	}
+	cp := *run
+	r.runs[run.ID] = &cp
+}
+
+// lastCreatedRunID returns the id of the most recently created run.
+func (r *runRepoStub) lastCreatedRunID() string {
+	if len(r.created) == 0 {
+		return ""
+	}
+	return r.created[len(r.created)-1].ID
+}
+
+// runRow returns the current stored copy of a run row (nil when absent).
+func (r *runRepoStub) runRow(runID string) *types.WorkflowRun {
+	return r.runs[runID]
 }

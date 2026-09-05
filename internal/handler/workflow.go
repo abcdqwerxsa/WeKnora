@@ -302,6 +302,32 @@ func setWorkflowSSEHeaders(c *gin.Context) {
 	c.Header("X-Accel-Buffering", "no")
 }
 
+// CancelWorkflowRun godoc
+// @Summary      取消工作流运行
+// @Description  尽力取消一次 pending/running 的运行：行级置为 cancelled（状态守卫 UPDATE），进程内执行经 context 中止，SSE 订阅者收到 cancelled 终态帧后关流；对已终态的运行幂等返回当前状态（200，不报 409）
+// @Tags         工作流
+// @Produce      json
+// @Param        id      path string true "工作流 ID"
+// @Param        run_id  path string true "运行 ID"
+// @Success      200 {object} map[string]interface{}
+// @Failure      404 {object} apperrors.AppError
+// @Failure      500 {object} apperrors.AppError
+// @Security     Bearer
+// @Router       /workflows/{id}/runs/{run_id}/cancel [post]
+func (h *WorkflowHandler) CancelWorkflowRun(c *gin.Context) {
+	ctx := c.Request.Context()
+	run, err := h.service.CancelWorkflowRun(ctx, c.Param("id"), c.Param("run_id"))
+	if err != nil {
+		if errors.Is(err, apprepo.ErrWorkflowNotFound) {
+			c.Error(apperrors.NewNotFoundError("workflow run not found"))
+			return
+		}
+		c.Error(apperrors.NewInternalServerError("failed to cancel workflow run").WithDetails(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"run": run})
+}
+
 // GetWorkflowRunEvents godoc
 // @Summary      工作流运行事件流（SSE）
 // @Description  以 SSE 推送一次运行的过程事件：kind=node（节点 started/finished/failed）与终态帧 kind=run（含 status，随后关流）。run 已终态时立即下发终态帧并关流

@@ -133,3 +133,25 @@ func (r *workflowRepository) ListWorkflowRunsByTenantAndWorkflow(ctx context.Con
 	}
 	return runs, nil
 }
+
+// ErrWorkflowRunNotCancellable is returned by MarkWorkflowRunCancelled when
+// the row already reached a terminal state; callers re-read and surface the
+// current row instead of failing the API call.
+var ErrWorkflowRunNotCancellable = errors.New("workflow run already terminal")
+
+// MarkWorkflowRunCancelled flips a pending/running run to cancelled using a
+// state-guarded UPDATE, so a concurrent terminal write cannot be overwritten
+// by a late cancel (and vice versa).
+func (r *workflowRepository) MarkWorkflowRunCancelled(ctx context.Context, runID string, tenantID uint64) error {
+	res := r.db.WithContext(ctx).Model(&types.WorkflowRun{}).
+		Where("id = ? AND tenant_id = ? AND status IN (?, ?)",
+			runID, tenantID, types.WorkflowRunStatusPending, types.WorkflowRunStatusRunning).
+		Update("status", types.WorkflowRunStatusCancelled)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return ErrWorkflowRunNotCancellable
+	}
+	return nil
+}
