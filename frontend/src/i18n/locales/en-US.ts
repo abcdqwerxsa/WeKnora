@@ -2192,7 +2192,7 @@ export default {
     loginHint: 'Sign in to continue, or create an account below if this is your first time.',
     registerSuccess: 'Registration successful. Please sign in',
     registerFailed: 'Registration failed',
-    subtitle: 'RAG Q&A, ReAct Agent and Wiki — an LLM-powered enterprise knowledge framework',
+    subtitle: 'LuoShu Intelligent Computing · Agent Platform',
     registerSubtitle: 'Create your account and start using WeKnora',
     emailPlaceholder: 'Enter email address',
     passwordPlaceholder: 'Enter password',

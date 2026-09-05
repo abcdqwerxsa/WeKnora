@@ -1836,12 +1836,12 @@ const handleUploadFinishedEvent = (event: Event) => {
 }
 
 .kb-create-btn {
-  background: linear-gradient(135deg, var(--td-brand-color) 0%, #00a67e 100%);
+  background: linear-gradient(135deg, var(--td-brand-color-6) 0%, var(--td-brand-color-7) 100%);
   border: none;
   color: var(--td-text-color-anti);
 
   &:hover {
-    background: linear-gradient(135deg, var(--td-brand-color) 0%, var(--td-brand-color-active) 100%);
+    background: linear-gradient(135deg, var(--td-brand-color-7) 0%, var(--td-brand-color-8) 100%);
   }
 }
 

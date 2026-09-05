@@ -237,8 +237,8 @@ onUnmounted(() => {
     height: 100%;
     min-width: 600px;
     min-height: 0;
-    /* 统一整页背景，让左侧菜单与右侧内容区视觉连贯 */
-    background: var(--td-bg-color-container);
+    /* 整页 page 背景，与 sidebar / card 形成三层视觉层次（与设计稿一致） */
+    background: var(--td-bg-color-page);
 }
 
 /* 右侧路由区：占满剩余宽度与整列高度，并把 min-height:0 传给子页面以便内部 flex 滚动 */
