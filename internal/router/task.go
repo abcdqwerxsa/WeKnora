@@ -36,6 +36,7 @@ type AsynqTaskParams struct {
 	WikiServer           *asynq.Server `name:"wikiAsynqServer"`
 	KnowledgeService     interfaces.KnowledgeService
 	KnowledgeBaseService interfaces.KnowledgeBaseService
+	WorkflowService      interfaces.WorkflowService
 	TagService           interfaces.KnowledgeTagService
 	DataSourceService    interfaces.DataSourceService
 	ChunkExtractor       interfaces.TaskHandler `name:"chunkExtractor"`
@@ -274,7 +275,11 @@ func RunAsynqServer(params AsynqTaskParams) *asynq.ServeMux {
 	mux.HandleFunc(types.TypeFAQImport, params.KnowledgeService.ProcessFAQImport)
 
 	// Register question generation handler
-	mux.HandleFunc(types.TypeQuestionGeneration, params.KnowledgeService.ProcessQuestionGeneration)
+mux.HandleFunc(types.TypeQuestionGeneration, params.KnowledgeService.ProcessQuestionGeneration)
+
+	// Workflow async run: pending→terminal state machine owned by the run
+	// row; the handler no-ops on re-delivery of a non-pending run.
+	mux.HandleFunc(types.TypeWorkflowRun, params.WorkflowService.ProcessWorkflowRun)
 
 	// Register summary generation handler
 	mux.HandleFunc(types.TypeSummaryGeneration, params.KnowledgeService.ProcessSummaryGeneration)

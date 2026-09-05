@@ -1,5 +1,5 @@
 <template>
-  <div class="wf-node" :class="[`wf-node--${kind}`, { 'wf-node--selected': selected }]">
+  <div class="wf-node" :class="[`wf-node--${kind}`, { 'wf-node--selected': selected }, runPhase ? `wf-node--run-${runPhase}` : '']">
     <Handle v-if="hasTargetHandle" type="target" :position="Position.Left" />
     <div class="wf-node-inner">
       <span class="wf-node-badge">{{ kind.charAt(0) }}</span>
@@ -21,6 +21,8 @@ const props = defineProps<{
   kind: WorkflowNodeType
   selected?: boolean
   subtitle?: string
+  /** Live run progress from the SSE stream; undefined when idle. */
+  runPhase?: 'running' | 'done' | 'failed'
 }>()
 
 const hasTargetHandle = computed(() => props.kind !== 'Start')
@@ -39,6 +41,26 @@ const hasSourceHandle = computed(() => props.kind !== 'Answer')
 
 .wf-node--selected {
   border-color: var(--td-brand-color);
+}
+
+/* Live run phases (set from the SSE node events by the editor). */
+.wf-node--run-running {
+  border-color: var(--td-brand-color);
+  animation: wf-node-pulse 1.1s ease-in-out infinite;
+}
+
+.wf-node--run-done {
+  border-color: var(--td-success-color);
+}
+
+.wf-node--run-failed {
+  border-color: var(--td-error-color);
+}
+
+@keyframes wf-node-pulse {
+  50% {
+    box-shadow: 0 0 0 6px rgba(0, 82, 217, 0.15);
+  }
 }
 
 .wf-node-inner {

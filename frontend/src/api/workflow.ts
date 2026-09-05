@@ -97,3 +97,71 @@ export const updateWorkflow = (
 ): Promise<WorkflowMutationResponse> => put(`/api/v1/workflows/${id}`, payload)
 
 export const deleteWorkflow = (id: string): Promise<{ success: boolean }> => del(`/api/v1/workflows/${id}`)
+
+// ---------------------------------------------------------------------------
+// Run execution + progress (consumes the stage-2 backend contract).
+//
+// Envelope note: create-run answers with a bare { run } object (sync 200 /
+// async 202 / failed-with-record 200), while run history follows the
+// repository-wide { success, data } envelope — the shapes are kept apart in
+// the response types below instead of papered over.
+// ---------------------------------------------------------------------------
+
+export type WorkflowRunStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+
+export interface WorkflowRunOutput {
+  answer?: string
+  path?: string[]
+  outputs?: Record<string, Record<string, unknown>>
+}
+
+export interface WorkflowRun {
+  id: string
+  tenant_id?: number
+  workflow_id: string
+  status: WorkflowRunStatus
+  input?: unknown
+  output?: WorkflowRunOutput | null
+  error?: string
+  created_at?: string
+  updated_at?: string
+}
+
+/** One SSE frame of GET /workflows/:id/runs/:runId/events. */
+export interface WorkflowRunEventFrame {
+  workflow_id: string
+  run_id: string
+  kind: 'node' | 'run'
+  /** Set for kind=node frames; matches the canvas node id. */
+  node_id?: string
+  /** node frames: started|finished|failed · run frames: terminal run status. */
+  phase: string
+  error?: string
+  duration_ms?: number
+  status?: WorkflowRunStatus
+}
+
+export interface WorkflowRunResponse {
+  success?: boolean
+  run?: WorkflowRun
+  message?: string
+}
+
+export interface WorkflowRunListResponse {
+  success: boolean
+  data?: { runs: WorkflowRun[]; total: number }
+  message?: string
+}
+
+export const runWorkflow = (
+  id: string,
+  payload: { query: string; files?: string[]; async?: boolean },
+): Promise<WorkflowRunResponse> => post(`/api/v1/workflows/${id}/runs`, payload)
+
+export const listWorkflowRuns = (id: string): Promise<WorkflowRunListResponse> =>
+  get(`/api/v1/workflows/${id}/runs`)
+
+/** Path-only SSE URL; the stream composable adds base URL + auth headers. */
+export function workflowRunEventsUrl(workflowId: string, runId: string): string {
+  return `/api/v1/workflows/${workflowId}/runs/${runId}/events`
+}

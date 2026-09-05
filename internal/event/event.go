@@ -81,6 +81,14 @@ const (
 	// Session events
 	EventSessionTitle EventType = "session_title" // 会话标题更新
 
+	// Workflow orchestration events (per-node progress + terminal state).
+	// Emitted by WorkflowService for both sync and async runs; the per-run
+	// SSE endpoint consumes the broker, the global bus is the observability
+	// fan-out (single-instance only — multi-instance needs a redis pubsub
+	// bridge, deliberately out of scope).
+	EventWorkflowNode        EventType = "workflow.node"         // 工作流节点进度
+	EventWorkflowRunFinished EventType = "workflow.run.finished" // 工作流运行终态
+
 	// Control events
 	EventStop EventType = "stop" // 停止对话生成
 )

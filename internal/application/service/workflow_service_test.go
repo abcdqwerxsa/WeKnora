@@ -126,12 +126,15 @@ func (r *stubWorkflowRepo) ListWorkflowRunsByTenantAndWorkflow(_ context.Context
 func (r *stubWorkflowRepo) UpdateWorkflowRun(_ context.Context, _ *types.WorkflowRun) error {
 	return nil
 }
+func (r *stubWorkflowRepo) GetWorkflowRunByIDAndTenant(_ context.Context, _ string, _ uint64) (*types.WorkflowRun, error) {
+	return nil, errWorkflowNotFoundStub
+}
 
 var errWorkflowNotFoundStub = errors.New("workflow not found")
 
 func TestWorkflowService_CreateDerivesTenantAndCreatorFromContext(t *testing.T) {
 	repo := &stubWorkflowRepo{}
-	svc := NewWorkflowService(repo, nil, nil)
+	svc := NewWorkflowService(repo, nil, nil, nil)
 
 	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(10001))
 	ctx = context.WithValue(ctx, types.UserIDContextKey, "user-a")
@@ -152,14 +155,14 @@ func TestWorkflowService_CreateDerivesTenantAndCreatorFromContext(t *testing.T) 
 }
 
 func TestWorkflowService_CreateWithoutTenantFails(t *testing.T) {
-	svc := NewWorkflowService(&stubWorkflowRepo{}, nil, nil)
+	svc := NewWorkflowService(&stubWorkflowRepo{}, nil, nil, nil)
 	_, err := svc.CreateWorkflow(context.Background(), &types.Workflow{Name: "wf", DSL: types.JSON(validDSL)})
 	assert.ErrorIs(t, err, ErrWorkflowTenantRequired)
 }
 
 func TestWorkflowService_UpdateBumpsVersionAndKeepsDSLWhenOmitted(t *testing.T) {
 	repo := &stubWorkflowRepo{}
-	svc := NewWorkflowService(repo, nil, nil)
+	svc := NewWorkflowService(repo, nil, nil, nil)
 
 	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(10001))
 	created, err := svc.CreateWorkflow(ctx, &types.Workflow{Name: "wf", DSL: types.JSON(validDSL)})

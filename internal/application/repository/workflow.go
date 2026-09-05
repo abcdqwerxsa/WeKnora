@@ -106,6 +106,21 @@ func (r *workflowRepository) UpdateWorkflowRun(ctx context.Context, run *types.W
 		}).Error
 }
 
+// GetWorkflowRunByIDAndTenant returns the run row only when it belongs to
+// tenantID — cross-tenant run ids fail closed as not-found.
+func (r *workflowRepository) GetWorkflowRunByIDAndTenant(ctx context.Context, runID string, tenantID uint64) (*types.WorkflowRun, error) {
+	var run types.WorkflowRun
+	if err := r.db.WithContext(ctx).
+		Where("id = ? AND tenant_id = ?", runID, tenantID).
+		First(&run).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrWorkflowNotFound
+		}
+		return nil, err
+	}
+	return &run, nil
+}
+
 // ListWorkflowRunsByTenantAndWorkflow returns the run history of one
 // workflow, newest first.
 func (r *workflowRepository) ListWorkflowRunsByTenantAndWorkflow(ctx context.Context, tenantID uint64, workflowID string) ([]*types.WorkflowRun, error) {
