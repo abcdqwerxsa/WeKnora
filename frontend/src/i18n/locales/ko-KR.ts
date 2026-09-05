@@ -6770,6 +6770,27 @@ export default {
   }
 ,
   workflow: {
+    palette: {
+      title: '노드',
+      groups: {
+        start: '시작',
+        basic: '기본',
+        transform: '변환',
+        data: '데이터',
+        network: '네트워크',
+      },
+    },
+    nodeDesc: {
+      Start: '사용자 입력을 받습니다',
+      LLM: 'LLM으로 콘텐츠 생성',
+      Retrieval: '지식 베이스 검색',
+      Switch: '조건으로 분기',
+      Answer: '최종 응답 렌더링',
+      Template: '템플릿과 문자열 변환',
+      VariableAggregator: '분기 변수 병합',
+      DataOps: '변수에 SQL 실행',
+      HTTP: '내부 HTTP 호출',
+    },
     title: '워크플로',
     subtitle: '캔버스에서 결정론적인 에이전트 워크플로 설계',
     create: '새 워크플로',
@@ -6870,7 +6891,9 @@ export default {
       dataOpsHint: '단일 읽기 전용 문; $name 바인딩',
       insertRef: '참조 삽입',
       refPickerTitle: '상위 출력 선택',
-      refPickerEmpty: '사용 가능한 상위 출력 없음',},
+      refPickerEmpty: '사용 가능한 상위 출력 없음',      deleteHint: '노드나 연결을 선택한 후 Delete 키로 삭제; 연결 더블클릭으로도 삭제',
+      startProtected: '시작 노드는 삭제할 수 없습니다',
+},
     run: {
       open: '실행',
       title: '실행',

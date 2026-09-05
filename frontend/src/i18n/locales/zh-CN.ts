@@ -6772,6 +6772,27 @@ export default {
   }
 ,
   workflow: {
+    palette: {
+      title: '节点',
+      groups: {
+        start: '开始',
+        basic: '基础',
+        transform: '变换',
+        data: '数据',
+        network: '网络',
+      },
+    },
+    nodeDesc: {
+      Start: '接收用户输入',
+      LLM: '调用大模型生成内容',
+      Retrieval: '从知识库检索',
+      Switch: '按条件路由分支',
+      Answer: '渲染最终回复',
+      Template: '模板与字符串变换',
+      VariableAggregator: '汇聚多路分支变量',
+      DataOps: '对变量执行 SQL 查询',
+      HTTP: '调用内网 HTTP 接口',
+    },
     title: '工作流',
     subtitle: '在画布上编排确定性的智能体工作流',
     create: '新建工作流',
@@ -6872,7 +6893,9 @@ export default {
       dataOpsHint: '单条只读语句；变量以 $ 名绑定',
       insertRef: '插入引用',
       refPickerTitle: '选择上游输出',
-      refPickerEmpty: '无可用上游输出',},
+      refPickerEmpty: '无可用上游输出',      deleteHint: '选中节点或连线后按 Delete 删除；双击连线可直接删除',
+      startProtected: '开始节点不可删除',
+},
     run: {
       open: '运行',
       title: '运行',

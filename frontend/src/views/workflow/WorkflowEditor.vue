@@ -9,17 +9,6 @@
         <t-tag v-if="workflow" size="small" theme="warning">{{ $t(`workflow.status.${workflow.status}`) }}</t-tag>
       </div>
       <div class="wf-editor-toolbar-right">
-        <t-dropdown @click="(item: { value?: string }) => addNode(item.value as WorkflowNodeType)">
-          <t-button variant="outline">
-            {{ $t('workflow.editor.addNode') }}
-            <template #icon><t-icon name="add" /></template>
-          </t-button>
-          <t-dropdown-menu>
-            <t-dropdown-item v-for="kind in WORKFLOW_NODE_TYPES" :key="kind" :value="kind">
-              {{ $t(`workflow.nodes.${kind}`) }}
-            </t-dropdown-item>
-          </t-dropdown-menu>
-        </t-dropdown>
         <t-button variant="outline" @click="importDslFile?.click()">
           <template #icon><t-icon name="upload" /></template>
           {{ $t('workflow.editor.importDsl') }}
@@ -48,26 +37,35 @@
     </div>
 
     <div v-show="ready" class="wf-editor-canvas">
-      <VueFlow
-        v-model:nodes="canvasNodes"
-        v-model:edges="canvasEdges"
-        fit-view-on-init
-        :min-zoom="0.2"
-        :max-zoom="2"
-        @connect="onConnect"
-        @node-click="onNodeClick"
-        @pane-click="selectedNodeId = null"
-      >
-        <Background :gap="20" />
-        <template #node-wf="nodeProps">
-          <WfNodeCard
-            :kind="(nodeProps.data?.kind as WorkflowNodeType) ?? 'Answer'"
-            :selected="nodeProps.selected"
-            :subtitle="nodeSubtitle(nodeProps.data)"
-            :run-phase="runNodePhases[nodeProps.id]"
-          />
-        </template>
-      </VueFlow>
+      <NodePalette @add="addNodeFromPalette" />
+      <div class="wf-editor-flow">
+        <VueFlow
+          v-model:nodes="canvasNodes"
+          v-model:edges="canvasEdges"
+          fit-view-on-init
+          :min-zoom="0.2"
+          :max-zoom="2"
+          :default-edge-options="defaultEdgeOptions"
+          @connect="onConnect"
+          @node-click="onNodeClick"
+          @edge-click="onEdgeClick"
+          @edge-double-click="onEdgeDoubleClick"
+          @pane-click="clearSelection"
+        >
+          <Background :gap="20" />
+          <Controls position="bottom-left" />
+          <MiniMap position="bottom-right" pannable zoomable />
+          <template #node-wf="nodeProps">
+            <WfNodeCard
+              :kind="(nodeProps.data?.kind as WorkflowNodeType) ?? 'Answer'"
+              :selected="nodeProps.selected"
+              :subtitle="nodeSubtitle(nodeProps.data)"
+              :run-phase="runNodePhases[nodeProps.id]"
+            />
+          </template>
+        </VueFlow>
+        <p class="wf-editor-hint">{{ $t('workflow.editor.deleteHint') }}</p>
+      </div>
     </div>
 
     <t-drawer
@@ -106,17 +104,22 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, type Ref } from 'vue'
+import { computed, onUnmounted, ref, watch, type Ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
-import { VueFlow, type Connection, type Edge, type Node, type NodeMouseEvent } from '@vue-flow/core'
+import { VueFlow, MarkerType, type Connection, type Edge, type EdgeMouseEvent, type Node, type NodeMouseEvent } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
+import { Controls } from '@vue-flow/controls'
+import { MiniMap } from '@vue-flow/minimap'
 // vue-flow base styles must be global (not scoped): its internal DOM
 // (handles/edges/pane) never receives this component's scope attribute.
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
+import '@vue-flow/controls/dist/style.css'
+import '@vue-flow/minimap/dist/style.css'
 import WfNodeCard from './components/WfNodeCard.vue'
+import NodePalette from './components/NodePalette.vue'
 import NodePropertyForm from './components/NodePropertyForm.vue'
 import WorkflowRunPanel from './components/WorkflowRunPanel.vue'
 import { WORKFLOW_NODE_TYPES, getWorkflow, updateWorkflow, type Workflow, type WorkflowDSL, type WorkflowNodeType } from '@/api/workflow'
@@ -178,7 +181,75 @@ async function fetchPickerData() {
 }
 
 const selectedNodeId = ref<string | null>(null)
+const selectedEdgeId = ref<string | null>(null)
 const importDslFile = ref<HTMLInputElement | null>(null)
+
+function clearSelection() {
+  selectedNodeId.value = null
+  selectedEdgeId.value = null
+}
+
+// ---- selection + deletion -----------------------------------------------
+// vue-flow keeps its own selected flags; we mirror the ids here so the
+// Delete key path and the property drawer share one source of truth.
+function onNodeClick(event: NodeMouseEvent) {
+  selectedNodeId.value = event.node.id
+  selectedEdgeId.value = null
+}
+
+function onEdgeClick(event: EdgeMouseEvent) {
+  selectedEdgeId.value = event.edge.id
+  selectedNodeId.value = null
+}
+
+function onEdgeDoubleClick(event: EdgeMouseEvent) {
+  removeEdge(event.edge.id)
+}
+
+function removeEdge(edgeId: string) {
+  canvasEdges.value = canvasEdges.value.filter((edge) => edge.id !== edgeId)
+  if (selectedEdgeId.value === edgeId) selectedEdgeId.value = null
+}
+
+function removeNode(nodeId: string) {
+  const node = canvasNodes.value.find((item) => item.id === nodeId)
+  if (!node) return
+  if ((node.data?.kind as WorkflowNodeType) === 'Start') {
+    MessagePlugin.warning(t('workflow.editor.startProtected'))
+    return
+  }
+  canvasNodes.value = canvasNodes.value.filter((item) => item.id !== nodeId)
+  canvasEdges.value = canvasEdges.value.filter((edge) => edge.source !== nodeId && edge.target !== nodeId)
+  if (selectedNodeId.value === nodeId) selectedNodeId.value = null
+}
+
+// Typing targets: Delete/Backspace must not fire while the user edits a
+// form field — only delete when the focus is on the canvas itself.
+function isTypingTarget(): boolean {
+  const el = document.activeElement
+  if (!el) return false
+  const tag = el.tagName
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (el as HTMLElement).isContentEditable
+}
+
+function onKeyDown(event: KeyboardEvent) {
+  if (event.key !== 'Delete' && event.key !== 'Backspace') return
+  if (isTypingTarget()) return
+  if (selectedEdgeId.value) {
+    event.preventDefault()
+    removeEdge(selectedEdgeId.value)
+    return
+  }
+  if (selectedNodeId.value) {
+    event.preventDefault()
+    removeNode(selectedNodeId.value)
+  }
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('keydown', onKeyDown)
+  onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
+}
 
 // Run panel state: live node phases (SSE) keyed by canvas node id; cleared
 // when the drawer closes so stale highlights never survive a panel session.
@@ -230,9 +301,19 @@ function refreshEdgeLabels() {
   }
 }
 
-function onNodeClick(event: NodeMouseEvent) {
-  selectedNodeId.value = event.node.id
+// New and re-created edges get an arrowhead; selected/hover styling lives
+// in the non-scoped block below (vue-flow internals carry no scope attr).
+const defaultEdgeOptions = {
+  markerEnd: MarkerType.ArrowClosed,
+  selectable: true,
 }
+
+// Animate outgoing edges of the node currently executing (SSE run phase).
+watch(runNodePhases, (phases) => {
+  for (const edge of canvasEdges.value) {
+    edge.animated = phases[edge.source] === 'running'
+  }
+}, { deep: true })
 
 function onConnect(connection: Connection) {
   if (!connection.source || !connection.target) return
@@ -251,16 +332,21 @@ function onConnect(connection: Connection) {
   refreshEdgeLabels()
 }
 
-function addNode(kind: WorkflowNodeType) {
+function addNodeFromPalette(kind: WorkflowNodeType) {
   if (!WORKFLOW_NODE_TYPES.includes(kind)) return
+  // Drop near the canvas centre with a little jitter so repeated adds
+  // don't stack exactly on top of each other.
+  const n = canvasNodes.value.length
+  const jitter = () => Math.random() * 48 - 24
   const node: Node = {
     id: makeNodeId(kind),
     type: 'wf',
-    position: { x: 80 + (canvasNodes.value.length % 5) * 200, y: 80 + Math.floor(canvasNodes.value.length / 5) * 140 },
+    position: { x: 140 + (n % 4) * 240 + jitter(), y: 100 + Math.floor(n / 4) * 170 + jitter() },
     data: { kind, params: defaultParams(kind) },
   }
   canvasNodes.value.push(node)
   selectedNodeId.value = node.id
+  selectedEdgeId.value = null
 }
 
 function currentDsl(): WorkflowDSL {
@@ -370,6 +456,32 @@ function goBack() {
 load()
 </script>
 
+<style>
+/* Global (non-scoped): vue-flow's edge/pane DOM never receives this
+   component's scope attribute, so selection styling must live here. */
+.wf-editor .vue-flow__edge {
+  cursor: pointer;
+}
+
+.wf-editor .vue-flow__edge:hover path.vue-flow__edge-path {
+  stroke: var(--td-brand-color);
+}
+
+.wf-editor .vue-flow__edge.selected path.vue-flow__edge-path {
+  stroke: var(--td-brand-color);
+  stroke-width: 2.5px;
+}
+
+.wf-editor .vue-flow__edge-textbg {
+  fill: var(--td-bg-color-container);
+}
+
+.wf-editor .vue-flow__edge-text {
+  fill: var(--td-text-color-primary);
+  font-size: 11px;
+}
+</style>
+
 <style scoped>
 .wf-editor {
   display: flex;
@@ -415,6 +527,28 @@ load()
 .wf-editor-canvas {
   flex: 1;
   min-height: 0;
+  display: flex;
+  align-items: stretch;
+}
+
+.wf-editor-flow {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+
+.wf-editor-hint {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  margin: 0;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--td-bg-color-secondarycontainer);
+  color: var(--td-text-color-placeholder);
+  font-size: 12px;
+  pointer-events: none;
+  z-index: 5;
 }
 
 .wf-editor-form {

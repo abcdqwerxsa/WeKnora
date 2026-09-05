@@ -6770,6 +6770,27 @@ export default {
   }
 ,
   workflow: {
+    palette: {
+      title: 'Nodes',
+      groups: {
+        start: 'Start',
+        basic: 'Basic',
+        transform: 'Transform',
+        data: 'Data',
+        network: 'Network',
+      },
+    },
+    nodeDesc: {
+      Start: 'Receives the user input',
+      LLM: 'Generate content with an LLM',
+      Retrieval: 'Search knowledge bases',
+      Switch: 'Route by condition',
+      Answer: 'Render the final reply',
+      Template: 'Template and string transforms',
+      VariableAggregator: 'Merge variables from branches',
+      DataOps: 'Run SQL over variables',
+      HTTP: 'Call an intranet HTTP endpoint',
+    },
     title: 'Workflows',
     subtitle: 'Design deterministic agent workflows on a canvas',
     create: 'New workflow',
@@ -6870,7 +6891,9 @@ export default {
       dataOpsHint: 'Single read-only statement; $name bindings',
       insertRef: 'Insert reference',
       refPickerTitle: 'Pick an upstream output',
-      refPickerEmpty: 'No upstream outputs available',},
+      refPickerEmpty: 'No upstream outputs available',      deleteHint: 'Select a node or edge and press Delete; double-click an edge to remove it',
+      startProtected: 'The Start node cannot be deleted',
+},
     run: {
       open: 'Run',
       title: 'Run',

@@ -6770,6 +6770,27 @@ export default {
   }
 ,
   workflow: {
+    palette: {
+      title: 'Узлы',
+      groups: {
+        start: 'Старт',
+        basic: 'Базовые',
+        transform: 'Преобразование',
+        data: 'Данные',
+        network: 'Сеть',
+      },
+    },
+    nodeDesc: {
+      Start: 'Принимает ввод пользователя',
+      LLM: 'Генерация через LLM',
+      Retrieval: 'Поиск по базам знаний',
+      Switch: 'Ветвление по условию',
+      Answer: 'Итоговый ответ',
+      Template: 'Шаблоны и обработка строк',
+      VariableAggregator: 'Слияние переменных ветвей',
+      DataOps: 'SQL по переменным',
+      HTTP: 'Внутренний HTTP-вызов',
+    },
     title: 'Рабочие процессы',
     subtitle: 'Проектируйте детерминированные рабочие процессы агентов на холсте',
     create: 'Новый процесс',
@@ -6870,7 +6891,9 @@ export default {
       dataOpsHint: 'Один оператор только чтения; привязки $name',
       insertRef: 'Вставить ссылку',
       refPickerTitle: 'Выбрать выход узла',
-      refPickerEmpty: 'Нет доступных выходов',},
+      refPickerEmpty: 'Нет доступных выходов',      deleteHint: 'Выберите узел или связь и нажмите Delete; двойной клик по связи удаляет её',
+      startProtected: 'Стартовый узел нельзя удалить',
+},
     run: {
       open: 'Запуск',
       title: 'Запуск',
