@@ -2,7 +2,7 @@
   <div class="wf-node" :class="[`wf-node--${kind}`, { 'wf-node--selected': selected }, runPhase ? `wf-node--run-${runPhase}` : '']">
     <Handle v-if="hasTargetHandle" type="target" :position="Position.Left" />
     <div class="wf-node-inner">
-      <span class="wf-node-badge">{{ kind.charAt(0) }}</span>
+      <span class="wf-node-badge" :style="{ background: badgeColor }">{{ kind.charAt(0) }}</span>
       <div class="wf-node-text">
         <span class="wf-node-kind">{{ kind }}</span>
         <span v-if="subtitle" class="wf-node-subtitle">{{ subtitle }}</span>
@@ -16,6 +16,7 @@
 import { computed } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
 import type { WorkflowNodeType } from '@/api/workflow'
+import { NODE_COLORS } from '../nodeMeta'
 
 const props = defineProps<{
   kind: WorkflowNodeType
@@ -27,6 +28,7 @@ const props = defineProps<{
 
 const hasTargetHandle = computed(() => props.kind !== 'Start')
 const hasSourceHandle = computed(() => props.kind !== 'Answer')
+const badgeColor = computed(() => NODE_COLORS[props.kind] ?? '#9aa4b2')
 </script>
 
 <style scoped>

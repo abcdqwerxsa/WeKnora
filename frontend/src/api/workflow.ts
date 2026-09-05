@@ -1,22 +1,70 @@
 import { get, post, put, del } from '@/utils/request'
 
 /**
- * Workflow orchestration MVP client.
+ * Workflow orchestration client.
  *
- * Node `type` doubles as the DSL `component_name` (Start / LLM / Retrieval /
- * Switch / Answer). The DSL keeps two synchronized views:
+ * Node `type` doubles as the DSL `component_name`. The DSL keeps two
+ * synchronized views:
  *  - `graph`: canvas layout (nodes with positions + edges), consumed by the
  *    vue-flow editor;
  *  - `components`: execution topology (upstream/downstream + params),
  *    consumed by the backend engine.
  *
- * List/mutation responses follow the repository-wide `{ success, data }`
- * envelope (same as storage-backends / agents lists).
+ * Param keys inside `components[id].obj.params` MUST match the engine
+ * registry verbatim (snake_case, e.g. `kb_ids`, `system_prompt`,
+ * `top_k`) — the engine reads them by literal key and fails on missing
+ * required ones. Typed interfaces below document that contract; the DSL
+ * itself keeps `params` as a loose record because not every field is set.
  */
-export type WorkflowNodeType = 'Start' | 'LLM' | 'Retrieval' | 'Switch' | 'Answer'
+export type WorkflowNodeType =
+  | 'Start'
+  | 'LLM'
+  | 'Retrieval'
+  | 'Switch'
+  | 'Answer'
+  | 'Template'
+  | 'VariableAggregator'
+  | 'HTTP'
+  | 'DataOps'
+
 export type WorkflowStatus = 'draft' | 'published' | 'archived'
 
-export const WORKFLOW_NODE_TYPES: WorkflowNodeType[] = ['Start', 'LLM', 'Retrieval', 'Switch', 'Answer']
+export const WORKFLOW_NODE_TYPES: WorkflowNodeType[] = [
+  'Start',
+  'LLM',
+  'Retrieval',
+  'Switch',
+  'Answer',
+  'Template',
+  'VariableAggregator',
+  'HTTP',
+  'DataOps',
+]
+
+/** Engine output keys per node kind (source of {nodeId@param} references). */
+export const NODE_OUTPUT_PARAMS: Partial<Record<WorkflowNodeType, string[]>> = {
+  Start: ['query'],
+  LLM: ['content'],
+  Retrieval: ['chunks', 'doc_aggs'],
+  Template: ['text'],
+  HTTP: ['status_code', 'body', 'headers'],
+  DataOps: ['columns', 'rows', 'row_count'],
+}
+
+// ---- Typed param shapes (per-node property forms) --------------------
+
+export interface TemplateOp {
+  op: 'upper' | 'lower' | 'trim' | 'replace' | 'regex_extract'
+  from?: string
+  to?: string
+  pattern?: string
+  group?: number
+}
+
+export interface VariableRef {
+  name: string
+  ref: string
+}
 
 export interface WFPosition {
   x: number

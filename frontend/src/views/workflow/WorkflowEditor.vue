@@ -77,69 +77,17 @@
       :footer="false"
       :close-btn="true"
     >
-      <div v-if="selectedParams" class="wf-editor-form">
-        <p class="wf-editor-form-kind">{{ $t(`workflow.nodes.${selectedKind}`) }} · {{ selectedNodeId }}</p>
-
-        <template v-if="selectedKind === 'Start'">
-          <t-form-item label="queryPlaceholder">
-            <t-input v-model="selectedParams.queryPlaceholder" :placeholder="$t('workflow.editor.queryPlaceholder')" />
-          </t-form-item>
-        </template>
-
-        <template v-else-if="selectedKind === 'LLM'">
-          <t-form-item :label="$t('workflow.editor.prompt')">
-            <t-textarea v-model="selectedParams.prompt" :autosize="{ minRows: 4, maxRows: 10 }" :placeholder="$t('workflow.editor.promptHint')" />
-          </t-form-item>
-          <t-form-item :label="$t('workflow.editor.model')">
-            <t-input v-model="selectedParams.model" />
-          </t-form-item>
-          <t-form-item :label="$t('workflow.editor.temperature')">
-            <t-input-number v-model="llmTemperature" :min="0" :max="2" :step="0.1" theme="column" />
-          </t-form-item>
-        </template>
-
-        <template v-else-if="selectedKind === 'Retrieval'">
-          <t-form-item :label="$t('workflow.editor.kbIds')">
-            <t-textarea v-model="kbIdsText" :autosize="{ minRows: 3, maxRows: 8 }" />
-          </t-form-item>
-          <t-form-item :label="$t('workflow.editor.topK')">
-            <t-input-number v-model="retrievalTopK" :min="1" :max="50" theme="column" />
-          </t-form-item>
-        </template>
-
-        <template v-else-if="selectedKind === 'Switch'">
-          <t-form-item :label="$t('workflow.editor.switchValue')">
-            <t-input v-model="selectedParams.value" :placeholder="$t('workflow.editor.switchValueHint')" />
-          </t-form-item>
-          <t-form-item :label="$t('workflow.editor.cases')">
-            <div class="wf-editor-cases">
-              <div v-for="(item, index) in switchCases" :key="index" class="wf-editor-case-row">
-                <t-input v-model="item.value" :placeholder="$t('workflow.editor.caseValue')" />
-                <t-select v-model="item.to" :placeholder="$t('workflow.editor.caseTarget')" clearable>
-                  <t-option v-for="option in nodeOptions(selectedNodeId)" :key="option.value" :value="option.value" :label="option.label" />
-                </t-select>
-                <t-button variant="text" theme="danger" size="small" @click="switchCases.splice(index, 1)">
-                  <template #icon><t-icon name="delete" /></template>
-                </t-button>
-              </div>
-              <t-button variant="dashed" size="small" block @click="switchCases.push({ value: '', to: '' })">
-                {{ $t('workflow.editor.addCase') }}
-              </t-button>
-            </div>
-          </t-form-item>
-          <t-form-item :label="$t('workflow.editor.defaultBranch')">
-            <t-select v-model="selectedParams.default" :placeholder="$t('workflow.editor.caseTarget')" clearable>
-              <t-option v-for="option in nodeOptions(selectedNodeId)" :key="option.value" :value="option.value" :label="option.label" />
-            </t-select>
-          </t-form-item>
-        </template>
-
-        <template v-else-if="selectedKind === 'Answer'">
-          <t-form-item :label="$t('workflow.editor.template')">
-            <t-textarea v-model="selectedParams.template" :autosize="{ minRows: 4, maxRows: 10 }" :placeholder="$t('workflow.editor.promptHint')" />
-          </t-form-item>
-        </template>
-      </div>
+      <NodePropertyForm
+        v-if="selectedParams && selectedKind"
+        :kind="selectedKind"
+        :current-node-id="selectedNodeId ?? ''"
+        :params="selectedParams"
+        :nodes="pickerNodes"
+        :edges="canvasEdges"
+        :chat-models="chatModels"
+        :rerank-models="rerankModels"
+        :kbs="kbs"
+      />
       <div v-else class="wf-editor-form-empty">
         {{ $t('workflow.editor.selectNode') }}
       </div>
@@ -169,9 +117,13 @@ import { Background } from '@vue-flow/background'
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 import WfNodeCard from './components/WfNodeCard.vue'
+import NodePropertyForm from './components/NodePropertyForm.vue'
 import WorkflowRunPanel from './components/WorkflowRunPanel.vue'
 import { WORKFLOW_NODE_TYPES, getWorkflow, updateWorkflow, type Workflow, type WorkflowDSL, type WorkflowNodeType } from '@/api/workflow'
-import { buildDsl, defaultParams, makeNodeId, normalizeDsl } from './dsl'
+import { buildDsl, defaultParams, makeNodeId, migrateNodeParams, normalizeDsl } from './dsl'
+import { paramSummary } from './nodeMeta'
+import { listModels, type ModelConfig } from '@/api/model'
+import { listKnowledgeBases } from '@/api/knowledge-base'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -191,6 +143,39 @@ const workflow = ref<Workflow | null>(null)
 // TS2589 (excessively deep) on vue-flow's heavily generic node type.
 const canvasNodes = ref([]) as Ref<Node[]>
 const canvasEdges = ref([]) as Ref<Edge[]>
+
+// ---- typed property-form data sources ------------------------------------
+// Model / KB pickers degrade to manual entry when the list APIs fail
+// (e.g. cross-workspace share edge cases) — the form stays usable.
+const chatModels = ref<ModelConfig[]>([])
+const rerankModels = ref<ModelConfig[]>([])
+const kbs = ref<Array<{ id: string; name: string }>>([])
+
+const pickerNodes = computed(() =>
+  canvasNodes.value.map((node) => ({
+    id: node.id,
+    kind: (node.data?.kind as WorkflowNodeType) ?? 'Answer',
+    params: (node.data?.params as Record<string, unknown>) ?? {},
+  }))
+)
+
+async function fetchPickerData() {
+  try {
+    const models = await listModels()
+    const list = Array.isArray(models) ? models : []
+    chatModels.value = list.filter((model) => model.type === 'KnowledgeQA')
+    rerankModels.value = list.filter((model) => model.type === 'Rerank')
+  } catch {
+    // keep empty pickers; forms fall back to raw input
+  }
+  try {
+    const response = await listKnowledgeBases()
+    const items = ((response as unknown as { data?: { list?: unknown[] } })?.data?.list ?? (response as unknown as { list?: unknown[] })?.list ?? []) as Array<{ id: string; name: string }>
+    kbs.value = Array.isArray(items) ? items.map((item) => ({ id: String(item.id), name: String(item.name ?? item.id) })) : []
+  } catch {
+    // keep empty pickers
+  }
+}
 
 const selectedNodeId = ref<string | null>(null)
 const importDslFile = ref<HTMLInputElement | null>(null)
@@ -223,54 +208,13 @@ const selectedParams = computed<Record<string, unknown> | null>(() => {
 })
 
 function nodeSubtitle(data: unknown): string {
-  const params = (data as { params?: Record<string, unknown> } | undefined)?.params
-  if (!params) return ''
-  if (typeof params.model === 'string' && params.model) return String(params.model)
-  if (Array.isArray(params.cases)) return `${params.cases.length} cases`
-  return ''
+  const holder = data as { kind?: WorkflowNodeType; params?: Record<string, unknown> } | undefined
+  if (!holder?.kind) return ''
+  return paramSummary(holder.kind, holder.params)
 }
-
-function nodeOptions(excludeId: string | null): Array<{ value: string; label: string }> {
-  return canvasNodes.value
-    .filter((node) => node.id !== excludeId)
-    .map((node) => ({ value: node.id, label: `${(node.data?.kind as string) ?? ''} · ${node.id}` }))
-}
-
-const llmTemperature = computed<number>({
-  get: () => Number(selectedParams.value?.temperature ?? 0.7),
-  set: (value: number) => {
-    if (selectedParams.value) selectedParams.value.temperature = value
-  },
-})
-
-const retrievalTopK = computed<number>({
-  get: () => Number(selectedParams.value?.topK ?? 10),
-  set: (value: number) => {
-    if (selectedParams.value) selectedParams.value.topK = value
-  },
-})
-
-const kbIdsText = computed<string>({
-  get: () => (Array.isArray(selectedParams.value?.kbIds) ? (selectedParams.value!.kbIds as string[]).join('\n') : ''),
-  set: (value: string) => {
-    if (selectedParams.value) {
-      selectedParams.value.kbIds = value.split('\n').map((line) => line.trim()).filter(Boolean)
-    }
-  },
-})
-
-const switchCases = computed<Array<{ value: string; to: string }>>({
-  get: () => {
-    const cases = selectedParams.value?.cases
-    return Array.isArray(cases) ? (cases as Array<{ value: string; to: string }>) : []
-  },
-  set: (value: Array<{ value: string; to: string }>) => {
-    if (selectedParams.value) selectedParams.value.cases = value
-  },
-})
 
 // Keep Switch case labels visible on the edges they route to.
-watch([switchCases, selectedParams], () => refreshEdgeLabels(), { deep: true })
+watch(selectedParams, () => refreshEdgeLabels(), { deep: true })
 
 function refreshEdgeLabels() {
   for (const edge of canvasEdges.value) {
@@ -338,7 +282,7 @@ function setCanvas(dsl: WorkflowDSL) {
     id: node.id,
     type: 'wf',
     position: { x: node.position.x, y: node.position.y },
-    data: { kind: node.type, params: node.data?.params ?? defaultParams(node.type) },
+    data: { kind: node.type, params: migrateNodeParams(node.type, (node.data?.params as Record<string, unknown> | undefined) ?? defaultParams(node.type)) },
   }))
   canvasEdges.value = dsl.graph.edges.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target }))
   refreshEdgeLabels()
@@ -359,6 +303,7 @@ async function load() {
     name.value = data.name
     workflow.value = data
     setCanvas(normalizeDsl(data.dsl))
+    void fetchPickerData()
   } catch (error) {
     loadError.value = true
     loadErrorDetail.value = error instanceof Error ? error.message : String(error)

@@ -10,22 +10,60 @@ import { WORKFLOW_NODE_TYPES } from '@/api/workflow'
  * regenerates `components` on save.
  */
 
-/** Default params for each node kind (also the property-drawer schema). */
+/**
+ * Default params per node kind. Keys MUST match the engine registry
+ * verbatim (snake_case) — see api/workflow.ts. Only fields the engine
+ * actually reads are seeded; optional numeric knobs stay absent until
+ * the user sets them (the engine applies its own defaults).
+ */
 export function defaultParams(kind: WorkflowNodeType): Record<string, unknown> {
   switch (kind) {
     case 'Start':
-      return { queryPlaceholder: '' }
+      return {}
     case 'LLM':
-      return { prompt: '', model: '', temperature: 0.7 }
+      return { model: '', prompt: '', system_prompt: '', temperature: 0.7, max_tokens: 0 }
     case 'Retrieval':
-      return { kbIds: [] as string[], topK: 10 }
+      return { query: '', kb_ids: [] as string[], top_k: 10 }
     case 'Switch':
       return { value: '', cases: [] as Array<{ value: string; to: string }>, default: '' }
     case 'Answer':
       return { template: '' }
+    case 'Template':
+      return { template: '', ops: [] as unknown[] }
+    case 'VariableAggregator':
+      return { variables: [] as Array<{ name: string; ref: string }> }
+    case 'HTTP':
+      return { method: 'GET', url: '', headers: {}, body_template: '', timeout_seconds: 30 }
+    case 'DataOps':
+      return { sql: '', variables: [] as Array<{ name: string; ref: string }> }
     default:
       return {}
   }
+}
+
+/**
+ * Migrate params saved by older editor builds to the engine contract:
+ * camelCase relics from the MVP forms (kbIds / topK / queryPlaceholder)
+ * and the Retrieval `query` template that used to be missing. Mutates
+ * nothing else — unknown extra keys pass through untouched (the engine
+ * ignores params it does not read).
+ */
+export function migrateNodeParams(kind: WorkflowNodeType, params: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...params }
+  if (kind === 'Start') {
+    delete next.queryPlaceholder
+  }
+  if (kind === 'Retrieval') {
+    if (!Array.isArray(next.kb_ids) && Array.isArray(next.kbIds)) {
+      next.kb_ids = next.kbIds
+    }
+    delete next.kbIds
+    if (next.top_k === undefined && typeof next.topK === 'number') {
+      next.top_k = next.topK
+    }
+    delete next.topK
+  }
+  return next
 }
 
 /** Canvas node id that is unique enough for a single editing session. */
@@ -80,7 +118,7 @@ export function layoutComponents(components: Record<string, WFComponent>): { nod
       id,
       type: isNodeType(kind) ? kind : 'Answer',
       position: { x: 80 + d * 200, y: 80 + col.length * 140 },
-      data: { params: comp.obj.params ?? defaultParams(isNodeType(kind) ? kind : 'Answer') },
+      data: { params: migrateNodeParams(isNodeType(kind) ? kind : 'Answer', (comp.obj.params as Record<string, unknown>) ?? defaultParams(isNodeType(kind) ? kind : 'Answer')) },
     }
     col.push(node)
     columns.set(d, col)
@@ -136,7 +174,7 @@ export function normalizeDsl(input: unknown): WorkflowDSL {
         id: n.id,
         type: n.type,
         position: { x: Number(n.position?.x) || 0, y: Number(n.position?.y) || 0 },
-        data: { params: (n.data?.params as Record<string, unknown>) ?? defaultParams(n.type) },
+        data: { params: migrateNodeParams(n.type, (n.data?.params as Record<string, unknown>) ?? defaultParams(n.type)) },
       }))
     const nodeIds = new Set(nodes.map((n) => n.id))
     const edges = graphEdges
