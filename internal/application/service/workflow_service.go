@@ -19,11 +19,14 @@ import (
 
 	wfengine "github.com/Tencent/WeKnora/internal/agent/workflow"
 	"github.com/Tencent/WeKnora/internal/agent/workflow/nodes"
+	apprepo "github.com/Tencent/WeKnora/internal/application/repository"
+	"github.com/Tencent/WeKnora/internal/event"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/models/chat"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"github.com/google/uuid"
+	"github.com/hibiken/asynq"
 )
 
 // Workflow validation limits.
@@ -147,20 +150,31 @@ func validateWorkflowFields(name, description, status string, dsl types.JSON) er
 
 // workflowService implements interfaces.WorkflowService.
 type workflowService struct {
-	repo   interfaces.WorkflowRepository
-	models interfaces.ModelService
-	kbs    interfaces.KnowledgeBaseService
+	repo     interfaces.WorkflowRepository
+	models   interfaces.ModelService
+	kbs      interfaces.KnowledgeBaseService
+	enqueuer interfaces.TaskEnqueuer
+	runs     *workflowRunBroker
 }
 
 // NewWorkflowService creates a new workflow service. models/kbs back the
 // engine adapters injected into every compiled run (LLMFunc → ModelService
-// GetChatModel, RetrievalFunc → KnowledgeBaseService HybridSearch).
+// GetChatModel, RetrievalFunc → KnowledgeBaseService HybridSearch);
+// enqueuer backs the async run mode (asynq client in full mode, inline
+// sync executor in Lite mode).
 func NewWorkflowService(
 	repo interfaces.WorkflowRepository,
 	models interfaces.ModelService,
 	kbs interfaces.KnowledgeBaseService,
+	enqueuer interfaces.TaskEnqueuer,
 ) interfaces.WorkflowService {
-	return &workflowService{repo: repo, models: models, kbs: kbs}
+	return &workflowService{
+		repo:     repo,
+		models:   models,
+		kbs:      kbs,
+		enqueuer: enqueuer,
+		runs:     newWorkflowRunBroker(),
+	}
 }
 
 // CreateWorkflow validates and creates a workflow. TenantID and CreatorID
@@ -289,11 +303,12 @@ const workflowRunTimeout = 120 * time.Second
 
 // RunWorkflow executes one run of a workflow in the caller's tenant.
 //
-// Lifecycle: a workflow_runs row is created in "running" state before
-// execution so every attempt is observable, then flipped to succeeded or
-// failed after the engine returns. Compile errors and execution errors both
-// leave a persisted failed row; the caller receives (run, err) and may
-// present the run record itself as the outcome.
+// Lifecycle: a workflow_runs row is created in "pending" state first so
+// every attempt is observable. req.Async then enqueues a workflow:run task
+// (executed by ProcessWorkflowRun) and returns immediately; the sync path
+// drives executeWorkflowRun inline. DSL shape errors fail before the row is
+// created (400 semantics); compile/execution failures flip the row to
+// failed and are also delivered as a terminal run event.
 func (s *workflowService) RunWorkflow(ctx context.Context, id string, req *types.RunWorkflowRequest) (*types.WorkflowRun, error) {
 	tenantID, ok := types.TenantIDFromContext(ctx)
 	if !ok || tenantID == 0 {
@@ -307,6 +322,105 @@ func (s *workflowService) RunWorkflow(ctx context.Context, id string, req *types
 		return nil, err
 	}
 
+	normalized, err := s.normalizeWorkflowDSL(wf)
+	if err != nil {
+		return nil, err
+	}
+
+	inputDoc, _ := json.Marshal(req)
+	run := &types.WorkflowRun{
+		ID:         uuid.New().String(),
+		TenantID:   tenantID,
+		WorkflowID: id,
+		Status:     types.WorkflowRunStatusPending,
+		Input:      types.JSON(inputDoc),
+	}
+	if err := s.repo.CreateWorkflowRun(ctx, run); err != nil {
+		return nil, err
+	}
+
+	if req.Async {
+		payload, merr := json.Marshal(types.WorkflowRunPayload{
+			RunID:      run.ID,
+			WorkflowID: id,
+			TenantID:   tenantID,
+			Query:      req.Query,
+			Files:      req.Files,
+		})
+		if merr != nil {
+			s.failWorkflowRun(ctx, run, merr)
+			return run, merr
+		}
+		task := asynq.NewTask(types.TypeWorkflowRun, payload,
+			asynq.Queue(types.QueueDefault),
+			// The worker's own execution cap stays workflowRunTimeout; the
+			// extra 30s headroom keeps asynq from killing the task before
+			// the run records its terminal state.
+			asynq.Timeout(workflowRunTimeout+30*time.Second),
+			// The run row is the retry authority: the handler no-ops on
+			// non-pending rows, so retries cannot double-execute; failed
+			// outcomes are terminal by design (rerun via the API).
+			asynq.MaxRetry(2),
+		)
+		if _, eerr := s.enqueuer.Enqueue(task); eerr != nil {
+			s.failWorkflowRun(ctx, run, eerr)
+			return run, eerr
+		}
+		logger.Infof(ctx, "[workflow:%s] run %s enqueued (async)", id, run.ID)
+		return run, nil
+	}
+
+	return run, s.executeWorkflowRun(ctx, run, wf, normalized, req)
+}
+
+// ProcessWorkflowRun is the asynq handler for types.TypeWorkflowRun.
+//
+// Tenant context is restored from the payload (worker requests carry none).
+// It returns nil for execution failures — the run row records the outcome —
+// and an error only on infrastructure faults (enqueue-side state missing,
+// repo down), letting asynq retry those. A re-delivery of a run that has
+// already left "pending" is a no-op, which makes the handler idempotent.
+func (s *workflowService) ProcessWorkflowRun(ctx context.Context, t *asynq.Task) error {
+	var payload types.WorkflowRunPayload
+	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
+		// Platform convention: never retry on unparseable payloads.
+		logger.Errorf(ctx, "workflow run payload unmarshal failed: %v", err)
+		return nil
+	}
+	ctx = context.WithValue(ctx, types.TenantIDContextKey, payload.TenantID)
+
+	run, err := s.repo.GetWorkflowRunByIDAndTenant(ctx, payload.RunID, payload.TenantID)
+	if err != nil {
+		// Row vanished (deleted?) — nothing to drive, not an infra fault.
+		logger.Errorf(ctx, "[workflow:%s] run %s lookup failed: %v", payload.WorkflowID, payload.RunID, err)
+		return nil
+	}
+	if run.Status != types.WorkflowRunStatusPending {
+		logger.Infof(ctx, "[workflow:%s] run %s already %s, skipping re-delivery",
+			payload.WorkflowID, payload.RunID, run.Status)
+		return nil
+	}
+
+	wf, err := s.repo.GetWorkflowByIDAndTenant(ctx, payload.WorkflowID, payload.TenantID)
+	if err != nil {
+		// Workflow gone between enqueue and execution: fail the run row.
+		s.failWorkflowRun(ctx, run, fmt.Errorf("workflow %s not found: %w", payload.WorkflowID, err))
+		return nil
+	}
+	normalized, nerr := s.normalizeWorkflowDSL(wf)
+	if nerr != nil {
+		s.failWorkflowRun(ctx, run, nerr)
+		return nil
+	}
+	req := &types.RunWorkflowRequest{Query: payload.Query, Files: payload.Files, Async: true}
+	// Execution errors are already persisted as the run's terminal state.
+	_ = s.executeWorkflowRun(ctx, run, wf, normalized, req)
+	return nil
+}
+
+// normalizeWorkflowDSL unmarshals and normalizes the stored DSL document.
+// Shape errors are ErrWorkflowInvalidDSL (400 semantics, no run row).
+func (s *workflowService) normalizeWorkflowDSL(wf *types.Workflow) (*wfengine.DSL, error) {
 	var dsl wfengine.DSL
 	if err := json.Unmarshal(wf.DSL, &dsl); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrWorkflowInvalidDSL, err)
@@ -315,30 +429,57 @@ func (s *workflowService) RunWorkflow(ctx context.Context, id string, req *types
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrWorkflowInvalidDSL, err)
 	}
+	return normalized, nil
+}
 
-	inputDoc, _ := json.Marshal(req)
-	run := &types.WorkflowRun{
-		ID:         uuid.New().String(),
-		TenantID:   tenantID,
-		WorkflowID: id,
-		Status:     types.WorkflowRunStatusRunning,
-		Input:      types.JSON(inputDoc),
+// executeWorkflowRun drives a freshly created (pending) run row to a
+// terminal state: pending→running→succeeded|failed. Every node lifecycle
+// frame is logged, published to the per-run broker (SSE subscribers) and
+// emitted to the global event bus (observability); the terminal frame
+// closes subscriber channels. Returns the execution error (already
+// persisted) so the sync caller can surface it.
+func (s *workflowService) executeWorkflowRun(
+	ctx context.Context,
+	run *types.WorkflowRun,
+	wf *types.Workflow,
+	normalized *wfengine.DSL,
+	req *types.RunWorkflowRequest,
+) error {
+	run.Status = types.WorkflowRunStatusRunning
+	if err := s.repo.UpdateWorkflowRun(ctx, run); err != nil {
+		return err
 	}
-	if err := s.repo.CreateWorkflowRun(ctx, run); err != nil {
-		return nil, err
+
+	publishNode := func(ev wfengine.NodeEvent) {
+		logger.Infof(ctx, "[workflow:%s run:%s] node %s %s (%dms)",
+			wf.ID, run.ID, ev.NodeID, ev.Phase, ev.DurationMS)
+		frame := types.WorkflowRunEvent{
+			WorkflowID: wf.ID,
+			RunID:      run.ID,
+			Kind:       "node",
+			NodeID:     ev.NodeID,
+			Phase:      string(ev.Phase),
+			DurationMS: ev.DurationMS,
+		}
+		if ev.Err != nil {
+			frame.Err = ev.Err.Error()
+		}
+		s.runs.publish(frame)
+		_ = event.Emit(ctx, event.Event{
+			Type:      event.EventWorkflowNode,
+			SessionID: run.ID,
+			Data:      frame,
+		})
 	}
 
 	compiled, cerr := wfengine.Compile(normalized, wfengine.Deps{
 		LLMFunc:       s.runLLM,
 		RetrievalFunc: s.runRetrieval,
-		OnNodeEvent: func(ev wfengine.NodeEvent) {
-			logger.Infof(ctx, "[workflow:%s run:%s] node %s %s (%dms)",
-				id, run.ID, ev.NodeID, ev.Phase, ev.DurationMS)
-		},
+		OnNodeEvent:   publishNode,
 	})
 	if cerr != nil {
 		s.failWorkflowRun(ctx, run, cerr)
-		return run, cerr
+		return cerr
 	}
 
 	runCtx, cancel := context.WithTimeout(ctx, workflowRunTimeout)
@@ -346,7 +487,7 @@ func (s *workflowService) RunWorkflow(ctx context.Context, id string, req *types
 	result, rerr := compiled.Run(runCtx, req.Query, req.Files)
 	if rerr != nil {
 		s.failWorkflowRun(ctx, run, rerr)
-		return run, rerr
+		return rerr
 	}
 
 	outDoc := map[string]any{
@@ -357,35 +498,87 @@ func (s *workflowService) RunWorkflow(ctx context.Context, id string, req *types
 	outJSON, merr := json.Marshal(outDoc)
 	if merr != nil {
 		s.failWorkflowRun(ctx, run, merr)
-		return run, merr
+		return merr
 	}
 	run.Status = types.WorkflowRunStatusSucceeded
 	run.Output = types.JSON(outJSON)
 	if uerr := s.repo.UpdateWorkflowRun(ctx, run); uerr != nil {
 		logger.Errorf(ctx, "workflow run %s terminal update failed: %v", run.ID, uerr)
+		return uerr
 	}
-	return run, nil
+	s.emitRunFinished(ctx, run, types.WorkflowRunStatusSucceeded, "")
+	logger.Infof(ctx, "[workflow:%s] run %s succeeded", wf.ID, run.ID)
+	return nil
 }
 
-// failWorkflowRun persists the terminal failed state of a run.
+// failWorkflowRun persists the terminal failed state of a run and emits the
+// terminal run event.
 func (s *workflowService) failWorkflowRun(ctx context.Context, run *types.WorkflowRun, cause error) {
 	run.Status = types.WorkflowRunStatusFailed
 	run.Error = cause.Error()
 	if err := s.repo.UpdateWorkflowRun(ctx, run); err != nil {
 		logger.Errorf(ctx, "workflow run %s failure update failed: %v", run.ID, err)
 	}
+	s.emitRunFinished(ctx, run, types.WorkflowRunStatusFailed, cause.Error())
+}
+
+// emitRunFinished delivers the terminal frame to SSE subscribers (closing
+// their channels) and mirrors it onto the global event bus.
+func (s *workflowService) emitRunFinished(ctx context.Context, run *types.WorkflowRun, status, errText string) {
+	frame := types.WorkflowRunEvent{
+		WorkflowID: run.WorkflowID,
+		RunID:      run.ID,
+		Kind:       "run",
+		Phase:      status,
+		Status:     status,
+		Err:        errText,
+	}
+	s.runs.publishTerminal(frame)
+	_ = event.Emit(ctx, event.Event{
+		Type:      event.EventWorkflowRunFinished,
+		SessionID: run.ID,
+		Data:      frame,
+	})
+}
+
+// GetWorkflowRun returns one run of a workflow in the caller's tenant.
+func (s *workflowService) GetWorkflowRun(ctx context.Context, workflowID, runID string) (*types.WorkflowRun, error) {
+	tenantID, ok := types.TenantIDFromContext(ctx)
+	if !ok || tenantID == 0 {
+		return nil, ErrWorkflowTenantRequired
+	}
+	run, err := s.repo.GetWorkflowRunByIDAndTenant(ctx, runID, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if run.WorkflowID != workflowID {
+		// Same sentinel the repo uses, so handlers map it to 404 uniformly.
+		return nil, apprepo.ErrWorkflowNotFound
+	}
+	return run, nil
+}
+
+// SubscribeWorkflowRunEvents attaches a live feed to one run's frames.
+func (s *workflowService) SubscribeWorkflowRunEvents(runID string) (<-chan types.WorkflowRunEvent, func()) {
+	return s.runs.subscribe(runID)
 }
 
 // runLLM adapts the engine's LLMFunc onto the platform ModelService.
-// The node's model param must name a model visible to the caller's tenant;
-// there is no cross-tenant fallback.
+// The node's model param may be empty: then the tenant's default chat
+// (KnowledgeQA-type, is_default) model is used when one exists — the
+// cheap opportunistic fallback, no schema involved. No cross-tenant path.
 func (s *workflowService) runLLM(ctx context.Context, req nodes.LLMRequest) (string, error) {
-	if strings.TrimSpace(req.Model) == "" {
-		return "", errors.New("workflow LLM node requires a model id in its params")
+	modelID := strings.TrimSpace(req.Model)
+	if modelID == "" {
+		fallback, ferr := s.defaultChatModelID(ctx)
+		if ferr != nil {
+			return "", ferr
+		}
+		modelID = fallback
 	}
-	model, err := s.models.GetChatModel(ctx, req.Model)
+	model, err := s.models.GetChatModel(ctx, modelID)
 	if err != nil {
-		return "", fmt.Errorf("workflow LLM model %q unavailable: %w", req.Model, err)
+		return "", fmt.Errorf("workflow LLM model %q unavailable: %w", modelID, err)
 	}
 	resp, err := model.Chat(ctx, []chat.Message{{Role: "user", Content: req.Prompt}}, &chat.ChatOptions{
 		Temperature: req.Temperature,
@@ -394,6 +587,21 @@ func (s *workflowService) runLLM(ctx context.Context, req nodes.LLMRequest) (str
 		return "", fmt.Errorf("workflow LLM call failed: %w", err)
 	}
 	return resp.Content, nil
+}
+
+// defaultChatModelID resolves the tenant's default chat model via the
+// existing ListModels surface (models.is_default, no schema change).
+func (s *workflowService) defaultChatModelID(ctx context.Context) (string, error) {
+	models, err := s.models.ListModels(ctx)
+	if err != nil {
+		return "", fmt.Errorf("workflow LLM: default-model lookup failed: %w", err)
+	}
+	for _, m := range models {
+		if m != nil && m.IsDefault && m.Type == types.ModelTypeKnowledgeQA {
+			return m.ID, nil
+		}
+	}
+	return "", errors.New("workflow LLM node requires a model id in its params (no default chat model configured for this workspace)")
 }
 
 // runRetrieval adapts the engine's RetrievalFunc onto the platform

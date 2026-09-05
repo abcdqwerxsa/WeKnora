@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	apprepo "github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/application/service"
@@ -214,13 +215,14 @@ func (h *WorkflowHandler) DeleteWorkflow(c *gin.Context) {
 
 // CreateWorkflowRun godoc
 // @Summary      执行工作流
-// @Description  同步执行一次工作流（MVP：120s 超时上限），运行记录写入 workflow_runs；执行失败时返回 run 记录（status=failed）
+// @Description  执行一次工作流：async=false 同步执行（120s 上限，200 + run 终态）；async=true 入队后立即返回（202 + run.status=pending）。运行记录均写入 workflow_runs；同步执行失败时返回 run 记录（status=failed）
 // @Tags         工作流
 // @Accept       json
 // @Produce      json
 // @Param        id      path  string                     true "工作流 ID"
 // @Param        request body  types.RunWorkflowRequest   true "执行输入（query 必填）"
 // @Success      200 {object} map[string]interface{}
+// @Success      202 {object} map[string]interface{}
 // @Failure      400 {object} apperrors.AppError
 // @Failure      404 {object} apperrors.AppError
 // @Failure      500 {object} apperrors.AppError
@@ -257,6 +259,11 @@ func (h *WorkflowHandler) CreateWorkflowRun(c *gin.Context) {
 		c.Error(apperrors.NewInternalServerError("failed to run workflow").WithDetails(err.Error()))
 		return
 	}
+	if run.Status == types.WorkflowRunStatusPending {
+		// Async mode: accepted, execution continues in the task queue.
+		c.JSON(http.StatusAccepted, gin.H{"run": run})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"run": run})
 }
 
@@ -280,4 +287,89 @@ func (h *WorkflowHandler) ListWorkflowRuns(c *gin.Context) {
 		"success": true,
 		"data":    gin.H{"runs": runs, "total": len(runs)},
 	})
+}
+
+// workflowSSEKeepAlive is the interval between SSE comment heartbeats; it
+// keeps proxies from timing out an idle stream while a long node runs.
+const workflowSSEKeepAlive = 15 * time.Second
+
+// setWorkflowSSEHeaders mirrors the sandbox-skill SSE preamble; the
+// X-Accel-Buffering header stops nginx from holding frames back.
+func setWorkflowSSEHeaders(c *gin.Context) {
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+}
+
+// GetWorkflowRunEvents godoc
+// @Summary      工作流运行事件流（SSE）
+// @Description  以 SSE 推送一次运行的过程事件：kind=node（节点 started/finished/failed）与终态帧 kind=run（含 status，随后关流）。run 已终态时立即下发终态帧并关流
+// @Tags         工作流
+// @Produce      text/event-stream
+// @Param        id      path string true "工作流 ID"
+// @Param        run_id  path string true "运行 ID"
+// @Success      200 {string} string "text/event-stream"
+// @Failure      404 {object} apperrors.AppError
+// @Security     Bearer
+// @Router       /workflows/{id}/runs/{run_id}/events [get]
+func (h *WorkflowHandler) GetWorkflowRunEvents(c *gin.Context) {
+	ctx := c.Request.Context()
+	run, err := h.service.GetWorkflowRun(ctx, c.Param("id"), c.Param("run_id"))
+	if err != nil {
+		if errors.Is(err, apprepo.ErrWorkflowNotFound) {
+			c.Error(apperrors.NewNotFoundError("workflow run not found"))
+			return
+		}
+		c.Error(apperrors.NewInternalServerError("failed to load workflow run").WithDetails(err.Error()))
+		return
+	}
+
+	setWorkflowSSEHeaders(c)
+	writeFrame := func(frame types.WorkflowRunEvent) bool {
+		c.SSEvent("message", frame)
+		c.Writer.Flush()
+		return c.Request.Context().Err() == nil
+	}
+
+	// Completed runs stream exactly one terminal frame — the client that
+	// connects after the fact still gets a well-formed close.
+	if run.Status != types.WorkflowRunStatusPending && run.Status != types.WorkflowRunStatusRunning {
+		writeFrame(types.WorkflowRunEvent{
+			WorkflowID: run.WorkflowID,
+			RunID:      run.ID,
+			Kind:       "run",
+			Phase:      run.Status,
+			Status:     run.Status,
+			Err:        run.Error,
+		})
+		return
+	}
+
+	events, cancel := h.service.SubscribeWorkflowRunEvents(run.ID)
+	defer cancel()
+	heartbeat := time.NewTicker(workflowSSEKeepAlive)
+	defer heartbeat.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			// Client disconnected — defer-cancel detaches the subscriber.
+			return
+		case <-heartbeat.C:
+			if _, werr := c.Writer.WriteString(": keep-alive\n\n"); werr != nil {
+				return
+			}
+			c.Writer.Flush()
+		case frame, ok := <-events:
+			if !ok || !writeFrame(frame) {
+				// !ok: terminal frame delivered and broker closed the
+				// channel. !writeFrame: client went away.
+				return
+			}
+			if frame.Kind == "run" {
+				return
+			}
+		}
+	}
 }

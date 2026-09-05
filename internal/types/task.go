@@ -62,7 +62,7 @@ type QueueDefinition struct {
 
 var queueDefinitions = []QueueDefinition{
 	{Name: QueueDefault, Pool: WorkerPoolCore, Weight: 1, SharedWeight: 3, TaskTypes: []string{
-		TypeDocumentProcess, TypeManualProcess,
+		TypeDocumentProcess, TypeManualProcess, TypeWorkflowRun,
 	}},
 	// Interactive chat attachment parsing: higher core weight than the default
 	// queue so a large KB import cannot make chat uploads queue behind it.
@@ -244,6 +244,7 @@ const (
 	TypeKnowledgeListReparse     = "knowledge:list_reparse"     // 批量重解析知识任务
 	TypeKnowledgeMove            = "knowledge:move"             // 知识移动任务
 	TypeDataTableSummary         = "datatable:summary"          // 表格摘要任务
+	TypeWorkflowRun              = "workflow:run"               // 工作流异步执行任务
 	TypeImageMultimodal          = "image:multimodal"           // 图片多模态处理任务（OCR + VLM Caption）
 	TypeKnowledgePostProcess     = "knowledge:post_process"     // 知识后处理任务（统一调度）
 	TypeKnowledgeAutoTag         = "knowledge:auto_tag"         // 文档自动关联知识库已有标签
@@ -339,6 +340,19 @@ type FAQImportPayload struct {
 }
 
 // QuestionGenerationPayload represents the question generation task payload
+// WorkflowRunPayload is the asynq payload for an async workflow run
+// (types.TypeWorkflowRun). TenantID restores the tenant context inside the
+// worker; TracingContext keeps the W3C traceparent flowing into the
+// Langfuse asynq middleware.
+type WorkflowRunPayload struct {
+	TracingContext
+	RunID      string   `json:"run_id"`
+	WorkflowID string   `json:"workflow_id"`
+	TenantID   uint64   `json:"tenant_id"`
+	Query      string   `json:"query"`
+	Files      []string `json:"files,omitempty"`
+}
+
 type QuestionGenerationPayload struct {
 	TracingContext
 	TenantID        uint64 `json:"tenant_id"`

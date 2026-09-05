@@ -1,6 +1,7 @@
 package service
 
 import (
+	"sync"
 	"context"
 	"errors"
 	"testing"
@@ -17,6 +18,7 @@ type runRepoStub struct {
 	*stubWorkflowRepo
 	created []*types.WorkflowRun
 	updated []*types.WorkflowRun
+	mu      sync.Mutex
 }
 
 func newRunRepoStub(wf *types.Workflow) *runRepoStub {
@@ -28,12 +30,35 @@ func (r *runRepoStub) CreateWorkflowRun(_ context.Context, run *types.WorkflowRu
 	// Store a copy so later mutations of the same pointer (status flips)
 	// don't rewrite history — the test asserts the create-time status.
 	cp := *run
+	r.mu.Lock()
 	r.created = append(r.created, &cp)
+	r.mu.Unlock()
 	return nil
 }
 func (r *runRepoStub) UpdateWorkflowRun(_ context.Context, run *types.WorkflowRun) error {
-	r.updated = append(r.updated, run)
+	cp := *run
+	r.mu.Lock()
+	r.updated = append(r.updated, &cp)
+	r.mu.Unlock()
 	return nil
+}
+func (r *runRepoStub) GetWorkflowRunByIDAndTenant(_ context.Context, runID string, tenantID uint64) (*types.WorkflowRun, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, run := range r.created {
+		if run.ID == runID && run.TenantID == tenantID {
+			// Return the latest known state: the most recent update for this
+			// row if any, else the create-time copy.
+			latest := run
+			for _, u := range r.updated {
+				if u.ID == runID {
+					latest = u
+				}
+			}
+			return latest, nil
+		}
+	}
+	return nil, errWorkflowNotFoundStub
 }
 
 // wfStubModelSvc embeds the wide ModelService interface (nil) and
@@ -76,7 +101,7 @@ func runTestWorkflow(t *testing.T, dsl string) (*runRepoStub, *types.WorkflowRun
 	repo := newRunRepoStub(wf)
 	svc := NewWorkflowService(repo, &wfStubModelSvc{reply: "llm-answer"}, &wfStubKBSvc{
 		hits: []*types.SearchResult{{ID: "c1", Content: "chunk text", KnowledgeTitle: "doc"}},
-	})
+	}, nil)
 	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(10001))
 	run, err := svc.RunWorkflow(ctx, "wf-1", &types.RunWorkflowRequest{Query: "hello"})
 	return repo, run, err
@@ -99,10 +124,11 @@ func TestRunWorkflow_LinearSucceeds(t *testing.T) {
 	assert.Equal(t, "", run.Error)
 	assert.Equal(t, uint64(10001), run.TenantID)
 	assert.Contains(t, string(run.Output), "result: llm-answer")
-	// Lifecycle: one row created (running) then updated (succeeded).
+	// Lifecycle: one row created (pending), then updated running→succeeded.
 	require.Len(t, repo.created, 1)
-	assert.Equal(t, types.WorkflowRunStatusRunning, repo.created[0].Status)
-	require.Len(t, repo.updated, 1)
+	assert.Equal(t, types.WorkflowRunStatusPending, repo.created[0].Status)
+	require.Len(t, repo.updated, 2)
+	assert.Equal(t, types.WorkflowRunStatusSucceeded, repo.updated[1].Status)
 }
 
 const retrievalDSL = `{
@@ -146,12 +172,16 @@ func TestRunWorkflow_CompileCyclePersistsFailedRun(t *testing.T) {
 	require.NotNil(t, run, "a compile-time failure after row creation must stay observable")
 	assert.Equal(t, types.WorkflowRunStatusFailed, run.Status)
 	assert.NotEmpty(t, run.Error)
+	// Lifecycle writes: create(pending) → update(running) → update(failed).
 	assert.Len(t, repo.created, 1)
-	assert.Len(t, repo.updated, 1)
+	assert.Equal(t, types.WorkflowRunStatusPending, repo.created[0].Status)
+	require.Len(t, repo.updated, 2)
+	assert.Equal(t, types.WorkflowRunStatusRunning, repo.updated[0].Status)
+	assert.Equal(t, types.WorkflowRunStatusFailed, repo.updated[1].Status)
 }
 
 func TestRunWorkflow_MissingTenantRejected(t *testing.T) {
-	svc := NewWorkflowService(newRunRepoStub(nil), nil, nil)
+	svc := NewWorkflowService(newRunRepoStub(nil), nil, nil, nil)
 	_, err := svc.RunWorkflow(context.Background(), "wf-1", &types.RunWorkflowRequest{Query: "q"})
 	assert.ErrorIs(t, err, ErrWorkflowTenantRequired)
 }

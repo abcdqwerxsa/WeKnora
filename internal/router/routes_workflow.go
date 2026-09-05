@@ -20,8 +20,11 @@ import (
 //     by the caller, exactly like POST /agents)
 //   - GET  (list/detail)    Viewer+       (tenant-scoped reads)
 //   - PUT/DELETE /:id       creator OR Admin+ (OwnedWorkflowOrAdmin)
-//   - POST /:id/runs        Contributor+  (entry point for a run)
+//   - POST /:id/runs        Contributor+  (entry point for a run; sync
+//     execution returns 200+terminal state, async=true enqueues and
+//     returns 202+pending)
 //   - GET  /:id/runs        Viewer+       (tenant-scoped read)
+//   - GET  /:id/runs/:run_id/events  Viewer+ (SSE progress stream)
 //
 // API keys: workflow routes are deliberately NOT declared in the
 // APIKeyRouteAuthorizer, so X-API-Key principals are default-denied. They
@@ -40,6 +43,7 @@ func RegisterWorkflowRoutes(r *gin.RouterGroup, workflowHandler *handler.Workflo
 		workflows.DELETE("/:id", g.OwnedWorkflowOrAdmin(workflowHandler), workflowHandler.DeleteWorkflow)
 		workflows.POST("/:id/runs", g.Contributor(), workflowHandler.CreateWorkflowRun)
 		workflows.GET("/:id/runs", g.Viewer(), workflowHandler.ListWorkflowRuns)
+		workflows.GET("/:id/runs/:run_id/events", g.Viewer(), workflowHandler.GetWorkflowRunEvents)
 	}
 }
 

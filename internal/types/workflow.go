@@ -86,6 +86,30 @@ type RunWorkflowRequest struct {
 	Query string `json:"query"`
 	// Files (optional) are materialized into sys.files.
 	Files []string `json:"files,omitempty"`
+	// Async selects the execution mode: true enqueues a workflow:run task
+	// and returns the run row immediately in status=pending (HTTP 202);
+	// false/omitted executes synchronously (HTTP 200, 120s cap).
+	Async bool `json:"async,omitempty"`
+}
+
+// WorkflowRunEvent is one progress frame of a workflow run, delivered to
+// SSE subscribers (per-run broker) and the global event bus (observability).
+type WorkflowRunEvent struct {
+	WorkflowID string `json:"workflow_id"`
+	RunID      string `json:"run_id"`
+	// Kind discriminates frames: "node" (node lifecycle) | "run" (terminal).
+	Kind string `json:"kind"`
+	// NodeID is set for Kind=node frames.
+	NodeID string `json:"node_id,omitempty"`
+	// Phase: node frames carry started|finished|failed; run frames carry the
+	// terminal run status (succeeded|failed|cancelled).
+	Phase string `json:"phase"`
+	// Err is the terminal error message for failed phases.
+	Err string `json:"error,omitempty"`
+	// DurationMS is the node execution duration for finished/failed frames.
+	DurationMS int64 `json:"duration_ms,omitempty"`
+	// Status is the terminal run status for Kind=run frames.
+	Status string `json:"status,omitempty"`
 }
 
 // Workflow run statuses (persisted in workflow_runs.status).

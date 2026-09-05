@@ -11,6 +11,7 @@ import (
 	"context"
 
 	"github.com/Tencent/WeKnora/internal/types"
+	"github.com/hibiken/asynq"
 )
 
 // WorkflowRepository defines the tenant-scoped persistence contract for
@@ -44,6 +45,11 @@ type WorkflowRepository interface {
 	// ListWorkflowRunsByTenantAndWorkflow returns the run history of one
 	// workflow, newest first.
 	ListWorkflowRunsByTenantAndWorkflow(ctx context.Context, tenantID uint64, workflowID string) ([]*types.WorkflowRun, error)
+
+	// GetWorkflowRunByIDAndTenant returns the run row only when it belongs to
+	// tenantID; ErrWorkflowNotFound otherwise. Used by the SSE endpoint to
+	// validate the subscription target before streaming.
+	GetWorkflowRunByIDAndTenant(ctx context.Context, runID string, tenantID uint64) (*types.WorkflowRun, error)
 }
 
 // WorkflowService defines the CRUD surface exposed over REST. Tenant and
@@ -73,6 +79,22 @@ type WorkflowService interface {
 	// RunWorkflow executes one run of the workflow in the caller's tenant:
 	// compiles the stored DSL through the engine package, runs it with the
 	// platform LLM / knowledge-search adapters injected, and persists a
-	// workflow_runs row (running -> succeeded | failed). Synchronous MVP.
+	// workflow_runs row. req.Async=true enqueues a workflow:run task and
+	// returns the pending run immediately; otherwise execution is
+	// synchronous (120s cap).
 	RunWorkflow(ctx context.Context, id string, req *types.RunWorkflowRequest) (*types.WorkflowRun, error)
+
+	// ProcessWorkflowRun is the asynq handler for types.TypeWorkflowRun. It
+	// restores the tenant context from the payload and drives the pending
+	// run to a terminal state. Returns nil for execution failures (the run
+	// row is the outcome); errors only on infrastructure faults.
+	ProcessWorkflowRun(ctx context.Context, t *asynq.Task) error
+
+	// GetWorkflowRun returns one run of a workflow in the caller's tenant.
+	GetWorkflowRun(ctx context.Context, workflowID, runID string) (*types.WorkflowRun, error)
+
+	// SubscribeWorkflowRunEvents attaches a live feed to one run's node
+	// events. The returned cancel detaches the subscriber; the channel is
+	// closed after the terminal frame is delivered (or on cancel).
+	SubscribeWorkflowRunEvents(runID string) (<-chan types.WorkflowRunEvent, func())
 }
