@@ -22,10 +22,10 @@ const DSLVersion = 1
 // Either side may be missing (e.g. a DSL authored programmatically has no
 // canvas layout); Normalize repairs the missing side.
 type DSL struct {
-	Version    int                    `json:"version"`
-	Graph      *GraphView             `json:"graph,omitempty"`
-	Components map[string]*Component  `json:"components"`
-	Variables  map[string]any         `json:"variables,omitempty"`
+	Version    int                   `json:"version"`
+	Graph      *GraphView            `json:"graph,omitempty"`
+	Components map[string]*Component `json:"components"`
+	Variables  map[string]any        `json:"variables,omitempty"`
 }
 
 // GraphView is the canvas (React-Flow / vue-flow style) projection.

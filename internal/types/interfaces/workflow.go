@@ -96,6 +96,13 @@ type WorkflowService interface {
 	// returned as-is (idempotent); the run row is the source of truth.
 	CancelWorkflowRun(ctx context.Context, workflowID, runID string) (*types.WorkflowRun, error)
 
+	// ResumeWorkflowRun re-drives a FAILED run from its checkpoint side-car
+	// (completed nodes replay, the failed attempt re-runs) by enqueueing a
+	// Resume-marked workflow:run task; the row stays failed until a worker
+	// picks it up. Returns ErrWorkflowRunNotResumable (HTTP 409) for
+	// non-failed rows.
+	ResumeWorkflowRun(ctx context.Context, workflowID, runID string) (*types.WorkflowRun, error)
+
 	// ProcessWorkflowRun is the asynq handler for types.TypeWorkflowRun. It
 	// restores the tenant context from the payload and drives the pending
 	// run to a terminal state. Returns nil for execution failures (the run

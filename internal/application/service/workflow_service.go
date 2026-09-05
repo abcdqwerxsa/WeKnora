@@ -416,7 +416,16 @@ func (s *workflowService) ProcessWorkflowRun(ctx context.Context, t *asynq.Task)
 		logger.Errorf(ctx, "[workflow:%s] run %s lookup failed: %v", payload.WorkflowID, payload.RunID, err)
 		return nil
 	}
-	if run.Status != types.WorkflowRunStatusPending {
+	if payload.Resume {
+		// Resume re-delivery: only a row still in failed state may be
+		// re-driven (the resume endpoint validated this at enqueue time;
+		// anything else — already picked up, cancelled meanwhile — no-ops).
+		if run.Status != types.WorkflowRunStatusFailed {
+			logger.Infof(ctx, "[workflow:%s] resume of run %s skipped (status=%s)",
+				payload.WorkflowID, payload.RunID, run.Status)
+			return nil
+		}
+	} else if run.Status != types.WorkflowRunStatusPending {
 		logger.Infof(ctx, "[workflow:%s] run %s already %s, skipping re-delivery",
 			payload.WorkflowID, payload.RunID, run.Status)
 		return nil
@@ -519,7 +528,13 @@ func (s *workflowService) executeWorkflowRun(
 		s.cancels.unregister(run.ID)
 		cancel()
 	}()
-	result, rerr := compiled.Run(runCtx, req.Query, req.Files)
+	result, rerr := compiled.RunWithOptions(runCtx, req.Query, req.Files, wfengine.RunOptions{
+		// Checkpoint resume identity = run id. First attempts persist per-
+		// node side-cars (crash/timeout-safe); a later ResumeWorkflowRun
+		// re-executes with the same id and completed nodes are replayed, not
+		// re-invoked. Lite mode (nil KV) degrades to fresh runs.
+		CheckpointID: run.ID,
+	})
 	if rerr != nil {
 		s.failWorkflowRun(ctx, run, rerr)
 		return rerr
@@ -703,6 +718,82 @@ func (s *workflowService) CancelWorkflowRun(ctx context.Context, workflowID, run
 	// execution's own terminal write is suppressed by the cancelled-row guard.
 	s.emitRunFinished(ctx, run, types.WorkflowRunStatusCancelled, "")
 	logger.Infof(ctx, "[workflow:%s] run %s cancelled (in_process=%v)", workflowID, runID, inProcess)
+	return run, nil
+}
+
+// ErrWorkflowRunNotResumable maps to HTTP 409: only failed runs resume.
+// Cancelled is deliberately excluded — a user-initiated cancel is an
+// explicit "don't continue this attempt"; the recovery path for it is a
+// NEW run, not a resume. Succeeded runs obviously need nothing.
+var ErrWorkflowRunNotResumable = errors.New("workflow run is not resumable (only failed runs resume)")
+
+// ResumeWorkflowRun re-drives a FAILED run from its checkpoint: completed
+// nodes are replayed from the persisted CanvasState side-car instead of
+// re-executed, and the attempt that failed re-runs (see engine
+// RunWithOptions). The row keeps status=failed until a worker picks the
+// task up — failed is the resumable marker, there is no transient pending
+// state that could be mistaken for a fresh run.
+func (s *workflowService) ResumeWorkflowRun(ctx context.Context, workflowID, runID string) (*types.WorkflowRun, error) {
+	tenantID, ok := types.TenantIDFromContext(ctx)
+	if !ok || tenantID == 0 {
+		return nil, ErrWorkflowTenantRequired
+	}
+	run, err := s.repo.GetWorkflowRunByIDAndTenant(ctx, runID, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if run.WorkflowID != workflowID {
+		return nil, apprepo.ErrWorkflowNotFound
+	}
+	if run.Status != types.WorkflowRunStatusFailed {
+		return nil, fmt.Errorf("%w (status=%s)", ErrWorkflowRunNotResumable, run.Status)
+	}
+
+	// Original inputs: the run's Input document is the marshalled
+	// RunWorkflowRequest from the first attempt.
+	var orig types.RunWorkflowRequest
+	if len(run.Input) > 0 {
+		if uerr := json.Unmarshal(run.Input, &orig); uerr != nil {
+			return nil, fmt.Errorf("%w: input document unparseable: %v", ErrWorkflowRunNotResumable, uerr)
+		}
+	}
+
+	// Fail fast on a workflow whose DSL no longer compiles BEFORE handing
+	// the row to the queue (400 semantics, row untouched).
+	wf, err := s.repo.GetWorkflowByIDAndTenant(ctx, workflowID, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if _, nerr := s.normalizeWorkflowDSL(wf); nerr != nil {
+		return nil, nerr
+	}
+
+	payload, merr := json.Marshal(types.WorkflowRunPayload{
+		RunID:      run.ID,
+		WorkflowID: workflowID,
+		TenantID:   tenantID,
+		Query:      orig.Query,
+		Files:      orig.Files,
+		Resume:     true,
+	})
+	if merr != nil {
+		return nil, merr
+	}
+	task := asynq.NewTask(types.TypeWorkflowRun, payload,
+		asynq.Queue(types.QueueDefault),
+		asynq.Timeout(workflowRunTimeout+30*time.Second),
+		asynq.MaxRetry(2),
+	)
+	if _, eerr := s.enqueuer.Enqueue(task); eerr != nil {
+		return run, eerr
+	}
+	logger.Infof(ctx, "[workflow:%s] run %s resume enqueued (async, checkpoint=%s)",
+		workflowID, runID, func() string {
+			if s.ckptKV != nil {
+				return runID
+			}
+			return "none (lite mode: fresh run)"
+		}())
 	return run, nil
 }
 

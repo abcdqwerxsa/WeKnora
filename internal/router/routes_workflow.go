@@ -45,6 +45,7 @@ func RegisterWorkflowRoutes(r *gin.RouterGroup, workflowHandler *handler.Workflo
 		workflows.GET("/:id/runs", g.Viewer(), workflowHandler.ListWorkflowRuns)
 		workflows.GET("/:id/runs/:run_id/events", g.Viewer(), workflowHandler.GetWorkflowRunEvents)
 		workflows.POST("/:id/runs/:run_id/cancel", g.Contributor(), workflowHandler.CancelWorkflowRun)
+		workflows.POST("/:id/runs/:run_id/resume", g.Contributor(), workflowHandler.ResumeWorkflowRun)
 	}
 }
 

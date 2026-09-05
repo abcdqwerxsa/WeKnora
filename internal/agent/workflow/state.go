@@ -63,6 +63,19 @@ func (s *CanvasState) GetOutput(nodeID, param string) (any, bool) {
 	return v, ok
 }
 
+// OutputsOf returns a copy of every recorded output param of nodeID.
+// Empty (nil) when the node has no recorded outputs — the checkpoint-
+// resume replay uses this as the "node already completed" signal.
+func (s *CanvasState) OutputsOf(nodeID string) map[string]any {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	params, ok := s.Outputs[nodeID]
+	if !ok || len(params) == 0 {
+		return nil
+	}
+	return copyAnyMap(params)
+}
+
 // SysValue reads sys.<key>.
 func (s *CanvasState) SysValue(key string) (any, bool) {
 	s.mu.RLock()

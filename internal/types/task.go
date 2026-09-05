@@ -351,6 +351,11 @@ type WorkflowRunPayload struct {
 	TenantID   uint64   `json:"tenant_id"`
 	Query      string   `json:"query"`
 	Files      []string `json:"files,omitempty"`
+	// Resume marks a checkpoint-resume re-delivery of an earlier failed
+	// run (POST /workflows/:id/runs/:run_id/resume). Execution semantics
+	// are identical; the flag only widens the handler's row-state guard
+	// from "pending" to "pending | failed".
+	Resume bool `json:"resume,omitempty"`
 }
 
 type QuestionGenerationPayload struct {
