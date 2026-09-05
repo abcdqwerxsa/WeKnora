@@ -1330,7 +1330,7 @@ const handleClose = () => {
   height: 16px;
   font-size: 10px;
   font-weight: 500;
-  border-radius: 3px;
+  border-radius: var(--td-radius-small);
 
   &--ok {
     color: var(--td-success-color);
