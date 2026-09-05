@@ -268,7 +268,7 @@ const closePreImg = () => {
         transition: border-color 0.2s, box-shadow 0.2s;
 
         &:hover {
-            border-color: var(--td-brand-color-2, rgba(0, 82, 217, 0.25));
+            border-color: var(--td-brand-color-2, rgba(var(--td-brand-rgb), 0.25));
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
         }
     }
@@ -334,7 +334,7 @@ const closePreImg = () => {
     &.channel-web {
         color: var(--td-brand-color);
         background: var(--td-brand-color-light);
-        border-color: var(--td-brand-color-2, rgba(0, 82, 217, 0.1));
+        border-color: var(--td-brand-color-2, rgba(var(--td-brand-rgb), 0.1));
     }
 
     &.channel-api {

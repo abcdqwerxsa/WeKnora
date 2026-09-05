@@ -78,7 +78,7 @@ defineEmits<{
   letter-spacing: normal;
 
   &:hover {
-    background: rgba(7, 192, 95, 0.08);
+    background: rgba(var(--td-brand-rgb), 0.08);
   }
 }
 

@@ -1231,7 +1231,7 @@ onMounted(loadAll)
 
   &--active {
     border-color: var(--td-brand-color);
-    background: var(--td-brand-color-1, rgba(7, 192, 95, 0.06));
+    background: var(--td-brand-color-1, rgba(var(--td-brand-rgb), 0.06));
   }
 }
 
@@ -1247,8 +1247,8 @@ onMounted(loadAll)
   font-size: 15px;
   font-weight: 600;
   letter-spacing: 0.02em;
-  background: rgba(0, 82, 217, 0.1);
-  color: #0052D9;
+  background: rgba(var(--td-brand-rgb), 0.1);
+  color: var(--td-brand-color);
 }
 
 // 真实品牌 logo：白底 + 细边，logo 用 mask-image 染成 currentColor（沿用品牌色）。
@@ -1290,8 +1290,8 @@ onMounted(loadAll)
   color: #C0382B;
 }
 .engine-card--cos .engine-card__badge {
-  background: rgba(0, 82, 217, 0.1);
-  color: #0052D9;
+  background: rgba(var(--td-brand-rgb), 0.1);
+  color: var(--td-brand-color);
 }
 .engine-card--tos .engine-card__badge {
   background: rgba(0, 137, 255, 0.12);
@@ -1306,8 +1306,8 @@ onMounted(loadAll)
   color: #E55A00;
 }
 .engine-card--ks3 .engine-card__badge {
-  background: rgba(7, 192, 95, 0.12);
-  color: #07A050;
+  background: rgba(var(--td-brand-rgb), 0.12);
+  color: var(--td-brand-color);
 }
 .engine-card--obs .engine-card__badge {
   background: rgba(206, 17, 38, 0.1);
@@ -1661,8 +1661,8 @@ onMounted(loadAll)
   color: #C0382B;
 }
 .storage-engine-drawer--cos .setting-drawer__header-icon {
-  background: rgba(0, 82, 217, 0.1);
-  color: #0052D9;
+  background: rgba(var(--td-brand-rgb), 0.1);
+  color: var(--td-brand-color);
 }
 .storage-engine-drawer--tos .setting-drawer__header-icon {
   background: rgba(0, 137, 255, 0.12);
@@ -1677,8 +1677,8 @@ onMounted(loadAll)
   color: #E55A00;
 }
 .storage-engine-drawer--ks3 .setting-drawer__header-icon {
-  background: rgba(7, 192, 95, 0.12);
-  color: #07A050;
+  background: rgba(var(--td-brand-rgb), 0.12);
+  color: var(--td-brand-color);
 }
 .storage-engine-drawer--obs .setting-drawer__header-icon {
   background: rgba(206, 17, 38, 0.1);

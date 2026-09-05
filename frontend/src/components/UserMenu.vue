@@ -1270,7 +1270,7 @@ onUnmounted(() => {
     transition: background 0.15s;
 
     &:hover {
-      background: rgba(7, 192, 95, 0.08);
+      background: rgba(var(--td-brand-rgb), 0.08);
     }
 
     .tenant-submenu-create-icon {

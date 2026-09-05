@@ -287,7 +287,7 @@ const indexKey = (index: number, item: WebFetchResultItem): string => {
   line-height: 1.4;
 
   &.status-success {
-    background: rgba(7, 192, 95, 0.08);
+    background: rgba(var(--td-brand-rgb), 0.08);
     color: var(--td-success-color);
   }
 
@@ -302,7 +302,7 @@ const indexKey = (index: number, item: WebFetchResultItem): string => {
   }
 
   &.method {
-    background: rgba(7, 192, 95, 0.08);
+    background: rgba(var(--td-brand-rgb), 0.08);
     color: var(--td-success-color);
   }
 }

@@ -5259,7 +5259,7 @@ const handleSave = async () => {
       bottom: 18px;
       width: 3px;
       border-radius: 2px;
-      background: var(--td-brand-color, #0052d9);
+      background: var(--td-brand-color);
     }
 
     .setting-info label {
@@ -5979,7 +5979,7 @@ const handleSave = async () => {
 
   &:hover:not(.tool-card--disabled) {
     border-color: var(--td-brand-color);
-    background: var(--td-brand-color-1, rgba(7, 192, 95, 0.06));
+    background: var(--td-brand-color-1, rgba(var(--td-brand-rgb), 0.06));
   }
 
   // checkbox 的勾选框 + label 改造
@@ -5996,7 +5996,7 @@ const handleSave = async () => {
 
   &.t-is-checked {
     border-color: var(--td-brand-color);
-    background: var(--td-brand-color-1, rgba(7, 192, 95, 0.08));
+    background: var(--td-brand-color-1, rgba(var(--td-brand-rgb), 0.08));
   }
 
   &--disabled {
@@ -6365,14 +6365,14 @@ const handleSave = async () => {
 }
 
 .intent-toggle-group :deep(.intent-toggle-btn--active) {
-  background-color: rgba(7, 192, 95, 0.1);
+  background-color: rgba(var(--td-brand-rgb), 0.1);
   border-color: var(--td-brand-color);
   color: var(--td-brand-color);
   font-weight: 500;
 
   &:hover,
   &:focus-visible {
-    background-color: rgba(7, 192, 95, 0.14);
+    background-color: rgba(var(--td-brand-rgb), 0.14);
     border-color: var(--td-brand-color);
     color: var(--td-brand-color);
   }
@@ -6468,7 +6468,7 @@ const handleSave = async () => {
     flex-shrink: 0;
 
     &:hover {
-      color: var(--td-brand-color, #0052d9);
+      color: var(--td-brand-color);
       background-color: var(--td-brand-color-light, #ecf2fe);
       border-color: var(--td-brand-color-focus, #d0e0fd);
     }
@@ -6516,7 +6516,7 @@ const handleSave = async () => {
       border-radius: 3px;
       font-family: var(--app-font-family-mono);
       font-size: 11px;
-      color: var(--td-brand-color, #0052d9);
+      color: var(--td-brand-color);
     }
   }
 
@@ -6558,7 +6558,7 @@ const handleSave = async () => {
   flex-shrink: 0;
 
   &.normal {
-    background: linear-gradient(135deg, rgba(7, 192, 95, 0.15) 0%, rgba(7, 192, 95, 0.08) 100%);
+    background: linear-gradient(135deg, rgba(var(--td-brand-rgb), 0.15) 0%, rgba(var(--td-brand-rgb), 0.08) 100%);
     color: var(--td-brand-color-active);
   }
 
@@ -6628,7 +6628,7 @@ const handleSave = async () => {
 
   // FAQ KB
   &.faq-icon {
-    background: rgba(0, 82, 217, 0.1);
+    background: rgba(var(--td-brand-rgb), 0.1);
     color: var(--td-brand-color);
   }
 }

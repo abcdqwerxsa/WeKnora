@@ -1181,7 +1181,7 @@ onUnmounted(() => {
 }
 
 .org-join-btn {
-  border-color: rgba(7, 192, 95, 0.5);
+  border-color: rgba(var(--td-brand-rgb), 0.5);
   color: var(--td-brand-color);
   font-weight: 500;
   transition: all 0.2s ease;
@@ -1191,7 +1191,7 @@ onUnmounted(() => {
   }
 
   &:hover {
-    background: rgba(7, 192, 95, 0.08);
+    background: rgba(var(--td-brand-rgb), 0.08);
     border-color: var(--td-brand-color);
     color: var(--td-brand-color);
 
@@ -1206,12 +1206,12 @@ onUnmounted(() => {
   border: none;
   color: var(--td-text-color-anti);
   font-weight: 500;
-  box-shadow: 0 2px 8px rgba(7, 192, 95, 0.25);
+  box-shadow: 0 2px 8px rgba(var(--td-brand-rgb), 0.25);
   transition: all 0.25s ease;
 
   &:hover {
     background: var(--td-brand-color);
-    box-shadow: 0 4px 14px rgba(7, 192, 95, 0.35);
+    box-shadow: 0 4px 14px rgba(var(--td-brand-rgb), 0.35);
   }
 
   .org-create-icon {
@@ -1357,7 +1357,7 @@ onUnmounted(() => {
   }
 
   &:focus-visible {
-    box-shadow: 0 0 0 2px var(--td-brand-color-focus, rgba(0, 82, 217, 0.2));
+    box-shadow: 0 0 0 2px var(--td-brand-color-focus, rgba(var(--td-brand-rgb), 0.2));
   }
 
   .t-icon {
@@ -1418,29 +1418,29 @@ onUnmounted(() => {
     right: 0;
     width: 120px;
     height: 80px;
-    background: radial-gradient(ellipse 60% 50% at 100% 0%, rgba(7, 192, 95, 0.06) 0%, transparent 70%);
+    background: radial-gradient(ellipse 60% 50% at 100% 0%, rgba(var(--td-brand-rgb), 0.06) 0%, transparent 70%);
     pointer-events: none;
     z-index: 0;
   }
 
   &.joined-org {
     &:hover {
-      border-color: rgba(7, 192, 95, 0.4);
-      box-shadow: 0 4px 16px rgba(7, 192, 95, 0.08);
+      border-color: rgba(var(--td-brand-rgb), 0.4);
+      box-shadow: 0 4px 16px rgba(var(--td-brand-rgb), 0.08);
     }
   }
 
   &:hover {
-    border-color: rgba(7, 192, 95, 0.5);
-    box-shadow: 0 6px 20px rgba(7, 192, 95, 0.12);
+    border-color: rgba(var(--td-brand-rgb), 0.5);
+    box-shadow: 0 6px 20px rgba(var(--td-brand-rgb), 0.12);
   }
 
   .card-decoration {
-    color: rgba(7, 192, 95, 0.35);
+    color: rgba(var(--td-brand-rgb), 0.35);
   }
 
   &:hover .card-decoration {
-    color: rgba(7, 192, 95, 0.55);
+    color: rgba(var(--td-brand-rgb), 0.55);
   }
 
   .card-header {
@@ -1664,7 +1664,7 @@ onUnmounted(() => {
   }
 
   &.stat-kb {
-    background: rgba(7, 192, 95, 0.08);
+    background: rgba(var(--td-brand-rgb), 0.08);
     color: var(--td-brand-color);
 
     .t-icon {
@@ -1672,7 +1672,7 @@ onUnmounted(() => {
     }
 
     &:hover {
-      background: rgba(7, 192, 95, 0.12);
+      background: rgba(var(--td-brand-rgb), 0.12);
     }
   }
 
@@ -1743,7 +1743,7 @@ onUnmounted(() => {
   }
 
   &.admin {
-    background: rgba(7, 192, 95, 0.12);
+    background: rgba(var(--td-brand-rgb), 0.12);
     color: var(--td-brand-color);
 
     .t-icon {
@@ -1752,7 +1752,7 @@ onUnmounted(() => {
   }
 
   &.editor {
-    background: rgba(7, 192, 95, 0.08);
+    background: rgba(var(--td-brand-rgb), 0.08);
     color: var(--td-brand-color);
 
     .t-icon {

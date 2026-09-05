@@ -847,8 +847,8 @@ onMounted(async () => {
   font-weight: 600;
   letter-spacing: 0.02em;
   // 默认色，被 provider 修饰覆盖
-  background: rgba(0, 82, 217, 0.1);
-  color: #0052D9;
+  background: rgba(var(--td-brand-rgb), 0.1);
+  color: var(--td-brand-color);
 }
 
 // 真实品牌 logo：白底 + 细边，logo 用 mask-image 染成 currentColor（沿用品牌色）。

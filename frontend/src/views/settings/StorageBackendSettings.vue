@@ -490,8 +490,8 @@ onMounted(load)
   font-size: 15px;
   font-weight: 600;
   letter-spacing: 0.02em;
-  background: rgba(0, 82, 217, 0.1);
-  color: #0052D9;
+  background: rgba(var(--td-brand-rgb), 0.1);
+  color: var(--td-brand-color);
 }
 
 .backend-card .backend-card__badge--logo {
@@ -523,11 +523,11 @@ onMounted(load)
 
 .backend-card--local .backend-card__badge { background: rgba(70, 70, 70, 0.1); color: #464646; }
 .backend-card--minio .backend-card__badge { background: rgba(225, 38, 38, 0.12); color: #C0382B; }
-.backend-card--cos .backend-card__badge { background: rgba(0, 82, 217, 0.1); color: #0052D9; }
+.backend-card--cos .backend-card__badge { background: rgba(var(--td-brand-rgb), 0.1); color: var(--td-brand-color); }
 .backend-card--tos .backend-card__badge { background: rgba(0, 137, 255, 0.12); color: #0089FF; }
 .backend-card--s3 .backend-card__badge { background: rgba(255, 153, 0, 0.12); color: #D97706; }
 .backend-card--oss .backend-card__badge { background: rgba(255, 90, 0, 0.12); color: #E55A00; }
-.backend-card--ks3 .backend-card__badge { background: rgba(7, 192, 95, 0.12); color: #07A050; }
+.backend-card--ks3 .backend-card__badge { background: rgba(var(--td-brand-rgb), 0.12); color: var(--td-brand-color); }
 .backend-card--obs .backend-card__badge { background: rgba(206, 17, 38, 0.1); color: #CE1126; }
 
 .backend-card__body {
@@ -763,10 +763,10 @@ onMounted(load)
 
 .storage-backend-drawer--local .setting-drawer__header-icon { background: rgba(70, 70, 70, 0.1); color: #464646; }
 .storage-backend-drawer--minio .setting-drawer__header-icon { background: rgba(225, 38, 38, 0.12); color: #C0382B; }
-.storage-backend-drawer--cos .setting-drawer__header-icon { background: rgba(0, 82, 217, 0.1); color: #0052D9; }
+.storage-backend-drawer--cos .setting-drawer__header-icon { background: rgba(var(--td-brand-rgb), 0.1); color: var(--td-brand-color); }
 .storage-backend-drawer--tos .setting-drawer__header-icon { background: rgba(0, 137, 255, 0.12); color: #0089FF; }
 .storage-backend-drawer--s3 .setting-drawer__header-icon { background: rgba(255, 153, 0, 0.12); color: #D97706; }
 .storage-backend-drawer--oss .setting-drawer__header-icon { background: rgba(255, 90, 0, 0.12); color: #E55A00; }
-.storage-backend-drawer--ks3 .setting-drawer__header-icon { background: rgba(7, 192, 95, 0.12); color: #07A050; }
+.storage-backend-drawer--ks3 .setting-drawer__header-icon { background: rgba(var(--td-brand-rgb), 0.12); color: var(--td-brand-color); }
 .storage-backend-drawer--obs .setting-drawer__header-icon { background: rgba(206, 17, 38, 0.1); color: #CE1126; }
 </style>

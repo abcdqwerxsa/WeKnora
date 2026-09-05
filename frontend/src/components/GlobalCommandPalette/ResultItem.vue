@@ -124,7 +124,7 @@ const onHover = (e: MouseEvent) => {
   line-height: 1.4;
 
   &--vector {
-    background: rgba(7, 192, 95, 0.1);
+    background: rgba(var(--td-brand-rgb), 0.1);
     color: var(--td-brand-color);
   }
 

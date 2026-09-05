@@ -2522,7 +2522,7 @@ const processConfigLines = computed<string[]>(() => {
 }
 
 .kp-bar-wrap-done {
-  border-color: rgba(7, 192, 95, 0.35);
+  border-color: rgba(var(--td-brand-rgb), 0.35);
 }
 
 .kp-bar-wrap-failed {
