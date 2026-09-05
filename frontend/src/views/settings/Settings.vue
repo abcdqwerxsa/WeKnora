@@ -677,8 +677,8 @@ onUnmounted(() => {
   height: 780px;
   max-height: calc(100vh - 40px);
   background: var(--td-bg-color-container);
-  border-radius: 12px;
-  box-shadow: 0 6px 28px rgba(15, 23, 42, 0.08);
+  border-radius: var(--td-radius-large);
+  box-shadow: var(--td-shadow-3);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -695,7 +695,7 @@ onUnmounted(() => {
   background: transparent;
   color: var(--td-text-color-secondary);
   cursor: pointer;
-  border-radius: 6px;
+  border-radius: var(--td-radius-default);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -759,7 +759,7 @@ onUnmounted(() => {
   align-items: center;
   padding: 6px 12px;
   margin-bottom: 2px;
-  border-radius: 6px;
+  border-radius: var(--td-radius-medium);
   cursor: pointer;
   color: var(--td-text-color-primary);
   font-size: 14px;
@@ -813,7 +813,7 @@ onUnmounted(() => {
 .submenu-item {
   padding: 5px 12px;
   margin-bottom: 2px;
-  border-radius: 4px;
+  border-radius: var(--td-radius-small);
   cursor: pointer;
   color: var(--td-text-color-primary);
   font-size: 13px;
@@ -945,7 +945,7 @@ onUnmounted(() => {
 
 .settings-nav::-webkit-scrollbar-thumb {
   background: var(--td-gray-color-5);
-  border-radius: 3px;
+  border-radius: var(--td-radius-round);
 }
 
 .settings-nav::-webkit-scrollbar-thumb:hover {
@@ -958,7 +958,7 @@ onUnmounted(() => {
 
 .settings-content::-webkit-scrollbar-thumb {
   background: var(--td-gray-color-5);
-  border-radius: 3px;
+  border-radius: var(--td-radius-round);
 }
 
 .settings-content::-webkit-scrollbar-thumb:hover {

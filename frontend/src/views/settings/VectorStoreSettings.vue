@@ -1022,7 +1022,7 @@ onMounted(async () => {
   font-size: 11px;
   font-weight: 500;
   line-height: 16px;
-  border-radius: 3px;
+  border-radius: var(--td-radius-small);
   color: var(--td-warning-color-7, #B85C00);
   background: var(--td-warning-color-1, #FEF3E6);
 }
