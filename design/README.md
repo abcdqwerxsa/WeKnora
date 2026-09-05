@@ -42,7 +42,7 @@
 
 | 导出图 | 对应路由/视图 | 覆盖的真实功能 |
 | --- | --- | --- |
-| `01-login-light.png` | `/login`（Login.vue） | 官网/GitHub/语言切换、产品特性轮播、邮箱+密码登录、创建账户、OIDC、特性清单 |
+| `01-login-light.png` | `/login`（Login.vue） | 语言切换、产品特性轮播、邮箱+密码登录、创建账户；OIDC 按钮保留为条件渲染（仅部署方配置 SSO 时出现） |
 | `02-kb-list-light.png` | `/platform/knowledge-bases`（KnowledgeBaseList.vue） | 空间切换、四项主导航、我的对话（今天/近 7 天分组）、置顶/我创建的分组、KB 卡片（Wiki 徽章/收藏/来源） |
 | `03-kb-documents-light.png` | `/platform/knowledge-bases/:kbId`（KnowledgeBase.vue + DocumentListView.vue） | 面包屑（文档/Wiki/图谱 tab）、六项筛选、视图切换、添加文档、8 列文档表、解析状态全枚举（解析中/已完成/生成摘要中/失败/已取消/草稿） |
 | `04-chat-light.png` | `/platform/chat/:id` | 资源 chips、@ 提及、RAG 检索时间线（问题理解→检索完成→生成中）、引用文档卡（N 个片段）、回答+操作工具条、追问 chips、输入坞（快速问答/联网/图片/附件/模型选择） |
