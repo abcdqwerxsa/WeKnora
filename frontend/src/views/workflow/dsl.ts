@@ -21,13 +21,13 @@ import { WORKFLOW_NODE_TYPES } from '../../api/workflowContract'
 export function defaultParams(kind: WorkflowNodeType): Record<string, unknown> {
   switch (kind) {
     case 'Start':
-      return {}
+      return { fields: [] as unknown[] }
     case 'LLM':
       return { model: '', prompt: '', system_prompt: '', temperature: 0.7, max_tokens: 0 }
     case 'Retrieval':
       return { query: '', kb_ids: [] as string[], top_k: 10 }
     case 'Switch':
-      return { value: '', cases: [] as Array<{ value: string; to: string }>, default: '' }
+      return { cases: [] as unknown[], default: '' }
     case 'Answer':
       return { template: '' }
     case 'Template':
@@ -44,16 +44,18 @@ export function defaultParams(kind: WorkflowNodeType): Record<string, unknown> {
 }
 
 /**
- * Migrate params saved by older editor builds to the engine contract:
- * camelCase relics from the MVP forms (kbIds / topK / queryPlaceholder)
- * and the Retrieval `query` template that used to be missing. Mutates
- * nothing else — unknown extra keys pass through untouched (the engine
- * ignores params it does not read).
+ * Migrate params saved by older editor builds to the engine contract.
+ * Switch legacy shape ({value, to} cases + node-level `value` template,
+ * pure equality) migrates to condition groups (eq against the node-level
+ * template) so the property form always edits the new shape; the engine
+ * applies the same migration for DSLs from other clients. Mutates nothing
+ * else — unknown extra keys pass through untouched.
  */
 export function migrateNodeParams(kind: WorkflowNodeType, params: Record<string, unknown>): Record<string, unknown> {
   const next = { ...params }
   if (kind === 'Start') {
     delete next.queryPlaceholder
+    if (!Array.isArray(next.fields)) next.fields = []
   }
   if (kind === 'Retrieval') {
     if (!Array.isArray(next.kb_ids) && Array.isArray(next.kbIds)) {
@@ -64,6 +66,19 @@ export function migrateNodeParams(kind: WorkflowNodeType, params: Record<string,
       next.top_k = next.topK
     }
     delete next.topK
+  }
+  if (kind === 'Switch' && Array.isArray(next.cases)) {
+    const nodeValue = typeof next.value === 'string' ? next.value : ''
+    next.cases = (next.cases as Array<Record<string, unknown>>).map((entry) => {
+      if (Array.isArray(entry.conditions)) return entry
+      const legacyValue = typeof entry.value === 'string' ? entry.value : ''
+      return {
+        conditions: [{ ref: nodeValue, op: 'eq', value: legacyValue }],
+        logic: 'and',
+        to: typeof entry.to === 'string' ? entry.to : '',
+      }
+    })
+    delete next.value
   }
   return next
 }

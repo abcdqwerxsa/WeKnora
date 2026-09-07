@@ -1,5 +1,35 @@
 <template>
   <div class="wf-run-panel">
+    <!-- Start-node input form (declared fields render as run inputs) -->
+    <section v-if="(startFields ?? []).length > 0" class="wf-run-section">
+      <p class="wf-run-section-title">{{ $t('workflow.run.formTitle') }}</p>
+      <t-form label-align="top">
+        <t-form-item v-for="field in startFields" :key="field.name" :label="field.label || field.name" :mark="field.required">
+          <t-select
+            v-if="field.type === 'select'"
+            v-model="formValues[field.name]"
+            clearable
+            :placeholder="field.name"
+          >
+            <t-option v-for="option in field.options ?? []" :key="option" :value="option" :label="option" />
+          </t-select>
+          <t-textarea
+            v-else-if="field.type === 'paragraph'"
+            v-model="formValues[field.name]"
+            :autosize="{ minRows: 2, maxRows: 6 }"
+            :placeholder="field.name"
+          />
+          <t-input-number
+            v-else-if="field.type === 'number'"
+            v-model="formValues[field.name]"
+            theme="column"
+            :placeholder="field.name"
+          />
+          <t-input v-else v-model="formValues[field.name]" :placeholder="field.name" />
+        </t-form-item>
+      </t-form>
+    </section>
+
     <!-- Trigger -->
     <section class="wf-run-section">
       <t-textarea
@@ -9,10 +39,24 @@
         :disabled="starting"
       />
       <div class="wf-run-actions">
-        <t-button theme="primary" size="small" :loading="starting" :disabled="!query.trim()" @click="start(false)">
+        <t-button
+          theme="primary"
+          size="small"
+          :loading="starting"
+          :disabled="!query.trim() || missingRequired.length > 0"
+          :title="missingRequired.length > 0 ? $t('workflow.run.missingFields', { names: missingRequired.join(', ') }) : undefined"
+          @click="start(false)"
+        >
           {{ $t('workflow.run.syncRun') }}
         </t-button>
-        <t-button variant="outline" size="small" :loading="starting" :disabled="!query.trim()" @click="start(true)">
+        <t-button
+          variant="outline"
+          size="small"
+          :loading="starting"
+          :disabled="!query.trim() || missingRequired.length > 0"
+          :title="missingRequired.length > 0 ? $t('workflow.run.missingFields', { names: missingRequired.join(', ') }) : undefined"
+          @click="start(true)"
+        >
           {{ $t('workflow.run.asyncRun') }}
         </t-button>
         <t-button v-if="streaming" variant="text" theme="default" size="small" @click="stop()">
@@ -146,6 +190,8 @@ const props = defineProps<{
   workflowId: string
   /** Canvas nodes (id + kind) so timelines show labels instead of raw ids. */
   nodes?: Array<{ id: string; kind: string }>
+  /** Start-node form fields, rendered as run inputs. */
+  startFields?: Array<{ name: string; label?: string; type: string; required?: boolean; default?: string; options?: string[] }>
 }>()
 
 /**
@@ -166,6 +212,27 @@ const { t } = useI18n()
 
 const query = ref('')
 const starting = ref(false)
+// Start-form values keyed by field name (defaults seeded once per prop set).
+const formValues = ref<Record<string, string>>({})
+watch(
+  () => props.startFields,
+  (fields) => {
+    const next: Record<string, string> = {}
+    for (const field of fields ?? []) {
+      next[field.name] = field.default ?? ''
+    }
+    formValues.value = next
+  },
+  { immediate: true },
+)
+
+/** Missing required form fields (drives the run button's disabled state). */
+const missingRequired = computed(() =>
+  (props.startFields ?? [])
+    .filter((field) => field.required)
+    .filter((field) => !String(formValues.value[field.name] ?? '').trim())
+    .map((field) => field.label || field.name),
+)
 const answer = ref<string | null>(null)
 const resultError = ref('')
 const activeRunId = ref('')
@@ -290,13 +357,18 @@ async function start(asyncMode: boolean) {
     MessagePlugin.warning(t('workflow.run.queryRequired'))
     return
   }
+  if (missingRequired.value.length > 0) {
+    MessagePlugin.warning(t('workflow.run.missingFields', { names: missingRequired.value.join(', ') }))
+    return
+  }
   starting.value = true
   answer.value = null
   resultError.value = ''
   selectedTrace.value = null
   expandedRecords.value = new Set()
   try {
-    const response = await runWorkflow(props.workflowId, { query: trimmed, async: asyncMode })
+    const inputs = Object.keys(formValues.value).length > 0 ? { ...formValues.value } : undefined
+    const response = await runWorkflow(props.workflowId, { query: trimmed, inputs, async: asyncMode })
     const run = response?.run
     if (!run) {
       resultError.value = response?.message || t('workflow.run.runFailed')

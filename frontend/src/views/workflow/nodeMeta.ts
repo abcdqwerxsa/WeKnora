@@ -55,8 +55,14 @@ export const NODE_ICONS: Record<WorkflowNodeType, string> = {
 /** Upstream output params a reference picker may offer for a node kind. */
 export function outputParamsOf(kind: WorkflowNodeType, params?: Record<string, unknown>): string[] {
   switch (kind) {
-    case 'Start':
-      return ['query']
+    case 'Start': {
+      // Declared form fields are materialised into Start outputs by name.
+      const fields = params?.fields
+      const names = Array.isArray(fields)
+        ? fields.map((f) => String((f as { name?: unknown })?.name ?? '')).filter(Boolean)
+        : []
+      return ['query', ...names]
+    }
     case 'LLM':
       return ['content']
     case 'Retrieval':
@@ -80,6 +86,54 @@ export function outputParamsOf(kind: WorkflowNodeType, params?: Record<string, u
   }
 }
 
+// ---- upstream reference suggestions (shared by RefTextarea / picker) ----
+
+/** One suggestion entry for {ref} autocompletion. */
+export interface RefSuggestion {
+  ref: string
+  hint?: string
+}
+
+/**
+ * Every reference resolvable from currentNodeId: upstream node outputs
+ * ({nodeId@param}, ancestors only — the walk mirrors the engine's render
+ * order), sys.query/sys.files, and env.<name> for each workflow variable.
+ */
+export function upstreamRefSuggestions(
+  currentNodeId: string,
+  nodes: Array<{ id: string; kind: WorkflowNodeType; params?: Record<string, unknown> }>,
+  edges: Array<{ source: string; target: string }>,
+  envNames: string[] = [],
+): RefSuggestion[] {
+  const upstream = new Map<string, string[]>()
+  for (const edge of edges) {
+    const list = upstream.get(edge.target) ?? []
+    list.push(edge.source)
+    upstream.set(edge.target, list)
+  }
+  const ancestors = new Set<string>()
+  const queue = [...(upstream.get(currentNodeId) ?? [])]
+  while (queue.length > 0) {
+    const id = queue.shift()!
+    if (ancestors.has(id)) continue
+    ancestors.add(id)
+    queue.push(...(upstream.get(id) ?? []))
+  }
+
+  const out: RefSuggestion[] = []
+  for (const node of nodes) {
+    if (node.id === currentNodeId || !ancestors.has(node.id)) continue
+    for (const param of outputParamsOf(node.kind, node.params)) {
+      out.push({ ref: `${node.id}@${param}`, hint: node.kind })
+    }
+  }
+  out.push({ ref: 'sys.query', hint: 'sys' }, { ref: 'sys.files', hint: 'sys' })
+  for (const name of envNames) {
+    if (name) out.push({ ref: `env.${name}`, hint: 'env' })
+  }
+  return out
+}
+
 /** Short parameter summary rendered as the node-card subtitle. */
 export function paramSummary(kind: WorkflowNodeType, params?: Record<string, unknown>): string {
   if (!params) return ''
@@ -92,7 +146,7 @@ export function paramSummary(kind: WorkflowNodeType, params?: Record<string, unk
       return n > 0 ? `${n} KB` : ''
     }
     case 'Switch':
-      return count(params.cases) > 0 ? `${count(params.cases)} cases` : ''
+      return count(params.cases) > 0 ? `${count(params.cases)} cond` : ''
     case 'Template':
       return count(params.ops) > 0 ? `${count(params.ops)} ops` : ''
     case 'VariableAggregator':

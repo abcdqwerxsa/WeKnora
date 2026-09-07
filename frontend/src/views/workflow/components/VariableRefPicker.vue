@@ -26,6 +26,19 @@
             <t-button variant="text" size="small" class="wf-refpicker-item" @click="pick('sys.query')">sys · query</t-button>
             <t-button variant="text" size="small" class="wf-refpicker-item" @click="pick('sys.files')">sys · files</t-button>
           </div>
+          <div v-if="envVarNames.length > 0" class="wf-refpicker-group">
+            <p class="wf-refpicker-node">env</p>
+            <t-button
+              v-for="name in envVarNames"
+              :key="name"
+              variant="text"
+              size="small"
+              class="wf-refpicker-item"
+              @click="pick(`env.${name}`)"
+            >
+              env · {{ name }}
+            </t-button>
+          </div>
         </template>
       </div>
     </template>
@@ -53,12 +66,15 @@ const props = defineProps<{
   currentNodeId: string
   nodes: Array<{ id: string; kind: WorkflowNodeType; params?: Record<string, unknown> }>
   edges: Edge[]
+  /** Workflow variable names offered as env.<name> entries. */
+  envNames?: string[]
 }>()
 
 const emit = defineEmits<{ insert: [ref: string] }>()
 
 const { t } = useI18n()
 const visible = ref(false)
+const envVarNames = computed(() => props.envNames ?? [])
 
 interface RefGroup {
   nodeId: string

@@ -3,6 +3,39 @@
     <!-- ================= Start ================= -->
     <template v-if="kind === 'Start'">
       <p class="wf-prop-hint">{{ t('workflow.editor.startHint') }}</p>
+      <t-form-item :label="t('workflow.editor.formFields')">
+        <div class="wf-prop-rows">
+          <div v-for="(field, index) in startFields" :key="index" class="wf-prop-case">
+            <div class="wf-prop-row">
+              <t-input v-model="field.name" :placeholder="t('workflow.editor.fieldName')" />
+              <t-select v-model="field.type" class="wf-prop-field-type">
+                <t-option value="text" :label="t('workflow.editor.fieldText')" />
+                <t-option value="paragraph" :label="t('workflow.editor.fieldParagraph')" />
+                <t-option value="number" :label="t('workflow.editor.fieldNumber')" />
+                <t-option value="select" :label="t('workflow.editor.fieldSelect')" />
+              </t-select>
+              <t-checkbox v-model="field.required">{{ t('workflow.editor.fieldRequired') }}</t-checkbox>
+              <t-button variant="text" theme="danger" size="small" @click="startFields.splice(index, 1)">
+                <template #icon><t-icon name="delete" /></template>
+              </t-button>
+            </div>
+            <div class="wf-prop-row">
+              <t-input v-model="field.label" :placeholder="t('workflow.editor.fieldLabel')" />
+              <t-input v-model="field.default" :placeholder="t('workflow.editor.fieldDefault')" />
+            </div>
+            <div v-if="field.type === 'select'" class="wf-prop-row">
+              <t-input
+                :value="(field.options ?? []).join(', ')"
+                :placeholder="t('workflow.editor.fieldOptions')"
+                @change="field.options = String($event).split(',').map((s) => s.trim()).filter(Boolean)"
+              />
+            </div>
+          </div>
+          <t-button variant="dashed" size="small" block @click="addField()">
+            {{ t('workflow.editor.addField') }}
+          </t-button>
+        </div>
+      </t-form-item>
     </template>
 
     <!-- ================= LLM ================= -->
@@ -20,14 +53,13 @@
       </t-form-item>
       <t-form-item :label="t('workflow.editor.systemPrompt')">
         <div class="wf-prop-field">
-          <t-textarea
-            :value="strParam('system_prompt')"
+          <RefTextarea
+          :model-value="strParam('system_prompt')"
             :autosize="{ minRows: 2, maxRows: 8 }"
             :placeholder="t('workflow.editor.promptHint')"
-            @focus="rememberCaret('system_prompt', $event)"
-            @click="rememberCaret('system_prompt', $event)"
-            @change="setParam('system_prompt', $event)"
-          />
+          :suggestions="refSuggestions"
+          @change="setParam('system_prompt', $event)"
+        />
           <VariableRefPicker
             :current-node-id="currentNodeId"
             :nodes="nodes"
@@ -38,15 +70,14 @@
       </t-form-item>
       <t-form-item :label="t('workflow.editor.prompt')">
         <div class="wf-prop-field">
-          <t-textarea
-            :value="strParam('prompt')"
+          <RefTextarea
+          :model-value="strParam('prompt')"
             :autosize="{ minRows: 3, maxRows: 10 }"
             :placeholder="t('workflow.editor.promptHint')"
-            @focus="rememberCaret('prompt', $event)"
-            @click="rememberCaret('prompt', $event)"
-            @change="setParam('prompt', $event)"
-          />
-          <VariableRefPicker :current-node-id="currentNodeId" :nodes="nodes" :edges="edges" @insert="insertRef('prompt', $event)" />
+          :suggestions="refSuggestions"
+          @change="setParam('prompt', $event)"
+        />
+          <VariableRefPicker :current-node-id="currentNodeId" :nodes="nodes" :edges="edges" :env-names="envNames" @insert="insertRef('prompt', $event)" />
         </div>
       </t-form-item>
       <t-form-item :label="t('workflow.editor.temperature')">
@@ -81,15 +112,14 @@
       </t-form-item>
       <t-form-item :label="t('workflow.editor.queryTemplate')">
         <div class="wf-prop-field">
-          <t-textarea
-            :value="strParam('query')"
+          <RefTextarea
+          :model-value="strParam('query')"
             :autosize="{ minRows: 2, maxRows: 6 }"
             :placeholder="t('workflow.editor.promptHint')"
-            @focus="rememberCaret('query', $event)"
-            @click="rememberCaret('query', $event)"
-            @change="setParam('query', $event)"
-          />
-          <VariableRefPicker :current-node-id="currentNodeId" :nodes="nodes" :edges="edges" @insert="insertRef('query', $event)" />
+          :suggestions="refSuggestions"
+          @change="setParam('query', $event)"
+        />
+          <VariableRefPicker :current-node-id="currentNodeId" :nodes="nodes" :edges="edges" :env-names="envNames" @insert="insertRef('query', $event)" />
         </div>
       </t-form-item>
       <t-form-item :label="t('workflow.editor.topK')">
@@ -146,30 +176,45 @@
 
     <!-- ================= Switch ================= -->
     <template v-else-if="kind === 'Switch'">
-      <t-form-item :label="t('workflow.editor.switchValue')">
-        <div class="wf-prop-field">
-          <t-input
-            :value="strParam('value')"
-            :placeholder="t('workflow.editor.switchValueHint')"
-            @focus="rememberCaret('value', $event)"
-            @click="rememberCaret('value', $event)"
-            @change="setParam('value', $event)"
-          />
-          <VariableRefPicker :current-node-id="currentNodeId" :nodes="nodes" :edges="edges" @insert="insertRef('value', $event)" />
-        </div>
-      </t-form-item>
       <t-form-item :label="t('workflow.editor.cases')">
         <div class="wf-prop-rows">
-          <div v-for="(item, index) in switchCases" :key="index" class="wf-prop-row">
-            <t-input v-model="item.value" :placeholder="t('workflow.editor.caseValue')" />
-            <t-select v-model="item.to" :placeholder="t('workflow.editor.caseTarget')" clearable>
-              <t-option v-for="option in nodeOptions" :key="option.value" :value="option.value" :label="option.label" />
-            </t-select>
-            <t-button variant="text" theme="danger" size="small" @click="removeAt('cases', index)">
-              <template #icon><t-icon name="delete" /></template>
+          <div v-for="(item, index) in switchCases" :key="index" class="wf-prop-case">
+            <div class="wf-prop-case-head">
+              <t-select v-model="item.logic" class="wf-prop-logic">
+                <t-option value="and" :label="t('workflow.editor.logicAll')" />
+                <t-option value="or" :label="t('workflow.editor.logicAny')" />
+              </t-select>
+              <t-select v-model="item.to" :placeholder="t('workflow.editor.caseTarget')" clearable size="small">
+                <t-option v-for="option in nodeOptions" :key="option.value" :value="option.value" :label="option.label" />
+              </t-select>
+              <t-button variant="text" theme="danger" size="small" @click="removeAt('cases', index)">
+                <template #icon><t-icon name="delete" /></template>
+              </t-button>
+            </div>
+            <div v-for="(cond, condIndex) in item.conditions" :key="condIndex" class="wf-prop-cond">
+              <t-input v-model="cond.ref" :placeholder="t('workflow.editor.condRef')" class="wf-prop-cond-ref" />
+              <t-select v-model="cond.op" class="wf-prop-cond-op">
+                <t-option v-for="op in SWITCH_OPERATORS" :key="op" :value="op" :label="t(`workflow.editor.ops.${op}`)" />
+              </t-select>
+              <t-input
+                v-if="cond.op !== 'empty' && cond.op !== 'not_empty'"
+                v-model="cond.value"
+                :placeholder="t('workflow.editor.condValue')"
+              />
+              <t-button variant="text" theme="danger" size="small" @click="item.conditions.splice(condIndex, 1)">
+                <template #icon><t-icon name="close" /></template>
+              </t-button>
+            </div>
+            <t-button variant="dashed" size="small" block @click="item.conditions.push({ ref: '', op: 'eq', value: '' })">
+              {{ t('workflow.editor.addCondition') }}
             </t-button>
           </div>
-          <t-button variant="dashed" size="small" block @click="switchCases.push({ value: '', to: '' })">
+          <t-button
+            variant="dashed"
+            size="small"
+            block
+            @click="switchCases.push({ conditions: [{ ref: '', op: 'eq', value: '' }], logic: 'and', to: '' })"
+          >
             {{ t('workflow.editor.addCase') }}
           </t-button>
         </div>
@@ -190,15 +235,14 @@
     <template v-else-if="kind === 'Answer'">
       <t-form-item :label="t('workflow.editor.template')">
         <div class="wf-prop-field">
-          <t-textarea
-            :value="strParam('template')"
+          <RefTextarea
+          :model-value="strParam('template')"
             :autosize="{ minRows: 4, maxRows: 10 }"
             :placeholder="t('workflow.editor.promptHint')"
-            @focus="rememberCaret('template', $event)"
-            @click="rememberCaret('template', $event)"
-            @change="setParam('template', $event)"
-          />
-          <VariableRefPicker :current-node-id="currentNodeId" :nodes="nodes" :edges="edges" @insert="insertRef('template', $event)" />
+          :suggestions="refSuggestions"
+          @change="setParam('template', $event)"
+        />
+          <VariableRefPicker :current-node-id="currentNodeId" :nodes="nodes" :edges="edges" :env-names="envNames" @insert="insertRef('template', $event)" />
         </div>
       </t-form-item>
     </template>
@@ -207,15 +251,14 @@
     <template v-else-if="kind === 'Template'">
       <t-form-item :label="t('workflow.editor.template')">
         <div class="wf-prop-field">
-          <t-textarea
-            :value="strParam('template')"
+          <RefTextarea
+          :model-value="strParam('template')"
             :autosize="{ minRows: 3, maxRows: 8 }"
             :placeholder="t('workflow.editor.promptHint')"
-            @focus="rememberCaret('template', $event)"
-            @click="rememberCaret('template', $event)"
-            @change="setParam('template', $event)"
-          />
-          <VariableRefPicker :current-node-id="currentNodeId" :nodes="nodes" :edges="edges" @insert="insertRef('template', $event)" />
+          :suggestions="refSuggestions"
+          @change="setParam('template', $event)"
+        />
+          <VariableRefPicker :current-node-id="currentNodeId" :nodes="nodes" :edges="edges" :env-names="envNames" @insert="insertRef('template', $event)" />
         </div>
       </t-form-item>
       <t-form-item :label="t('workflow.editor.ops')">
@@ -263,6 +306,7 @@
               :current-node-id="currentNodeId"
               :nodes="nodes"
               :edges="edges"
+              :env-names="envNames"
               @insert="(ref: string) => (item.ref = ref)"
             />
             <t-button variant="text" theme="danger" size="small" @click="varList.splice(index, 1)">
@@ -292,7 +336,7 @@
             @click="rememberCaret('url', $event)"
             @change="setParam('url', $event)"
           />
-          <VariableRefPicker :current-node-id="currentNodeId" :nodes="nodes" :edges="edges" @insert="insertRef('url', $event)" />
+          <VariableRefPicker :current-node-id="currentNodeId" :nodes="nodes" :edges="edges" :env-names="envNames" @insert="insertRef('url', $event)" />
         </div>
       </t-form-item>
       <t-form-item :label="t('workflow.editor.headers')">
@@ -311,15 +355,14 @@
       </t-form-item>
       <t-form-item :label="t('workflow.editor.bodyTemplate')">
         <div class="wf-prop-field">
-          <t-textarea
-            :value="strParam('body_template')"
+          <RefTextarea
+          :model-value="strParam('body_template')"
             :autosize="{ minRows: 3, maxRows: 8 }"
             placeholder="{&quot;query&quot;: &quot;{start@query}&quot;}"
-            @focus="rememberCaret('body_template', $event)"
-            @click="rememberCaret('body_template', $event)"
-            @change="setParam('body_template', $event)"
-          />
-          <VariableRefPicker :current-node-id="currentNodeId" :nodes="nodes" :edges="edges" @insert="insertRef('body_template', $event)" />
+          :suggestions="refSuggestions"
+          @change="setParam('body_template', $event)"
+        />
+          <VariableRefPicker :current-node-id="currentNodeId" :nodes="nodes" :edges="edges" :env-names="envNames" @insert="insertRef('body_template', $event)" />
         </div>
       </t-form-item>
       <t-form-item :label="t('workflow.editor.timeout')">
@@ -354,6 +397,7 @@
               :current-node-id="currentNodeId"
               :nodes="nodes"
               :edges="edges"
+              :env-names="envNames"
               @insert="(ref: string) => (item.ref = ref)"
             />
             <t-button variant="text" theme="danger" size="small" @click="varList.splice(index, 1)">
@@ -375,8 +419,16 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Edge } from '@vue-flow/core'
 import type { ModelConfig } from '@/api/model'
-import type { TemplateOp, WorkflowNodeType } from '@/api/workflow'
+import type { StartField, SwitchCaseGroup, TemplateOp, WorkflowNodeType } from '@/api/workflow'
 import VariableRefPicker from './VariableRefPicker.vue'
+import RefTextarea from './RefTextarea.vue'
+import { upstreamRefSuggestions } from '../nodeMeta'
+
+/** Switch condition operators (mirror of the engine's conditionOps). */
+const SWITCH_OPERATORS = [
+  'eq', 'ne', 'contains', 'not_contains', 'starts_with', 'ends_with',
+  'empty', 'not_empty', 'gt', 'gte', 'lt', 'lte', 'regex', 'in', 'not_in',
+] as const
 
 /**
  * Typed property form for one canvas node. Mutates `params` in place —
@@ -392,6 +444,8 @@ const props = defineProps<{
   chatModels: ModelConfig[]
   rerankModels: ModelConfig[]
   kbs: Array<{ id: string; name: string }>
+  /** Workflow variable names (env.* suggestions in pickers/autocomplete). */
+  envNames?: string[]
 }>()
 
 const { t } = useI18n()
@@ -436,10 +490,26 @@ function insertRef(key: string, reference: string) {
 
 // ---- list editors (reactive views over params arrays) --------------------
 
-const switchCases = computed<Array<{ value: string; to: string }>>({
-  get: () => (Array.isArray(props.params.cases) ? (props.params.cases as Array<{ value: string; to: string }>) : []),
+const switchCases = computed<Array<SwitchCaseGroup & Record<string, unknown>>>({
+  get: () =>
+    Array.isArray(props.params.cases) ? (props.params.cases as Array<SwitchCaseGroup & Record<string, unknown>>) : [],
   set: (value) => setParam('cases', value),
 })
+
+const startFields = computed<Array<StartField & Record<string, unknown>>>({
+  get: () =>
+    Array.isArray(props.params.fields) ? (props.params.fields as Array<StartField & Record<string, unknown>>) : [],
+  set: (value) => setParam('fields', value),
+})
+
+function addField() {
+  startFields.value.push({ name: '', type: 'text', required: false, default: '', label: '', options: [] })
+}
+
+/** Inline {ref} autocomplete options for template textareas. */
+const refSuggestions = computed(() =>
+  upstreamRefSuggestions(props.currentNodeId, props.nodes, props.edges, props.envNames ?? []),
+)
 
 const templateOps = computed<Array<TemplateOp & Record<string, unknown>>>({
   get: () => (Array.isArray(props.params.ops) ? (props.params.ops as Array<TemplateOp & Record<string, unknown>>) : []),
@@ -559,6 +629,48 @@ function modelLabel(name: string): string {
 
 .wf-prop-op-type {
   flex: 0 0 110px !important;
+}
+
+.wf-prop-case {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px dashed var(--td-component-stroke);
+  border-radius: 6px;
+}
+
+.wf-prop-case-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.wf-prop-logic {
+  flex: 0 0 84px !important;
+}
+
+.wf-prop-cond {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.wf-prop-cond .t-input,
+.wf-prop-cond .t-select {
+  min-width: 0;
+}
+
+.wf-prop-cond-ref {
+  flex: 1.4 !important;
+}
+
+.wf-prop-cond-op {
+  flex: 1 !important;
+}
+
+.wf-prop-field-type {
+  flex: 0 0 100px !important;
 }
 
 .wf-prop-hint {

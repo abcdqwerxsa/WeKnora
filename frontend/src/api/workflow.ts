@@ -38,6 +38,34 @@ export interface TemplateOp {
   group?: number
 }
 
+/** One comparison inside a Switch case group. */
+export interface SwitchCondition {
+  /** Left operand template, e.g. "{llm@content}". */
+  ref: string
+  /** Operator id (eq/ne/contains/not_contains/starts_with/ends_with/empty/not_empty/gt/gte/lt/lte/regex/in/not_in). */
+  op: string
+  /** Right operand literal/template; ignored by empty/not_empty. */
+  value: string
+}
+
+/** One Switch routing rule: condition group + target node. */
+export interface SwitchCaseGroup {
+  conditions: SwitchCondition[]
+  logic: 'and' | 'or'
+  to: string
+}
+
+/** Start-node input form field declaration. */
+export interface StartField {
+  name: string
+  label?: string
+  type: 'text' | 'paragraph' | 'number' | 'select'
+  required?: boolean
+  default?: string
+  /** select choices */
+  options?: string[]
+}
+
 export interface VariableRef {
   name: string
   ref: string
@@ -207,7 +235,7 @@ export interface WorkflowRunListResponse {
 
 export const runWorkflow = (
   id: string,
-  payload: { query: string; files?: string[]; async?: boolean },
+  payload: { query: string; files?: string[]; inputs?: Record<string, unknown>; async?: boolean },
 ): Promise<WorkflowRunResponse> => post(`/api/v1/workflows/${id}/runs`, payload)
 
 /**

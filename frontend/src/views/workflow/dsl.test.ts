@@ -87,3 +87,30 @@ test('autoLayout tolerates cycles without hanging', () => {
   const pos = autoLayout(nodes, edges)
   assert.ok(Number.isFinite(pos.a.x) && Number.isFinite(pos.b.x))
 })
+
+test('migrateNodeParams converts legacy Switch equality cases to condition groups', async () => {
+  const { migrateNodeParams } = await import('./dsl.ts')
+  const migrated = migrateNodeParams('Switch', {
+    value: '{sys.lang}',
+    cases: [
+      { value: 'go', to: 'a' },
+      { value: 'py', to: 'b' },
+    ],
+    default: 'b',
+  })
+  assert.equal((migrated as Record<string, unknown>).value, undefined)
+  const cases = migrated.cases as Array<{ conditions: Array<{ ref: string; op: string; value: string }>; logic: string; to: string }>
+  assert.equal(cases.length, 2)
+  assert.deepEqual(cases[0].conditions, [{ ref: '{sys.lang}', op: 'eq', value: 'go' }])
+  assert.equal(cases[0].logic, 'and')
+  assert.equal(cases[0].to, 'a')
+  // New-style cases pass through untouched.
+  const kept = migrateNodeParams('Switch', {
+    cases: [{ conditions: [{ ref: '{x@y}', op: 'contains', value: 'z' }], logic: 'or', to: 'c' }],
+  })
+  assert.deepEqual((kept.cases as unknown[])[0], {
+    conditions: [{ ref: '{x@y}', op: 'contains', value: 'z' }],
+    logic: 'or',
+    to: 'c',
+  })
+})

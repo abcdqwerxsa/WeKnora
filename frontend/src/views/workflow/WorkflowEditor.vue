@@ -9,6 +9,10 @@
         <t-tag v-if="workflow" size="small" theme="warning">{{ $t(`workflow.status.${workflow.status}`) }}</t-tag>
       </div>
       <div class="wf-editor-toolbar-right">
+        <t-button variant="outline" :disabled="!ready" @click="variablesDrawerVisible = true">
+          <template #icon><t-icon name="variable" /></template>
+          {{ $t('workflow.editor.variablesBtn') }}
+        </t-button>
         <t-button variant="outline" @click="applyAutoLayout" :disabled="!ready">
           <template #icon><t-icon name="layout" /></template>
           {{ $t('workflow.editor.autoLayout') }}
@@ -99,6 +103,7 @@
         :chat-models="chatModels"
         :rerank-models="rerankModels"
         :kbs="kbs"
+        :env-names="envNames"
       />
       <div v-else class="wf-editor-form-empty">
         {{ $t('workflow.editor.selectNode') }}
@@ -115,9 +120,40 @@
       <WorkflowRunPanel
         :workflow-id="workflowId"
         :nodes="pickerNodes"
+        :start-fields="startFields"
         @node-phases="runNodePhases = $event"
         @node-outputs="runNodeOutputs = $event"
       />
+    </t-drawer>
+    <t-drawer
+      v-model:visible="variablesDrawerVisible"
+      :header="$t('workflow.editor.variablesDrawer')"
+      size="360px"
+      :footer="false"
+      :close-btn="true"
+    >
+      <div class="wf-editor-vars">
+        <p class="wf-editor-vars-hint">{{ $t('workflow.editor.variablesHint') }}</p>
+        <div v-for="key in envNames" :key="key" class="wf-editor-vars-row">
+          <t-input
+            :value="key"
+            class="wf-editor-vars-name"
+            :placeholder="t('workflow.editor.variablesName')"
+            @change="renameVariable(key, String($event))"
+          />
+          <t-input
+            :value="String(wfVariables[key] ?? '')"
+            :placeholder="t('workflow.editor.variablesValue')"
+            @change="wfVariables = { ...wfVariables, [key]: $event }"
+          />
+          <t-button variant="text" theme="danger" size="small" @click="removeVariable(key)">
+            <template #icon><t-icon name="delete" /></template>
+          </t-button>
+        </div>
+        <t-button variant="dashed" size="small" block @click="addVariable">
+          {{ $t('workflow.editor.addVariable') }}
+        </t-button>
+      </div>
     </t-drawer>
   </div>
 </template>
@@ -158,6 +194,44 @@ const loadError = ref(false)
 const loadErrorDetail = ref('')
 const name = ref('')
 const saving = ref(false)
+
+// Workflow-level variables (DSL.variables → runtime env.*). Edited in the
+// variables drawer; saved as part of the DSL document.
+const wfVariables = ref<Record<string, unknown>>({})
+const variablesDrawerVisible = ref(false)
+const envNames = computed(() => Object.keys(wfVariables.value).filter(Boolean))
+
+// Start-node form fields, rendered as run inputs by the run panel.
+const startFields = computed<Array<{ name: string; label?: string; type: string; required?: boolean; default?: string; options?: string[] }>>(() => {
+  const start = pickerNodes.value.find((node) => node.kind === 'Start')
+  const fields = start?.params?.fields
+  return Array.isArray(fields)
+    ? (fields as Array<{ name: string; label?: string; type: string; required?: boolean; default?: string; options?: string[] }>).filter((f) => f?.name)
+    : []
+})
+
+function addVariable() {
+  const base = 'var'
+  let n = 1
+  while (wfVariables.value[`${base}${n}`] !== undefined) n += 1
+  wfVariables.value = { ...wfVariables.value, [`${base}${n}`]: '' }
+}
+
+function removeVariable(key: string) {
+  const next = { ...wfVariables.value }
+  delete next[key]
+  wfVariables.value = next
+}
+
+function renameVariable(oldKey: string, rawName: string) {
+  const name = rawName.trim().replace(/\s+/g, '_')
+  if (!name || name === oldKey) return
+  const next: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(wfVariables.value)) {
+    next[key === oldKey ? name : key] = value
+  }
+  wfVariables.value = next
+}
 
 const workflow = ref<Workflow | null>(null)
 
@@ -507,7 +581,7 @@ function currentDsl(): WorkflowDSL {
     }
   })
   const plainEdges = canvasEdges.value.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target }))
-  return buildDsl(plainNodes, plainEdges)
+  return buildDsl(plainNodes, plainEdges, { ...wfVariables.value })
 }
 
 function setCanvas(dsl: WorkflowDSL) {
@@ -518,6 +592,7 @@ function setCanvas(dsl: WorkflowDSL) {
     data: { kind: node.type, params: migrateNodeParams(node.type, (node.data?.params as Record<string, unknown> | undefined) ?? defaultParams(node.type)) },
   }))
   canvasEdges.value = dsl.graph.edges.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target }))
+  wfVariables.value = { ...(dsl.variables ?? {}) }
   refreshEdgeLabels()
 }
 
@@ -674,6 +749,33 @@ load()
   align-items: center;
   justify-content: center;
   gap: 12px;
+}
+
+.wf-editor-vars {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wf-editor-vars-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
+}
+
+.wf-editor-vars-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.wf-editor-vars-row .t-input {
+  min-width: 0;
+  flex: 1;
+}
+
+.wf-editor-vars-name {
+  flex: 0 0 110px !important;
 }
 
 .wf-editor-canvas {
