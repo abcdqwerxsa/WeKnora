@@ -7022,6 +7022,7 @@ export default {
       status: { pending: 'Queued', running: 'Running', succeeded: 'Succeeded', failed: 'Failed', cancelled: 'Cancelled' },
       phase: { started: 'started', finished: 'finished', failed: 'failed' },
       replayed: 'replayed',
+      generating: 'generating…',
       formTitle: 'Input form',
       missingFields: 'Missing required fields: {names}',
       nodeOutputs: 'Node outputs',

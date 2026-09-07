@@ -109,13 +109,19 @@ type WorkflowStatusRequest struct {
 type WorkflowRunEvent struct {
 	WorkflowID string `json:"workflow_id"`
 	RunID      string `json:"run_id"`
-	// Kind discriminates frames: "node" (node lifecycle) | "run" (terminal).
+	// Kind discriminates frames: "node" (node lifecycle) | "delta"
+	// (incremental answer content) | "run" (terminal).
 	Kind string `json:"kind"`
-	// NodeID is set for Kind=node frames.
+	// NodeID is set for Kind=node/delta frames.
 	NodeID string `json:"node_id,omitempty"`
-	// Phase: node frames carry started|finished|failed; run frames carry the
-	// terminal run status (succeeded|failed|cancelled).
+	// Phase: node frames carry started|finished|failed; delta frames carry
+	// "delta"; run frames carry the terminal run status.
 	Phase string `json:"phase"`
+	// Content is the incremental text chunk on Kind=delta frames.
+	Content string `json:"content,omitempty"`
+	// Stream names the logical stream a delta belongs to ("answer" when the
+	// delta feeds the terminal Answer node's single-ref template).
+	Stream string `json:"stream,omitempty"`
 	// Err is the terminal error message for failed phases.
 	Err string `json:"error,omitempty"`
 	// DurationMS is the node execution duration for finished/failed frames.

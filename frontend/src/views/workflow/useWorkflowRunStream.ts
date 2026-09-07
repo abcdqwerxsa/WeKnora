@@ -29,6 +29,10 @@ function framePhaseToNodePhase(phase: string): NodeRunPhase {
 export function useWorkflowRunStream(workflowId: () => string) {
   const frames = ref<WorkflowRunEventFrame[]>([])
   const nodePhases = ref<Record<string, NodeRunPhase>>({})
+  // Live answer text accumulated from kind=delta frames tagged stream=answer
+  // (LLM tokens flowing through the terminal Answer node's single-ref
+  // template). Replaced by the authoritative run row on terminal frames.
+  const answerStream = ref('')
   const terminalStatus = ref('')
   const terminalError = ref('')
   const streaming = ref(false)
@@ -56,6 +60,7 @@ export function useWorkflowRunStream(workflowId: () => string) {
   function resetStreamState() {
     frames.value = []
     nodePhases.value = {}
+    answerStream.value = ''
     terminalStatus.value = ''
     terminalError.value = ''
   }
@@ -99,7 +104,12 @@ export function useWorkflowRunStream(workflowId: () => string) {
           return
         }
         frames.value = [...frames.value, frame]
-        if (frame.kind === 'node' && frame.node_id) {
+        if (frame.kind === 'delta') {
+          if (frame.stream === 'answer' && frame.content) {
+            answerStream.value += frame.content
+          }
+          // Deltas carry no lifecycle meaning; skip phase mapping.
+        } else if (frame.kind === 'node' && frame.node_id) {
           nodePhases.value = {
             ...nodePhases.value,
             [frame.node_id]: framePhaseToNodePhase(frame.phase),
@@ -124,5 +134,5 @@ export function useWorkflowRunStream(workflowId: () => string) {
 
   onBeforeUnmount(stop)
 
-  return { frames, nodePhases, terminalStatus, terminalError, streaming, follow, stop, resetStreamState }
+  return { frames, nodePhases, answerStream, terminalStatus, terminalError, streaming, follow, stop, resetStreamState }
 }

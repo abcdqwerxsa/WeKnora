@@ -7,6 +7,7 @@ import (
 	"sync"
 	"testing"
 
+	wfengine "github.com/Tencent/WeKnora/internal/agent/workflow"
 	apprepo "github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/models/chat"
 	"github.com/Tencent/WeKnora/internal/types"
@@ -81,7 +82,13 @@ func (c *wfStubChat) Chat(_ context.Context, _ []chat.Message, _ *chat.ChatOptio
 	return &types.ChatResponse{Content: c.reply}, nil
 }
 func (c *wfStubChat) ChatStream(_ context.Context, _ []chat.Message, _ *chat.ChatOptions) (<-chan types.StreamResponse, error) {
-	return nil, errors.New("not implemented in stub")
+	// Stream the reply in two chunks so delta emission is observable.
+	ch := make(chan types.StreamResponse, 2)
+	half := len(c.reply) / 2
+	ch <- types.StreamResponse{Content: c.reply[:half]}
+	ch <- types.StreamResponse{Content: c.reply[half:], Done: true}
+	close(ch)
+	return ch, nil
 }
 func (c *wfStubChat) GetModelName() string { return "wf-stub-chat" }
 func (c *wfStubChat) GetModelID() string   { return "wf-stub-chat" }
@@ -307,4 +314,23 @@ func TestRunWorkflow_RequiredStartInputValidated(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, types.WorkflowRunStatusSucceeded, run.Status)
 	assert.Contains(t, string(run.Output), "city: Shenzhen")
+}
+
+func TestAnswerStreamSourceDetection(t *testing.T) {
+	mk := func(answerTemplate, srcID, srcKind string) *wfengine.DSL {
+		return &wfengine.DSL{Version: 1, Components: map[string]*wfengine.Component{
+			"start": {Obj: wfengine.ComponentObj{ComponentName: "Start"}, Downstream: []string{srcID}},
+			srcID:   {Obj: wfengine.ComponentObj{ComponentName: srcKind}, Downstream: []string{"ans"}},
+			"ans":   {Obj: wfengine.ComponentObj{ComponentName: "Answer", Params: map[string]any{"template": answerTemplate}}},
+		}}
+	}
+	if got := answerStreamSource(mk("{llm1@content}", "llm1", "LLM")); got != "llm1" {
+		t.Errorf("single LLM ref = %q, want llm1", got)
+	}
+	if got := answerStreamSource(mk("result: {llm1@content}", "llm1", "LLM")); got != "" {
+		t.Errorf("mixed template = %q, want empty (cannot stream coherently)", got)
+	}
+	if got := answerStreamSource(mk("{retr@chunks}", "retr", "Retrieval")); got != "" {
+		t.Errorf("non-LLM source = %q, want empty (no deltas to forward)", got)
+	}
 }

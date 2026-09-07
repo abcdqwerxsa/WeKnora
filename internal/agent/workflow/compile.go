@@ -18,6 +18,10 @@ const (
 	PhaseStarted  NodePhase = "started"
 	PhaseFinished NodePhase = "finished"
 	PhaseFailed   NodePhase = "failed"
+	// PhaseDelta marks an incremental content chunk streamed while a node
+	// runs (LLM token deltas). Not persisted in the run trace — terminal
+	// phases carry the full content.
+	PhaseDelta NodePhase = "delta"
 )
 
 // NodeEvent is emitted (via Deps.OnNodeEvent) around every node execution.
@@ -35,13 +39,19 @@ type NodeEvent struct {
 	// Replayed marks a finished frame whose outputs came from checkpoint
 	// replay (resume) instead of a fresh Invoke — DurationMS is 0.
 	Replayed bool `json:"replayed,omitempty"`
+	// Content is the incremental text chunk on PhaseDelta frames.
+	Content string `json:"content,omitempty"`
 }
 
 // Deps are the injected capabilities and callbacks the compiled graph uses.
 // LLMFunc / RetrievalFunc may be nil when no node needs them; a node that
 // does need a nil dependency fails at Invoke time with a clear error.
 type Deps struct {
-	LLMFunc       nodes.LLMFunc
+	LLMFunc nodes.LLMFunc
+	// LLMStreamFunc (optional) streams LLM tokens: each chunk is delivered
+	// to Deps.OnNodeEvent as a PhaseDelta frame while the final full text
+	// still returns as the node's output. Nil = LLMFunc (no deltas).
+	LLMStreamFunc nodes.LLMStreamFunc
 	RetrievalFunc nodes.RetrievalFunc
 	HTTPFunc      nodes.HTTPFunc
 	DataOpsFunc   nodes.DataOpsFunc
@@ -148,14 +158,22 @@ func Compile(dsl *DSL, deps Deps) (*Workflow, error) {
 
 	// nodes
 	for id, comp := range norm.Components {
-		node, err := nodes.New(comp.Obj.ComponentName, comp.Obj.Params, nodes.Deps{
+		nd := nodes.Deps{
 			LLMFunc:       deps.LLMFunc,
+			LLMStreamFunc: deps.LLMStreamFunc,
 			RetrievalFunc: deps.RetrievalFunc,
 			HTTPFunc:      deps.HTTPFunc,
 			DataOpsFunc:   deps.DataOpsFunc,
 			WebSearchFunc: deps.WebSearchFunc,
 			CodeFunc:      deps.CodeFunc,
-		})
+		}
+		if deps.OnNodeEvent != nil {
+			// Bind this node's delta sink before construction so the LLM
+			// stream path can emit PhaseDelta frames tagged with the node id.
+			sink, nodeID := deps.OnNodeEvent, id
+			nd.OnDelta = func(delta string) { sink(NodeEvent{NodeID: nodeID, Phase: PhaseDelta, Content: delta}) }
+		}
+		node, err := nodes.New(comp.Obj.ComponentName, comp.Obj.Params, nd)
 		if err != nil {
 			return nil, fmt.Errorf("workflow: node %q: %w", id, err)
 		}

@@ -7022,6 +7022,7 @@ export default {
       status: { pending: '대기 중', running: '실행 중', succeeded: '성공', failed: '실패', cancelled: '취소됨' },
       phase: { started: '시작', finished: '완료', failed: '실패' },
       replayed: '재실행됨',
+      generating: '생성 중…',
       formTitle: '입력 양식',
       missingFields: '필수 필드 누락: {names}',
       nodeOutputs: '노드 출력',

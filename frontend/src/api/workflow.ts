@@ -236,10 +236,10 @@ export interface WorkflowRun {
 export interface WorkflowRunEventFrame {
   workflow_id: string
   run_id: string
-  kind: 'node' | 'run'
-  /** Set for kind=node frames; matches the canvas node id. */
+  kind: 'node' | 'delta' | 'run'
+  /** Set for kind=node/delta frames; matches the canvas node id. */
   node_id?: string
-  /** node frames: started|finished|failed · run frames: terminal run status. */
+  /** node frames: started|finished|failed · delta frames: "delta" · run frames: terminal run status. */
   phase: string
   error?: string
   duration_ms?: number
@@ -247,6 +247,10 @@ export interface WorkflowRunEventFrame {
   outputs?: Record<string, unknown>
   /** true when the finished frame replayed from a checkpoint (resume). */
   replayed?: boolean
+  /** Incremental text chunk on kind=delta frames. */
+  content?: string
+  /** "answer" when the delta feeds the terminal Answer node's stream. */
+  stream?: string
   status?: WorkflowRunStatus
 }
 

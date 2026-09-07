@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -629,6 +630,32 @@ func (s *workflowService) normalizeWorkflowDSL(wf *types.Workflow) (*wfengine.DS
 	return s.normalizeDSLBytes(dslForRun(wf))
 }
 
+// answerStreamSource reports the node id whose LLM deltas are the live
+// answer: the terminal Answer node's template must be EXACTLY one
+// {node@param} reference — mixed templates cannot stream coherently
+// (literals and other refs render only at completion).
+var answerSingleRef = regexp.MustCompile(`^\{([a-zA-Z0-9_-]+)@[a-zA-Z0-9_.-]+\}$`)
+
+func answerStreamSource(normalized *wfengine.DSL) string {
+	for _, comp := range normalized.Components {
+		if len(comp.Downstream) != 0 || !strings.EqualFold(comp.Obj.ComponentName, nodes.ComponentAnswer) {
+			continue
+		}
+		tmpl, _ := comp.Obj.Params["template"].(string)
+		m := answerSingleRef.FindStringSubmatch(strings.TrimSpace(tmpl))
+		if m == nil {
+			return ""
+		}
+		// Only an LLM node streams; anything else (retrieval etc.) has no
+		// deltas to forward.
+		if src, ok := normalized.Components[m[1]]; ok && strings.EqualFold(src.Obj.ComponentName, nodes.ComponentLLM) {
+			return m[1]
+		}
+		return ""
+	}
+	return ""
+}
+
 // executeWorkflowRun drives a freshly created (pending) run row to a
 // terminal state: pending→running→succeeded|failed. Every node lifecycle
 // frame is logged, published to the per-run broker (SSE subscribers) and
@@ -679,8 +706,31 @@ func (s *workflowService) executeWorkflowRun(
 		return ""
 	}
 
+	// answerSourceID: when the terminal node is an Answer whose template is
+	// exactly one {node@param} ref, that node's LLM deltas are the live
+	// answer stream (Dify-style pass-through); empty = no answer streaming.
+	answerSourceID := answerStreamSource(normalized)
+
 	publishNode := func(ev wfengine.NodeEvent) {
 		ev = capTraceOutputs(ev)
+		if ev.Phase == wfengine.PhaseDelta {
+			// Best-effort live deltas: no logging (spam), no trace (terminal
+			// phases carry the full content), no event-bus mirror.
+			frame := types.WorkflowRunEvent{
+				WorkflowID: wf.ID,
+				RunID:      run.ID,
+				Kind:       "delta",
+				NodeID:     ev.NodeID,
+				Phase:      string(ev.Phase),
+				Content:    ev.Content,
+			}
+			if ev.NodeID == answerSourceID {
+				frame.Stream = "answer"
+			}
+			s.runs.publish(frame)
+			s.publishFrameRedis(ctx, frame)
+			return
+		}
 		logger.Infof(ctx, "[workflow:%s run:%s] node %s %s (%dms)",
 			wf.ID, run.ID, ev.NodeID, ev.Phase, ev.DurationMS)
 		frame := types.WorkflowRunEvent{
@@ -719,6 +769,7 @@ func (s *workflowService) executeWorkflowRun(
 
 	compiled, cerr := wfengine.Compile(normalized, wfengine.Deps{
 		LLMFunc:       s.runLLM,
+		LLMStreamFunc: s.runLLMStream,
 		RetrievalFunc: s.runRetrieval,
 		HTTPFunc:      s.runHTTP,
 		DataOpsFunc:   s.runDataOps,
@@ -1079,7 +1130,15 @@ func (s *workflowService) SubscribeWorkflowRunEvents(runID string) (<-chan types
 	}
 
 	deliver := func(frame types.WorkflowRunEvent) {
+		// Dedup key: kind|node|phase|duration, plus content for delta frames —
+		// sequential deltas from one node share every other field, and the
+		// local+redis echo carries identical content. ponytail: two consecutive
+		// IDENTICAL delta chunks from one node would collide (a repeated token
+		// dropped); add per-run sequence numbers if that ever matters.
 		key := frame.Kind + "|" + frame.NodeID + "|" + frame.Phase + "|" + strconv.FormatInt(frame.DurationMS, 10)
+		if frame.Kind == "delta" {
+			key += "|" + frame.Content
+		}
 		mu.Lock()
 		if _, dup := seen[key]; dup {
 			mu.Unlock()
@@ -1274,6 +1333,51 @@ func tail(s string, n int) string {
 		return s
 	}
 	return "…" + s[len(s)-n:]
+}
+
+// runLLMStream is the streaming sibling of runLLM: identical resolution
+// and message assembly, but consumes ChatStream and forwards each chunk to
+// onDelta while accumulating the full text. Errors mid-stream fail the call
+// (partial content is discarded — the run's error path takes over).
+func (s *workflowService) runLLMStream(ctx context.Context, req nodes.LLMRequest, onDelta func(string)) (string, error) {
+	modelID := strings.TrimSpace(req.Model)
+	if modelID == "" {
+		fallback, ferr := s.defaultChatModelID(ctx)
+		if ferr != nil {
+			return "", ferr
+		}
+		modelID = fallback
+	}
+	model, err := s.models.GetChatModel(ctx, modelID)
+	if err != nil {
+		return "", fmt.Errorf("workflow LLM model %q unavailable: %w", modelID, err)
+	}
+	msgs := make([]chat.Message, 0, 2)
+	if req.SystemPrompt != "" {
+		msgs = append(msgs, chat.Message{Role: "system", Content: req.SystemPrompt})
+	}
+	msgs = append(msgs, chat.Message{Role: "user", Content: req.Prompt})
+	opts := &chat.ChatOptions{Temperature: req.Temperature}
+	if req.MaxTokens > 0 {
+		opts.MaxCompletionTokens = req.MaxTokens
+	}
+	ch, err := model.ChatStream(ctx, msgs, opts)
+	if err != nil {
+		return "", fmt.Errorf("workflow LLM stream start failed: %w", err)
+	}
+	var b strings.Builder
+	for resp := range ch {
+		if resp.Content != "" {
+			b.WriteString(resp.Content)
+			if onDelta != nil {
+				onDelta(resp.Content)
+			}
+		}
+	}
+	if b.Len() == 0 {
+		return "", errors.New("workflow LLM stream produced no content")
+	}
+	return b.String(), nil
 }
 
 // runLLM adapts the engine's LLMFunc onto the platform ModelService.

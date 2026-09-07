@@ -7024,6 +7024,7 @@ export default {
       status: { pending: '排队中', running: '执行中', succeeded: '已成功', failed: '已失败', cancelled: '已取消' },
       phase: { started: '开始', finished: '完成', failed: '失败' },
       replayed: '回放',
+      generating: '生成中…',
       formTitle: '输入表单',
       missingFields: '缺少必填字段：{names}',
       nodeOutputs: '节点输出',

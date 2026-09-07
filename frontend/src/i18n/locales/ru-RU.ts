@@ -7022,6 +7022,7 @@ publishConfirm: 'Опубликовать «{name}»? Запуски испол�
       status: { pending: 'В очереди', running: 'Выполняется', succeeded: 'Успешно', failed: 'Ошибка', cancelled: 'Отменено' },
       phase: { started: 'начат', finished: 'завершён', failed: 'ошибка' },
       replayed: 'воспроизведён',
+      generating: 'генерация…',
       formTitle: 'Форма ввода',
       missingFields: 'Отсутствуют обязательные поля: {names}',
       nodeOutputs: 'Выходные данные узлов',

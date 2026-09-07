@@ -188,6 +188,8 @@ type llmNode struct {
 	temperature  float64
 	maxTokens    int
 	llm          LLMFunc
+	llmStream    LLMStreamFunc
+	onDelta      func(string)
 }
 
 func newLLM(params map[string]any, deps Deps) (Node, error) {
@@ -214,11 +216,11 @@ func newLLM(params map[string]any, deps Deps) (Node, error) {
 			return nil, err
 		}
 	}
-	return &llmNode{prompt: prompt, systemPrompt: systemPrompt, model: model, temperature: temp, maxTokens: maxTokens, llm: deps.LLMFunc}, nil
+	return &llmNode{prompt: prompt, systemPrompt: systemPrompt, model: model, temperature: temp, maxTokens: maxTokens, llm: deps.LLMFunc, llmStream: deps.LLMStreamFunc, onDelta: deps.OnDelta}, nil
 }
 
 func (n *llmNode) Invoke(ctx context.Context, inputs map[string]any) (map[string]any, error) {
-	if n.llm == nil {
+	if n.llm == nil && n.llmStream == nil {
 		return nil, fmt.Errorf("workflow LLM: no LLMFunc injected (compile-time Deps.LLMFunc is nil)")
 	}
 	st, err := StateFromInputs(inputs)
@@ -235,13 +237,22 @@ func (n *llmNode) Invoke(ctx context.Context, inputs map[string]any) (map[string
 			return nil, fmt.Errorf("workflow LLM system_prompt: %w", err)
 		}
 	}
-	content, err := n.llm(ctx, LLMRequest{
+	req := LLMRequest{
 		Prompt:       prompt,
 		SystemPrompt: system,
 		Model:        n.model,
 		Temperature:  n.temperature,
 		MaxTokens:    n.maxTokens,
-	})
+	}
+	// Streaming path: tokens flow to the delta sink while the full text
+	// still returns as the recorded output (single source of truth).
+	var content string
+	if n.llmStream != nil {
+		onDelta := n.onDelta // nil sink = stream without delta emission
+		content, err = n.llmStream(ctx, req, onDelta)
+	} else {
+		content, err = n.llm(ctx, req)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("workflow LLM: llm call failed: %w", err)
 	}

@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -31,8 +30,10 @@ func (c *blockingChat) Chat(ctx context.Context, _ []chat.Message, _ *chat.ChatO
 	<-ctx.Done()
 	return nil, ctx.Err()
 }
-func (c *blockingChat) ChatStream(context.Context, []chat.Message, *chat.ChatOptions) (<-chan types.StreamResponse, error) {
-	return nil, errors.New("not implemented in stub")
+func (c *blockingChat) ChatStream(ctx context.Context, _ []chat.Message, _ *chat.ChatOptions) (<-chan types.StreamResponse, error) {
+	close(c.started)
+	<-ctx.Done()
+	return nil, ctx.Err()
 }
 func (c *blockingChat) GetModelName() string { return "blocking-stub" }
 func (c *blockingChat) GetModelID() string   { return "blocking-stub" }

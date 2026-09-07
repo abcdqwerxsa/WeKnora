@@ -83,7 +83,8 @@
       </p>
       <div v-if="frames.length === 0" class="wf-run-muted">{{ $t('workflow.run.noProgress') }}</div>
       <ul v-else class="wf-run-timeline">
-        <li v-for="(frame, index) in frames" :key="index" class="wf-run-frame" :class="`wf-run-frame--${frame.phase}`">
+        <!-- delta frames are rendered in the live answer area, not the timeline -->
+        <li v-for="(frame, index) in timelineFrames" :key="index" class="wf-run-frame" :class="`wf-run-frame--${frame.phase}`">
           <span class="wf-run-frame-dot" />
           <span class="wf-run-frame-text">
             <template v-if="frame.kind === 'node'">
@@ -119,6 +120,15 @@
           </div>
         </li>
       </ul>
+    </section>
+
+    <!-- Live answer stream (kind=delta frames tagged stream=answer) -->
+    <section v-if="answerStream && streaming" class="wf-run-section">
+      <p class="wf-run-section-title">
+        {{ $t('workflow.run.result') }}
+        <span class="wf-run-live">{{ $t('workflow.run.generating') }}</span>
+      </p>
+      <pre class="wf-run-answer">{{ answerStream }}<span class="wf-run-caret" /></pre>
     </section>
 
     <!-- Result -->
@@ -251,11 +261,14 @@ const historyError = ref(false)
 // live runs build their records straight from SSE frames instead.
 const selectedTrace = ref<WorkflowRunTraceEntry[] | null>(null)
 
-const { frames, nodePhases, terminalStatus, terminalError, streaming, follow, stop } = useWorkflowRunStream(
+const { frames, nodePhases, answerStream, terminalStatus, terminalError, streaming, follow, stop } = useWorkflowRunStream(
   () => props.workflowId,
 )
 
 emit('node-phases', nodePhases.value)
+
+/** Lifecycle frames only — delta chunks render in the live answer area. */
+const timelineFrames = computed(() => frames.value.filter((frame) => frame.kind !== 'delta'))
 
 const cancellable = computed(
   () => activeStatus.value === 'pending' || activeStatus.value === 'running' || streaming.value,
@@ -303,6 +316,7 @@ const nodeRecords = computed<NodeRecord[]>(() => {
   }
   return frames.value
     .filter((frame) => frame.kind === 'node' && frame.phase !== 'started')
+    // (delta frames are display-stream data, not node records)
     .map((frame, index) => ({
       key: `${frame.node_id}-${index}`,
       nodeId: frame.node_id ?? '',
@@ -697,6 +711,20 @@ defineExpose({ loadHistory })
   white-space: pre-wrap;
   word-break: break-word;
   background: var(--td-bg-color-secondarycontainer);
+}
+
+.wf-run-caret {
+  display: inline-block;
+  width: 7px;
+  height: 14px;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  background: var(--td-brand-color);
+  animation: wf-caret-blink 0.9s steps(1) infinite;
+}
+
+@keyframes wf-caret-blink {
+  50% { opacity: 0; }
 }
 
 .wf-run-answer {
