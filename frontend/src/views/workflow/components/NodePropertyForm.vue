@@ -564,6 +564,64 @@
         </div>
       </t-form-item>
     </template>
+    <!-- ================= Error policy + retry (all executable kinds) ================= -->
+    <template v-if="kind !== 'Start'">
+      <t-form-item :label="t('workflow.editor.errorHandling')">
+        <t-select :value="onErrorAction" @change="setOnErrorAction">
+          <t-option value="fail" :label="t('workflow.editor.onErrorFail')" />
+          <t-option value="continue" :label="t('workflow.editor.onErrorContinue')" />
+          <t-option value="route_to" :label="t('workflow.editor.onErrorRoute')" />
+        </t-select>
+      </t-form-item>
+      <t-form-item v-if="onErrorAction === 'continue'" :label="t('workflow.editor.defaultOutputs')">
+        <div class="wf-prop-rows">
+          <div v-for="(row, index) in defaultOutputRows" :key="index" class="wf-prop-row">
+            <t-input v-model="row.key" :placeholder="t('workflow.editor.varName')" class="wf-prop-var-name" />
+            <t-input v-model="row.value" :placeholder="t('workflow.editor.variablesValue')" />
+            <t-button variant="text" theme="danger" size="small" @click="defaultOutputRows.splice(index, 1)">
+              <template #icon><t-icon name="delete" /></template>
+            </t-button>
+          </div>
+          <t-button variant="dashed" size="small" block @click="defaultOutputRows.push({ key: '', value: '' })">
+            {{ t('workflow.editor.addVar') }}
+          </t-button>
+        </div>
+      </t-form-item>
+      <t-form-item v-if="onErrorAction === 'route_to'" :label="t('workflow.editor.errorRoute')">
+        <div class="wf-prop-field">
+          <t-select
+            :value="onErrorRoute"
+            :placeholder="t('workflow.editor.caseTarget')"
+            clearable
+            @change="setOnErrorRoute"
+          >
+            <t-option v-for="option in nodeOptions" :key="option.value" :value="option.value" :label="option.label" />
+          </t-select>
+          <p class="wf-prop-hint">{{ t('workflow.editor.errorRouteHint') }}</p>
+        </div>
+      </t-form-item>
+      <t-form-item :label="t('workflow.editor.retry')">
+        <div class="wf-prop-row">
+          <t-input-number
+            :value="retryCount"
+            :min="0"
+            :max="5"
+            theme="column"
+            :placeholder="t('workflow.editor.retryCount')"
+            @change="setRetryParam('count', $event)"
+          />
+          <t-input-number
+            :value="retryDelay"
+            :min="0"
+            :max="60000"
+            :step="100"
+            theme="column"
+            :placeholder="t('workflow.editor.retryDelay')"
+            @change="setRetryParam('delay_ms', $event)"
+          />
+        </div>
+      </t-form-item>
+    </template>
   </div>
 </template>
 
@@ -667,6 +725,78 @@ const extractorParams = computed<Array<ExtractorParam & Record<string, unknown>>
 
 function addExtractorParam() {
   extractorParams.value.push({ name: '', type: 'string', required: false, description: '' })
+}
+
+// ---- error policy + retry (generic section) ------------------------------
+
+const onErrorAction = computed(() => {
+  const action = (props.params.on_error as Record<string, unknown> | undefined)?.action
+  return typeof action === 'string' ? action : 'fail'
+})
+
+const onErrorRoute = computed(() => {
+  const route = (props.params.on_error as Record<string, unknown> | undefined)?.route_to
+  return typeof route === 'string' ? route : ''
+})
+
+function setOnErrorAction(action: unknown) {
+  const next = typeof action === 'string' ? action : 'fail'
+  if (next === 'fail') {
+    delete props.params.on_error
+    return
+  }
+  props.params.on_error = { ...((props.params.on_error as object) ?? {}), action: next }
+}
+
+function setOnErrorRoute(target: unknown) {
+  const routeTo = typeof target === 'string' ? target : ''
+  props.params.on_error = { ...((props.params.on_error as object) ?? {}), action: 'route_to', route_to: routeTo }
+}
+
+const defaultOutputRows = ref<Array<{ key: string; value: string }>>([])
+watch(
+  () => props.params.on_error,
+  (onError) => {
+    const outputs = (onError as Record<string, unknown> | undefined)?.default_outputs
+    defaultOutputRows.value =
+      outputs && typeof outputs === 'object'
+        ? Object.entries(outputs as Record<string, unknown>).map(([key, value]) => ({ key, value: String(value ?? '') }))
+        : []
+  },
+  { immediate: true, deep: true },
+)
+watch(
+  defaultOutputRows,
+  (rows) => {
+    const onError = (props.params.on_error as Record<string, unknown> | undefined) ?? {}
+    if (onError.action !== 'continue') return
+    const outputs: Record<string, string> = {}
+    for (const row of rows) {
+      const key = row.key.trim()
+      if (key) outputs[key] = row.value
+    }
+    props.params.on_error = { ...onError, action: 'continue', default_outputs: outputs }
+  },
+  { deep: true },
+)
+
+const retryCount = computed(() => {
+  const count = (props.params.retry as Record<string, unknown> | undefined)?.count
+  return typeof count === 'number' ? count : 0
+})
+const retryDelay = computed(() => {
+  const delay = (props.params.retry as Record<string, unknown> | undefined)?.delay_ms
+  return typeof delay === 'number' ? delay : 0
+})
+
+function setRetryParam(key: 'count' | 'delay_ms', value: unknown) {
+  const current = (props.params.retry as Record<string, unknown> | undefined) ?? {}
+  const next = { ...current, [key]: typeof value === 'number' ? value : 0 }
+  if (next.count === 0 && next.delay_ms === 0) {
+    delete props.params.retry
+    return
+  }
+  props.params.retry = next
 }
 
 /** Inline {ref} autocomplete options for template textareas. */

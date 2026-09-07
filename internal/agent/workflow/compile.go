@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -156,7 +157,7 @@ func Compile(dsl *DSL, deps Deps) (*Workflow, error) {
 		if err != nil {
 			return nil, fmt.Errorf("workflow: node %q: %w", id, err)
 		}
-		fn := nodeClosure(id, node, deps)
+		fn := nodeClosure(id, node, deps, nodeErrorPolicy(comp.Obj.Params))
 		err = g.AddLambdaNode(graphKey(id), compose.InvokableLambda(fn), compose.WithStatePreHandler(
 			func(ctx context.Context, in map[string]any, st *CanvasState) (map[string]any, error) {
 				// Clone before writing: parallel branches may receive the
@@ -175,22 +176,58 @@ func Compile(dsl *DSL, deps Deps) (*Workflow, error) {
 
 	// edges / branches
 	for id, comp := range norm.Components {
+		policy := nodeErrorPolicy(comp.Obj.Params)
 		targets, err := nodes.RouteTargets(comp.Obj.ComponentName, comp.Obj.Params)
 		if err != nil {
 			return nil, fmt.Errorf("workflow: node %q: %w", id, err)
+		}
+		// on_error.route_to joins (or becomes) the branch target set.
+		if policy.routeTo != "" {
+			if _, ok := norm.Components[policy.routeTo]; !ok {
+				return nil, fmt.Errorf("workflow: node %q on_error.route_to targets unknown node %q", id, policy.routeTo)
+			}
+			targets = append(targets, policy.routeTo)
 		}
 		if len(targets) > 0 {
 			endNodes := make(map[string]bool, len(targets))
 			for _, t := range targets {
 				if _, ok := norm.Components[t]; !ok {
-					return nil, fmt.Errorf("workflow: node %q routes to unknown node %q", id, t)
-				}
+				return nil, fmt.Errorf("workflow: node %q routes to unknown node %q", id, t)
+			}
 				endNodes[graphKey(t)] = true
+			}
+			// Plain nodes with an error branch: success keeps the single
+			// NORMAL downstream (route_to target excluded — it is listed in
+			// Downstream for topology detection, mirroring the Switch
+			// convention); a multi-downstream success fan-out cannot be
+			// expressed through one branch — fail compilation with a clear
+			// message instead of silently mis-routing.
+			routingByParams := nodes.IsRoutingComponent(comp.Obj.ComponentName)
+			if !routingByParams {
+				normal := make([]string, 0, len(comp.Downstream))
+				for _, d := range comp.Downstream {
+					if d != policy.routeTo {
+						normal = append(normal, d)
+					}
+				}
+				if len(normal) != 1 {
+					return nil, fmt.Errorf("workflow: node %q uses on_error.route_to and must keep exactly one normal downstream (found %d)", id, len(normal))
+				}
+				endNodes[graphKey(normal[0])] = true
 			}
 			cond := func(ctx context.Context, in map[string]any) (string, error) {
 				route, _ := in[nodes.RouteOutputKey].(string)
 				if route == "" {
-					return "", fmt.Errorf("workflow: branch after %q: empty route (no case matched and no default set)", id)
+					if routingByParams {
+						return "", fmt.Errorf("workflow: branch after %q: empty route (no case matched and no default set)", id)
+					}
+					// Plain node success path: its single normal downstream.
+					for _, d := range comp.Downstream {
+						if d != policy.routeTo {
+							return graphKey(d), nil
+						}
+					}
+					return "", fmt.Errorf("workflow: branch after %q: no normal downstream", id)
 				}
 				// route holds a DSL node id; endNodes are keyed by graph key.
 				return graphKey(route), nil
@@ -345,10 +382,84 @@ func (w *Workflow) RunWithOptions(ctx context.Context, query string, files []str
 // "#ctx" cannot collide with eino's raw checkpoint ids (run UUIDs).
 func ctxStateKey(checkpointID string) string { return checkpointID + "#ctx" }
 
+// errorPolicy is the compiled per-node error-handling configuration
+// (params.on_error). The zero value keeps fail-fast semantics.
+type errorPolicy struct {
+	// action: "fail" (default) | "continue" | "route_to".
+	action string
+	// defaultOutputs are recorded as the node's outputs when action is
+	// "continue" (and the RouteOutputKey when "route_to" targets a node).
+	defaultOutputs map[string]any
+	// routeTo is the downstream node id for action "route_to".
+	routeTo string
+	// retries: how many times a failed Invoke is retried (0 = none).
+	retries int
+	// retryDelayMS between retries.
+	retryDelayMS int
+}
+
+// numAny coerces JSON float64 / Go int / int64 / string numerics.
+func numAny(v any) (float64, bool) {
+	switch t := v.(type) {
+	case float64:
+		return t, true
+	case int:
+		return float64(t), true
+	case int64:
+		return float64(t), true
+	case string:
+		if f, err := strconv.ParseFloat(t, 64); err == nil {
+			return f, true
+		}
+	}
+	return 0, false
+}
+
+// nodeErrorPolicy parses params.on_error + params.retry.
+// ponytail: one flat policy shape; no per-condition error branches — a
+// failing Switch condition can be modelled with the continue default.
+func nodeErrorPolicy(params map[string]any) errorPolicy {
+	p := errorPolicy{}
+	if raw, ok := params["retry"].(map[string]any); ok {
+		if v, ok := raw["count"]; ok {
+			if f, ok := numAny(v); ok && f > 0 && f <= 5 {
+				p.retries = int(f)
+			}
+		}
+		if v, ok := raw["delay_ms"]; ok {
+			if f, ok := numAny(v); ok && f > 0 && f <= 60000 {
+				p.retryDelayMS = int(f)
+			}
+		}
+	}
+	onErr, ok := params["on_error"].(map[string]any)
+	if !ok {
+		return p
+	}
+	switch action, _ := onErr["action"].(string); action {
+	case "continue", "route_to":
+		p.action = action
+	case "", "fail":
+		// keep fail-fast
+	default:
+		// Unknown actions degrade to fail-fast: never guess a fallback.
+	}
+	if outs, ok := onErr["default_outputs"].(map[string]any); ok {
+		p.defaultOutputs = outs
+	}
+	if target, _ := onErr["route_to"].(string); target != "" {
+		p.routeTo = target
+	}
+	if p.action == "route_to" && p.routeTo == "" {
+		p.action = "" // route_to without a target is meaningless → fail
+	}
+	return p
+}
+
 // nodeClosure wraps a Node with path tracking, output recording, event
-// emission, panic recovery and timing. It is the single place node
-// lifecycle semantics live.
-func nodeClosure(id string, node nodes.Node, deps Deps) func(ctx context.Context, in map[string]any) (map[string]any, error) {
+// emission, panic recovery, retry and error-policy handling, and timing. It
+// is the single place node lifecycle semantics live.
+func nodeClosure(id string, node nodes.Node, deps Deps, policy errorPolicy) func(ctx context.Context, in map[string]any) (map[string]any, error) {
 	emit := func(ev NodeEvent) {
 		if deps.OnNodeEvent != nil {
 			deps.OnNodeEvent(ev)
@@ -395,10 +506,52 @@ func nodeClosure(id string, node nodes.Node, deps Deps) func(ctx context.Context
 					err = fmt.Errorf("workflow: node %q panicked: %v", id, r)
 				}
 			}()
-			return node.Invoke(ctx, in)
+			for attempt := 0; ; attempt++ {
+				out, err = node.Invoke(ctx, in)
+				if err == nil || attempt >= policy.retries || ctx.Err() != nil {
+					return
+				}
+				// Retryable failure (context still alive): bounded backoff.
+				emit(NodeEvent{NodeID: id, Phase: PhaseFailed, Err: err, DurationMS: msSince(start)})
+				if policy.retryDelayMS > 0 {
+					select {
+					case <-ctx.Done():
+						return nil, ctx.Err()
+					case <-time.After(time.Duration(policy.retryDelayMS) * time.Millisecond):
+					}
+				}
+				emit(NodeEvent{NodeID: id, Phase: PhaseStarted})
+			}
 		}()
 		if err != nil {
 			wrapped := fmt.Errorf("workflow: node %q: %w", id, err)
+			// Error policy: continue / route_to record the configured defaults
+			// instead of failing the run (Phase 5, Dify error-branch parity).
+			if policy.action == "continue" {
+				fallback := make(map[string]any, len(policy.defaultOutputs)+1)
+				for k, v := range policy.defaultOutputs {
+					fallback[k] = v
+				}
+				fallback["_error"] = wrapped.Error()
+				for k, v := range fallback {
+					cs.SetOutput(id, k, v)
+				}
+				emit(NodeEvent{NodeID: id, Phase: PhaseFinished, DurationMS: msSince(start), Outputs: cs.OutputsOf(id)})
+				return fallback, nil
+			}
+			if policy.action == "route_to" {
+				fallback := map[string]any{nodes.RouteOutputKey: policy.routeTo, "_error": wrapped.Error()}
+				for k, v := range policy.defaultOutputs {
+					fallback[k] = v
+				}
+				for k, v := range fallback {
+					if k != nodes.RouteOutputKey {
+						cs.SetOutput(id, k, v)
+					}
+				}
+				emit(NodeEvent{NodeID: id, Phase: PhaseFinished, DurationMS: msSince(start), Outputs: cs.OutputsOf(id)})
+				return fallback, nil
+			}
 			finish(wrapped)
 			return nil, wrapped
 		}

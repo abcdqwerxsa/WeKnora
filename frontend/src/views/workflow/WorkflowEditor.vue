@@ -25,6 +25,12 @@
           <template #icon><t-icon name="clipboard" /></template>
           {{ $t('workflow.editor.pasteNode') }}
         </t-button>
+        <t-button variant="outline" :disabled="!ready || !canUndo" @click="undo()">
+          <template #icon><t-icon name="undo" /></template>
+        </t-button>
+        <t-button variant="outline" :disabled="!ready || !canRedo" @click="redo()">
+          <template #icon><t-icon name="redo" /></template>
+        </t-button>
         <t-button variant="outline" @click="importDslFile?.click()">
           <template #icon><t-icon name="upload" /></template>
           {{ $t('workflow.editor.importDsl') }}
@@ -342,6 +348,20 @@ function isTypingTarget(): boolean {
 }
 
 function onKeyDown(event: KeyboardEvent) {
+  // Undo/redo: Ctrl/Cmd+Z (+Shift for redo), canvas focus only.
+  if ((event.ctrlKey || event.metaKey) && (event.key === 'z' || event.key === 'Z')) {
+    if (isTypingTarget()) return
+    event.preventDefault()
+    if (event.shiftKey) redo()
+    else undo()
+    return
+  }
+  if ((event.ctrlKey || event.metaKey) && (event.key === 'y' || event.key === 'Y')) {
+    if (isTypingTarget()) return
+    event.preventDefault()
+    redo()
+    return
+  }
   // Copy/paste shortcuts work with a node selected (canvas focus only,
   // never while typing in a form field).
   if ((event.ctrlKey || event.metaKey) && (event.key === 'c' || event.key === 'C')) {
@@ -383,6 +403,85 @@ const runNodePhases = ref<Record<string, 'running' | 'done' | 'failed'>>({})
 // Per-node debug payload (live frames or selected history run's trace),
 // rendered as the inspect badge on canvas cards. Shares the phase lifecycle.
 const runNodeOutputs = ref<Record<string, Record<string, unknown>>>({})
+
+// ---- undo / redo ---------------------------------------------------------
+// Snapshot history of the canvas structure (nodes+edges JSON). Structural
+// changes push a snapshot (debounced); restore swaps the canvas back.
+// ponytail: JSON snapshots, not command objects — O(canvas) per undo but a
+// workflow canvas is tens of nodes; revisit if canvases grow past hundreds.
+const undoStack = ref<string[]>([])
+const undoIndex = ref(-1)
+let restoring = false
+const HISTORY_LIMIT = 50
+
+const canUndo = computed(() => undoIndex.value > 0)
+const canRedo = computed(() => undoIndex.value < undoStack.value.length - 1)
+
+function canvasSnapshot(): string {
+  return JSON.stringify({
+    nodes: canvasNodes.value.map((node) => ({
+      id: node.id,
+      type: node.type,
+      position: { x: node.position.x, y: node.position.y },
+      data: JSON.parse(JSON.stringify(node.data ?? {})),
+    })),
+    edges: canvasEdges.value.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target })),
+  })
+}
+
+function pushHistoryDebounced(): void {
+  if (restoring) return
+  if (pushHistoryTimer !== null) window.clearTimeout(pushHistoryTimer)
+  pushHistoryTimer = window.setTimeout(() => {
+    pushHistoryTimer = null
+    const snap = canvasSnapshot()
+    if (undoStack.value[undoIndex.value] === snap) return
+    const next = undoStack.value.slice(0, undoIndex.value + 1)
+    next.push(snap)
+    if (next.length > HISTORY_LIMIT) next.shift()
+    undoStack.value = next
+    undoIndex.value = next.length - 1
+  }, 400)
+}
+let pushHistoryTimer: number | null = null
+
+function restoreSnapshot(snap: string): void {
+  restoring = true
+  try {
+    const parsed = JSON.parse(snap) as {
+      nodes: Array<{ id: string; type: string; position: { x: number; y: number }; data?: Record<string, unknown> }>
+      edges: Array<{ id: string; source: string; target: string }>
+    }
+    canvasNodes.value = parsed.nodes.map((node) => ({
+      id: node.id,
+      type: node.type,
+      position: { x: node.position.x, y: node.position.y },
+      data: node.data,
+    }))
+    canvasEdges.value = parsed.edges.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target }))
+    refreshEdgeLabels()
+  } finally {
+    // Re-arm after the watchers have fired (they run synchronously on
+    // assignment, but positions settle asynchronously in vue-flow).
+    window.setTimeout(() => {
+      restoring = false
+    }, 0)
+  }
+}
+
+function undo() {
+  if (!canUndo.value) return
+  undoIndex.value -= 1
+  restoreSnapshot(undoStack.value[undoIndex.value]!)
+}
+
+function redo() {
+  if (!canRedo.value) return
+  undoIndex.value += 1
+  restoreSnapshot(undoStack.value[undoIndex.value]!)
+}
+
+watch([canvasNodes, canvasEdges], pushHistoryDebounced, { deep: true })
 
 function onRunDrawerClosed() {
   runNodePhases.value = {}
@@ -506,8 +605,7 @@ function onConnect(connection: Connection) {
   refreshEdgeLabels()
 }
 
-// ---- copy / paste --------------------------------------------------------
-// One-node clipboard (mirrors the single-selection model). Copy stores the
+// ---- copy / paste --------------------------------------------------------// One-node clipboard (mirrors the single-selection model). Copy stores the
 // node's kind + a deep clone of params; paste drops a fresh id nearby.
 interface NodeClipboard {
   kind: WorkflowNodeType
@@ -610,6 +708,13 @@ function setCanvas(dsl: WorkflowDSL) {
   canvasEdges.value = dsl.graph.edges.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target }))
   wfVariables.value = { ...(dsl.variables ?? {}) }
   refreshEdgeLabels()
+  // Reset the undo history for the freshly loaded graph.
+  restoring = true
+  window.setTimeout(() => {
+    undoStack.value = [canvasSnapshot()]
+    undoIndex.value = 0
+    restoring = false
+  }, 0)
 }
 
 async function load() {

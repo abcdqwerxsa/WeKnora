@@ -646,6 +646,16 @@ func sortedTargets(set map[string]bool) []string {
 	return out
 }
 
+// IsRoutingComponent reports whether the component routes by params
+// (Switch, QuestionClassifier) — i.e. RouteTargets derives from its params
+// rather than from an on_error policy.
+func IsRoutingComponent(componentName string) bool {
+	if isSwitch(componentName) {
+		return true
+	}
+	return canonical(componentName) == canonical(ComponentQuestionClassifier)
+}
+
 func isSwitch(componentName string) bool {
 	return canonical(componentName) == canonical(ComponentSwitch)
 }
