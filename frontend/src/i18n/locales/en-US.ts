@@ -6780,6 +6780,23 @@ export default {
   }
 ,
   workflow: {
+  schedules: {
+    manage: 'Schedules',
+    dialogTitle: 'Schedules — {name}',
+    cron: 'Cron expression',
+    query: 'Run input (query)',
+    queryPlaceholder: 'The query passed on every firing',
+    enabled: 'Enabled on create',
+    create: 'Create schedule',
+    created: 'Schedule created',
+    createFailed: 'Schedule operation failed',
+    deleted: 'Schedule deleted',
+    empty: 'No schedules yet',
+    enable: 'Enable',
+    disable: 'Disable',
+    deleteConfirm: 'Delete this schedule?',
+    hint: 'Standard 5-field cron (min hour dom month dow); only published workflows can be scheduled — unpublishing stops firing.',
+  },
     palette: {
       title: 'Nodes',
       groups: {

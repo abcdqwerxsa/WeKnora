@@ -6780,6 +6780,23 @@ export default {
   }
 ,
   workflow: {
+  schedules: {
+    manage: '스케줄',
+    dialogTitle: '스케줄 — {name}',
+    cron: 'Cron 표현식',
+    query: '실행 입력(query)',
+    queryPlaceholder: '매번 실행 시 전달되는 query',
+    enabled: '생성 후 활성화',
+    create: '스케줄 생성',
+    created: '스케줄이 생성되었습니다',
+    createFailed: '스케줄 작업 실패',
+    deleted: '스케줄이 삭제되었습니다',
+    empty: '스케줄이 없습니다',
+    enable: '활성화',
+    disable: '비활성화',
+    deleteConfirm: '이 스케줄을 삭제할까요?',
+    hint: '표준 5필드 cron(분 시 일 월 주). 게시된 워크플로만 스케줄할 수 있으며 게시 취소 시 자동으로 중단됩니다.',
+  },
     palette: {
       title: '노드',
       groups: {

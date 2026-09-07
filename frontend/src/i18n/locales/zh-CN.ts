@@ -6782,6 +6782,23 @@ export default {
   }
 ,
   workflow: {
+  schedules: {
+    manage: '定时计划',
+    dialogTitle: '定时计划 — {name}',
+    cron: 'Cron 表达式',
+    query: '运行输入（query）',
+    queryPlaceholder: '每次触发时传入的 query',
+    enabled: '创建后启用',
+    create: '创建计划',
+    created: '计划已创建',
+    createFailed: '计划操作失败',
+    deleted: '计划已删除',
+    empty: '暂无定时计划',
+    enable: '启用',
+    disable: '停用',
+    deleteConfirm: '确定删除该定时计划？',
+    hint: '标准 5 段 Cron（分 时 日 月 周）；仅已发布工作流可建计划，取消发布后自动停止触发。',
+  },
     palette: {
       title: '节点',
       groups: {

@@ -192,3 +192,38 @@ type WorkflowRun struct {
 	UpdatedAt time.Time      `yaml:"updated_at" json:"updated_at"`
 	DeletedAt gorm.DeletedAt `yaml:"deleted_at" json:"deleted_at"`
 }
+
+// WorkflowSchedule is one cron schedule for a published workflow: the
+// scheduler fires it while it is enabled AND the workflow stays published,
+// creating regular WorkflowRun rows (visible in the run history).
+type WorkflowSchedule struct {
+	// Unique identifier of the schedule (UUID, generated in Go)
+	ID string `yaml:"id" json:"id" gorm:"type:varchar(36);primaryKey"`
+	// Tenant ID (data-isolation scope; every repository query filters on it)
+	TenantID uint64 `yaml:"tenant_id" json:"tenant_id" gorm:"not null;index:idx_workflow_schedules_tenant_workflow"`
+	// Owning workflow ID (paired with TenantID in the composite index)
+	WorkflowID string `yaml:"workflow_id" json:"workflow_id" gorm:"type:varchar(36);not null;index:idx_workflow_schedules_tenant_workflow"`
+	// Creator user ID (informational; mutations are guarded by the
+	// workflow's OwnedWorkflowOrAdmin rule, not by this field)
+	CreatorID string `yaml:"creator_id" json:"creator_id" gorm:"type:varchar(36);not null;default:''"`
+	// Cron is a standard 5-field expression (min hour dom month dow).
+	Cron string `yaml:"cron" json:"cron" gorm:"type:varchar(64);not null"`
+	// Query is the run input materialized into sys.query at each tick.
+	Query string `yaml:"query" json:"query" gorm:"type:text"`
+	// Inputs carries the Start-node form values (RunWorkflowRequest.Inputs).
+	Inputs JSON `yaml:"inputs" json:"inputs" gorm:"type:jsonb"`
+	// Enabled: disabled schedules stay listed but never fire.
+	Enabled bool `yaml:"enabled" json:"enabled" gorm:"not null;default:true"`
+
+	CreatedAt time.Time      `yaml:"created_at" json:"created_at"`
+	UpdatedAt time.Time      `yaml:"updated_at" json:"updated_at"`
+	DeletedAt gorm.DeletedAt `yaml:"deleted_at" json:"deleted_at"`
+}
+
+// CreateWorkflowScheduleRequest is the REST payload for POST /workflows/:id/schedules.
+type CreateWorkflowScheduleRequest struct {
+	Cron    string         `json:"cron" binding:"required"`
+	Query   string         `json:"query"`
+	Inputs  map[string]any `json:"inputs,omitempty"`
+	Enabled *bool          `json:"enabled,omitempty"` // nil = enabled
+}

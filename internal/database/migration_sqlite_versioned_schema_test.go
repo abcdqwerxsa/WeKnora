@@ -21,6 +21,7 @@ var versionedSQLiteTables = []string{
 	"knowledge_tag_relations",
 	"workflows",
 	"workflow_runs",
+	"workflow_schedules",
 }
 
 // versionedSQLiteColumns maps each existing table to the columns that the
@@ -37,7 +38,7 @@ var versionedSQLiteColumns = map[string][]string{
 	"workflows":          {"published_dsl"},                  // 000093 / sqlite 000015
 }
 
-const expectedSQLiteMigrationVersion = 15
+const expectedSQLiteMigrationVersion = 16
 
 func TestSQLiteMigrationsCreateVersionedSchema(t *testing.T) {
 	repoRoot := sqliteRepoRoot(t)

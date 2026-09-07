@@ -42,6 +42,14 @@
         <template #actions="{ row }">
           <div class="wf-list-actions">
             <t-button variant="text" size="small" @click="goEdit(row)">{{ $t('workflow.edit') }}</t-button>
+            <t-button
+              v-if="row.status === 'published'"
+              variant="text"
+              size="small"
+              @click="openSchedules(row)"
+            >
+              {{ $t('workflow.schedules.manage') }}
+            </t-button>
             <t-popconfirm
               v-if="row.status !== 'published'"
               :content="$t('workflow.publishConfirm', { name: row.name })"
@@ -79,6 +87,56 @@
         </t-form-item>
       </t-form>
     </t-dialog>
+    <t-dialog
+      v-model:visible="scheduleDialogVisible"
+      :header="$t('workflow.schedules.dialogTitle', { name: scheduleWorkflow?.name ?? '' })"
+      width="640px"
+      :footer="false"
+      :close-btn="true"
+    >
+      <div class="wf-schedules">
+        <t-form label-align="top">
+          <t-form-item :label="t('workflow.schedules.cron')" :mark="true">
+            <t-input v-model="scheduleForm.cron" placeholder="*/5 * * * *" />
+          </t-form-item>
+          <t-form-item :label="t('workflow.schedules.query')">
+            <t-input v-model="scheduleForm.query" :placeholder="t('workflow.schedules.queryPlaceholder')" />
+          </t-form-item>
+          <t-form-item :label="t('workflow.schedules.enabled')">
+            <t-switch v-model="scheduleForm.enabled" />
+          </t-form-item>
+        </t-form>
+        <div class="wf-schedules-actions">
+          <t-button theme="primary" size="small" :loading="scheduleSaving" :disabled="!scheduleForm.cron.trim()" @click="createSchedule">
+            {{ $t('workflow.schedules.create') }}
+          </t-button>
+        </div>
+        <p class="wf-schedules-hint">{{ t('workflow.schedules.hint') }}</p>
+        <div v-if="schedulesLoading" class="wf-schedules-state"><t-loading /></div>
+        <div v-else-if="schedules.length === 0" class="wf-schedules-state">{{ $t('workflow.schedules.empty') }}</div>
+        <ul v-else class="wf-schedules-list">
+          <li v-for="item in schedules" :key="item.id" class="wf-schedules-row">
+            <t-tag size="small" :theme="item.enabled ? 'success' : 'default'">{{ item.cron }}</t-tag>
+            <span class="wf-schedules-query" :title="item.query">{{ item.query || '—' }}</span>
+            <span class="wf-schedules-time">{{ formatTime(item.created_at) }}</span>
+            <t-button
+              variant="text"
+              size="small"
+              :theme="item.enabled ? 'warning' : 'primary'"
+              :disabled="scheduleActingId === item.id"
+              @click="toggleSchedule(item)"
+            >
+              {{ item.enabled ? t('workflow.schedules.disable') : t('workflow.schedules.enable') }}
+            </t-button>
+            <t-popconfirm :content="t('workflow.schedules.deleteConfirm')" @confirm="removeSchedule(item)">
+              <t-button variant="text" size="small" theme="danger" :disabled="scheduleActingId === item.id">
+                {{ $t('workflow.delete') }}
+              </t-button>
+            </t-popconfirm>
+          </li>
+        </ul>
+      </div>
+    </t-dialog>
   </div>
 </template>
 
@@ -88,6 +146,14 @@ import { useRouter } from 'vue-router'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
 import { deleteWorkflow, createWorkflow, listWorkflows, publishWorkflow, setWorkflowStatus, type Workflow, type WorkflowMutationResponse } from '@/api/workflow'
+import {
+  listWorkflowSchedules,
+  createWorkflowSchedule,
+  deleteWorkflowSchedule,
+  enableWorkflowSchedule,
+  disableWorkflowSchedule,
+  type WorkflowSchedule,
+} from '@/api/workflowSchedule'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -213,6 +279,90 @@ function unpublish(workflow: Workflow) {
 
 function archive(workflow: Workflow) {
   return act(workflow, () => setWorkflowStatus(workflow.id, 'archived'), 'workflow.archived')
+}
+
+// ---- schedules dialog -------------------------------------------------------
+
+const scheduleDialogVisible = ref(false)
+const scheduleWorkflow = ref<Workflow | null>(null)
+const schedules = ref<WorkflowSchedule[]>([])
+const schedulesLoading = ref(false)
+const scheduleSaving = ref(false)
+const scheduleActingId = ref('')
+const scheduleForm = ref({ cron: '', query: '', enabled: true })
+
+function openSchedules(workflow: Workflow) {
+  scheduleWorkflow.value = workflow
+  scheduleForm.value = { cron: '', query: '', enabled: true }
+  scheduleDialogVisible.value = true
+  void loadSchedules()
+}
+
+async function loadSchedules() {
+  if (!scheduleWorkflow.value) return
+  schedulesLoading.value = true
+  try {
+    const response = await listWorkflowSchedules(scheduleWorkflow.value.id)
+    schedules.value = response?.data?.schedules ?? []
+  } catch {
+    schedules.value = []
+  } finally {
+    schedulesLoading.value = false
+  }
+}
+
+async function createSchedule() {
+  if (!scheduleWorkflow.value) return
+  scheduleSaving.value = true
+  try {
+    const response = await createWorkflowSchedule(scheduleWorkflow.value.id, {
+      cron: scheduleForm.value.cron.trim(),
+      query: scheduleForm.value.query.trim(),
+      enabled: scheduleForm.value.enabled,
+    })
+    if (response?.success) {
+      MessagePlugin.success(t('workflow.schedules.created'))
+      scheduleForm.value = { cron: '', query: '', enabled: true }
+      await loadSchedules()
+    } else {
+      MessagePlugin.error(response?.message || t('workflow.schedules.createFailed'))
+    }
+  } catch (error) {
+    MessagePlugin.error(error instanceof Error ? error.message : t('workflow.schedules.createFailed'))
+  } finally {
+    scheduleSaving.value = false
+  }
+}
+
+async function toggleSchedule(item: WorkflowSchedule) {
+  if (!scheduleWorkflow.value || scheduleActingId.value) return
+  scheduleActingId.value = item.id
+  try {
+    const workflowId = scheduleWorkflow.value.id
+    const response = item.enabled
+      ? await disableWorkflowSchedule(workflowId, item.id)
+      : await enableWorkflowSchedule(workflowId, item.id)
+    if (response?.success) {
+      await loadSchedules()
+    } else {
+      MessagePlugin.error(response?.message || t('workflow.schedules.createFailed'))
+    }
+  } catch (error) {
+    MessagePlugin.error(error instanceof Error ? error.message : t('workflow.schedules.createFailed'))
+  } finally {
+    scheduleActingId.value = ''
+  }
+}
+
+async function removeSchedule(item: WorkflowSchedule) {
+  if (!scheduleWorkflow.value) return
+  try {
+    await deleteWorkflowSchedule(scheduleWorkflow.value.id, item.id)
+    MessagePlugin.success(t('workflow.schedules.deleted'))
+    await loadSchedules()
+  } catch (error) {
+    MessagePlugin.error(error instanceof Error ? error.message : t('workflow.schedules.createFailed'))
+  }
 }
 
 onMounted(loadWorkflows)

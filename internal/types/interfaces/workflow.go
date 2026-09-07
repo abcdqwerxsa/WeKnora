@@ -128,3 +128,50 @@ type WorkflowService interface {
 	// after the terminal frame is delivered (or on cancel).
 	SubscribeWorkflowRunEvents(runID string) (<-chan types.WorkflowRunEvent, func())
 }
+
+// WorkflowScheduleRepository defines the tenant-scoped persistence contract
+// for workflow cron schedules.
+type WorkflowScheduleRepository interface {
+	// CreateWorkflowSchedule inserts a new schedule row.
+	CreateWorkflowSchedule(ctx context.Context, schedule *types.WorkflowSchedule) error
+	// GetWorkflowScheduleByIDAndTenant returns the schedule only when it
+	// belongs to tenantID; ErrWorkflowScheduleNotFound otherwise.
+	GetWorkflowScheduleByIDAndTenant(ctx context.Context, id string, tenantID uint64) (*types.WorkflowSchedule, error)
+	// ListWorkflowSchedulesByTenantAndWorkflow returns the workflow's
+	// schedules, newest first.
+	ListWorkflowSchedulesByTenantAndWorkflow(ctx context.Context, tenantID uint64, workflowID string) ([]*types.WorkflowSchedule, error)
+	// ListEnabledWorkflowSchedules returns every enabled schedule (scheduler
+	// startup path).
+	ListEnabledWorkflowSchedules(ctx context.Context) ([]*types.WorkflowSchedule, error)
+	// UpdateWorkflowSchedule saves mutated fields (cron/query/inputs/enabled).
+	UpdateWorkflowSchedule(ctx context.Context, schedule *types.WorkflowSchedule) error
+	// DeleteWorkflowSchedule soft-deletes the schedule inside tenantID.
+	DeleteWorkflowSchedule(ctx context.Context, id string, tenantID uint64) error
+}
+
+// WorkflowScheduler is the cron runner behind the schedule service: CRUD
+// operations keep its robfig/cron entries in sync with the stored rows.
+type WorkflowScheduler interface {
+	// Start loads every enabled schedule and starts the cron runner.
+	Start(ctx context.Context) error
+	// Stop gracefully stops the runner.
+	Stop()
+	// AddOrUpdate registers (or re-registers) the cron entry for a schedule.
+	AddOrUpdate(schedule *types.WorkflowSchedule) error
+	// Remove drops the cron entry for a schedule id.
+	Remove(scheduleID string)
+}
+
+// WorkflowScheduleService defines the schedule CRUD surface exposed over
+// REST. Tenant identity always comes from the request context.
+type WorkflowScheduleService interface {
+	// CreateWorkflowSchedule validates the cron expression and that the
+	// workflow is published, stores the row and registers the cron entry.
+	CreateWorkflowSchedule(ctx context.Context, workflowID string, req *types.CreateWorkflowScheduleRequest) (*types.WorkflowSchedule, error)
+	// ListWorkflowSchedules returns the workflow's schedules, newest first.
+	ListWorkflowSchedules(ctx context.Context, workflowID string) ([]*types.WorkflowSchedule, error)
+	// DeleteWorkflowSchedule removes the row and unregisters the entry.
+	DeleteWorkflowSchedule(ctx context.Context, workflowID, scheduleID string) error
+	// SetWorkflowScheduleEnabled flips enabled and syncs the cron entry.
+	SetWorkflowScheduleEnabled(ctx context.Context, workflowID, scheduleID string, enabled bool) (*types.WorkflowSchedule, error)
+}

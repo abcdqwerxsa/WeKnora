@@ -30,7 +30,7 @@ import (
 // declared with the read_workflows + run_workflows capabilities — keys can
 // drive published workflows but never read or mutate definitions.
 // Definition routes (CRUD/publish/status) stay default-deny for keys.
-func RegisterWorkflowRoutes(r *gin.RouterGroup, workflowHandler *handler.WorkflowHandler, g *rbacGuards) {
+func RegisterWorkflowRoutes(r *gin.RouterGroup, workflowHandler *handler.WorkflowHandler, scheduleHandler *handler.WorkflowScheduleHandler, g *rbacGuards) {
 	if workflowHandler == nil {
 		return
 	}
@@ -43,6 +43,16 @@ func RegisterWorkflowRoutes(r *gin.RouterGroup, workflowHandler *handler.Workflo
 		workflows.DELETE("/:id", g.OwnedWorkflowOrAdmin(workflowHandler), workflowHandler.DeleteWorkflow)
 		workflows.POST("/:id/publish", g.OwnedWorkflowOrAdmin(workflowHandler), workflowHandler.PublishWorkflow)
 		workflows.POST("/:id/status", g.OwnedWorkflowOrAdmin(workflowHandler), workflowHandler.SetWorkflowStatus)
+
+		// Cron schedules for published workflows: mutations are owner/admin
+		// (same lookup as the workflow itself), reads are Viewer. Deliberately
+		// on the raw group — NOT declared in the apiKeyGroup — so API-key
+		// principals stay default-denied for schedule management.
+		workflows.GET("/:id/schedules", g.Viewer(), scheduleHandler.ListWorkflowSchedules)
+		workflows.POST("/:id/schedules", g.OwnedWorkflowOrAdmin(workflowHandler), scheduleHandler.CreateWorkflowSchedule)
+		workflows.DELETE("/:id/schedules/:schedule_id", g.OwnedWorkflowOrAdmin(workflowHandler), scheduleHandler.DeleteWorkflowSchedule)
+		workflows.POST("/:id/schedules/:schedule_id/enable", g.OwnedWorkflowOrAdmin(workflowHandler), scheduleHandler.EnableWorkflowSchedule)
+		workflows.POST("/:id/schedules/:schedule_id/disable", g.OwnedWorkflowOrAdmin(workflowHandler), scheduleHandler.DisableWorkflowSchedule)
 
 		// Run surface — the only API-key-accessible slice. Capabilities:
 		//   read_workflows — list runs / run detail / SSE events (read-only)
