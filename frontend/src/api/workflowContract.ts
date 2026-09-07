@@ -19,6 +19,7 @@ export type WorkflowNodeType =
   | 'WebSearch'
   | 'QuestionClassifier'
   | 'ParameterExtractor'
+  | 'Code'
 
 export type WorkflowStatus = 'draft' | 'published' | 'archived'
 
@@ -35,6 +36,7 @@ export const WORKFLOW_NODE_TYPES: WorkflowNodeType[] = [
   'WebSearch',
   'QuestionClassifier',
   'ParameterExtractor',
+  'Code',
 ]
 
 /** Engine output keys per node kind (source of {nodeId@param} references). */

@@ -21,6 +21,7 @@ export const NODE_PALETTE: NodePaletteEntry[] = [
   { kind: 'ParameterExtractor', group: 'basic' },
   { kind: 'Answer', group: 'basic' },
   { kind: 'Template', group: 'transform' },
+  { kind: 'Code', group: 'transform' },
   { kind: 'VariableAggregator', group: 'transform' },
   { kind: 'DataOps', group: 'data' },
   { kind: 'WebSearch', group: 'network' },
@@ -43,6 +44,7 @@ export const NODE_COLORS: Record<WorkflowNodeType, string> = {
   WebSearch: '#e8b339',
   QuestionClassifier: '#f07f6c',
   ParameterExtractor: '#6ca87f',
+  Code: '#7a8b3f',
 }
 
 /** Node-side parameter badge icon (subset of tdesign icon names). */
@@ -59,6 +61,7 @@ export const NODE_ICONS: Record<WorkflowNodeType, string> = {
   WebSearch: 'internet',
   QuestionClassifier: 'branch',
   ParameterExtractor: 'filter',
+  Code: 'code',
 }
 
 /** Upstream output params a reference picker may offer for a node kind. */

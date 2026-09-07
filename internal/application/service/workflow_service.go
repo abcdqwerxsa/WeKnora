@@ -25,6 +25,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/event"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/models/chat"
+	"github.com/Tencent/WeKnora/internal/sandbox"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"github.com/google/uuid"
@@ -172,6 +173,9 @@ type workflowService struct {
 	// webSearchProviders resolves the tenant-default provider when a node
 	// does not pin one.
 	webSearchProviders interfaces.WebSearchProviderRepository
+	// sandboxes resolves the tenant's sandbox backend for the Code node
+	// (nil in Lite mode → the node fails with a clear message).
+	sandboxes sandbox.TenantSandboxResolver
 	// redis, when non-nil (full mode), bridges run frames across instances
 	// for SSE. Lite mode gets nil and stays process-local.
 	redis *redis.Client
@@ -197,6 +201,7 @@ func NewWorkflowService(
 	redisClient *redis.Client,
 	webSearch interfaces.WebSearchService,
 	webSearchProviders interfaces.WebSearchProviderRepository,
+	sandboxes sandbox.TenantSandboxResolver,
 ) interfaces.WorkflowService {
 	// Lite (nil redis): no checkpoint KV — engine treats nil Deps.CheckpointKV
 	// as "no persistence" and every run executes fresh (current behaviour).
@@ -211,6 +216,7 @@ func NewWorkflowService(
 		enqueuer:           enqueuer,
 		webSearch:          webSearch,
 		webSearchProviders: webSearchProviders,
+		sandboxes:          sandboxes,
 		redis:              redisClient,
 		ckptKV:             ckptKV,
 		runs:               newWorkflowRunBroker(),
@@ -717,6 +723,7 @@ func (s *workflowService) executeWorkflowRun(
 		HTTPFunc:      s.runHTTP,
 		DataOpsFunc:   s.runDataOps,
 		WebSearchFunc: s.runWebSearch,
+		CodeFunc:      s.runCode,
 		OnNodeEvent:   publishNode,
 		// Checkpoint persistence (full mode only): eino persists completed-
 		// node state per run, and the engine keeps a CanvasState side-car —
@@ -1161,6 +1168,112 @@ func (s *workflowService) runWebSearch(ctx context.Context, req nodes.WebSearchR
 		items = append(items, nodes.WebSearchResultItem{Title: r.Title, URL: r.URL, Snippet: r.Snippet})
 	}
 	return items, nil
+}
+
+// codeInputEnvVar carries the rendered variables object into the sandbox.
+// Env, not stdin: stdin passes the injection validator and arbitrary user
+// variable values could trip it on false positives.
+const codeInputEnvVar = "WEKNORA_WORKFLOW_INPUT"
+
+// runCode adapts the engine's CodeFunc onto the tenant's sandbox backend.
+// Empty SessionID selects the ephemeral one-shot sandbox (allocated for this
+// script, torn down right after), so workflow Code nodes never touch the
+// session-persistent sandboxes skill runs use. The script must print a JSON
+// object; every key becomes a node output.
+func (s *workflowService) runCode(ctx context.Context, req nodes.CodeRequest) (map[string]any, error) {
+	if s.sandboxes == nil {
+		return nil, errors.New("workflow Code: no sandbox backend configured for workflows")
+	}
+	tenantID, ok := types.TenantIDFromContext(ctx)
+	if !ok || tenantID == 0 {
+		return nil, ErrWorkflowTenantRequired
+	}
+	manager, err := s.sandboxes.Resolve(ctx, tenantID, "")
+	if err != nil {
+		return nil, fmt.Errorf("workflow Code: sandbox resolve failed: %w", err)
+	}
+	ext := ".py"
+	if req.Language == "node" {
+		ext = ".js"
+	}
+	timeout := req.TimeoutSeconds
+	if timeout <= 0 || timeout > 120 {
+		timeout = 120 // bounded by the run cap anyway
+	}
+	result, err := manager.Execute(ctx, &sandbox.ExecuteConfig{
+		Script:        "workflow_code" + ext, // basename → upload name + interpreter
+		ScriptContent: req.Code,
+		// SessionID empty = ephemeral sandbox, created and disposed per run.
+		Env:     map[string]string{codeInputEnvVar: req.InputJSON},
+		Timeout: time.Duration(timeout) * time.Second,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("workflow Code: execution failed: %w", err)
+	}
+	if !result.IsSuccess() {
+		return nil, fmt.Errorf("workflow Code: script failed (exit %d): %s", result.ExitCode, tail(result.Stderr, 400))
+	}
+	out := lastJSONObject(result.Stdout)
+	if out == nil {
+		return nil, fmt.Errorf("workflow Code: script printed no JSON object (stdout: %s)", tail(result.Stdout, 200))
+	}
+	return out, nil
+}
+
+// lastJSONObject returns the final complete top-level {...} object in s
+// (quote- and escape-aware brace matching), or nil. Scripts may print
+// progress lines — and nested objects — before the result object.
+func lastJSONObject(s string) map[string]any {
+	var best string
+	depth := 0
+	inString, escaped := false, false
+	start := -1
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if inString {
+			if escaped {
+				escaped = false
+			} else if c == '\\' {
+				escaped = true
+			} else if c == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch c {
+		case '"':
+			inString = true
+		case '{':
+			if depth == 0 {
+				start = i
+			}
+			depth++
+		case '}':
+			if depth > 0 {
+				depth--
+				if depth == 0 && start >= 0 {
+					best = s[start : i+1]
+				}
+			}
+		}
+	}
+	if best == "" {
+		return nil
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(best), &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+// tail returns the last n bytes of s (for bounded error messages).
+func tail(s string, n int) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= n {
+		return s
+	}
+	return "…" + s[len(s)-n:]
 }
 
 // runLLM adapts the engine's LLMFunc onto the platform ModelService.

@@ -6784,6 +6784,7 @@ capabilityRunWorkflowsHint: 'Выполнение опубликованных �
       },
     },
     nodeDesc: {
+      Code: 'Выполнить Python/Node-скрипт во временном песочном окружении',
       Start: 'Принимает ввод пользователя',
       LLM: 'Генерация через LLM',
       Retrieval: 'Поиск по базам знаний',
@@ -6831,7 +6832,7 @@ publishConfirm: 'Опубликовать «{name}»? Запуски испол�
     created: 'Процесс создан',
     createFailed: 'Не удалось создать процесс',
     saved: 'Процесс сохранён',
-    nodes: { Start: 'Старт', LLM: 'LLM', Retrieval: 'Поиск', Switch: 'Ветвление', Answer: 'Ответ', Template: 'Шаблон', VariableAggregator: 'Агрегатор переменных', HTTP: 'HTTP-запрос', DataOps: 'SQL-запрос', WebSearch: 'Веб-поиск', QuestionClassifier: 'Классификатор вопросов', ParameterExtractor: 'Извлечение параметров' },
+    nodes: { Start: 'Старт', LLM: 'LLM', Retrieval: 'Поиск', Switch: 'Ветвление', Answer: 'Ответ', Template: 'Шаблон', VariableAggregator: 'Агрегатор переменных', HTTP: 'HTTP-запрос', DataOps: 'SQL-запрос', WebSearch: 'Веб-поиск', QuestionClassifier: 'Классификатор вопросов', ParameterExtractor: 'Извлечение параметров', Code: 'Код' },
     editor: {
       back: 'Назад',
       save: 'Сохранить',
@@ -6961,6 +6962,11 @@ publishConfirm: 'Опубликовать «{name}»? Запуски испол�
       addVariable: 'Добавить переменную',
       searchProvider: 'Поисковый провайдер',
       searchProviderHint: 'Пусто — провайдер по умолчанию',
+      language: 'Язык',
+      code: 'Скрипт',
+      codePlaceholder: 'Прочитайте JSON переменных из WEKNORA_WORKFLOW_INPUT и выведите JSON-объект',
+      codeHint: 'Выполняется в одноразовой песочнице; ключи последнего полного JSON-объекта становятся выходами узла',
+      codeIntranetHint: 'Песочница — настроенный бэкенд рабочего пространства (Docker/E2B/Cube); таймаут ограничен лимитом запуска',
       maxResults: 'Макс. результатов',
       webSearchHint: 'Используются только провайдеры, настроенные администратором (подходит для внутренней сети)',
       classes: 'Классы',

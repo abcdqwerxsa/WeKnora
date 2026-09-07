@@ -510,6 +510,57 @@
       </t-form-item>
     </template>
 
+    <!-- ================= Code ================= -->
+    <template v-else-if="kind === 'Code'">
+      <t-form-item :label="t('workflow.editor.language')">
+        <t-select :value="strParam('language') || 'python3'" @change="setParam('language', $event)">
+          <t-option value="python3" label="Python 3" />
+          <t-option value="node" label="Node.js" />
+        </t-select>
+      </t-form-item>
+      <t-form-item :label="t('workflow.editor.code')">
+        <t-textarea
+          :value="strParam('code')"
+          :autosize="{ minRows: 6, maxRows: 18 }"
+          :placeholder="t('workflow.editor.codePlaceholder')"
+          class="wf-prop-code"
+          @change="setParam('code', $event)"
+        />
+        <p class="wf-prop-hint">{{ t('workflow.editor.codeHint') }}</p>
+      </t-form-item>
+      <t-form-item :label="t('workflow.editor.variables')">
+        <div class="wf-prop-rows">
+          <div v-for="(item, index) in varList" :key="index" class="wf-prop-row">
+            <t-input v-model="item.name" :placeholder="t('workflow.editor.varName')" class="wf-prop-var-name" />
+            <t-input v-model="item.ref" :placeholder="t('workflow.editor.varRef')" readonly />
+            <VariableRefPicker
+              :current-node-id="currentNodeId"
+              :nodes="nodes"
+              :edges="edges"
+              :env-names="envNames"
+              @insert="(ref: string) => (item.ref = ref)"
+            />
+            <t-button variant="text" theme="danger" size="small" @click="varList.splice(index, 1)">
+              <template #icon><t-icon name="delete" /></template>
+            </t-button>
+          </div>
+          <t-button variant="dashed" size="small" block @click="varList.push({ name: '', ref: '' })">
+            {{ t('workflow.editor.addVar') }}
+          </t-button>
+        </div>
+      </t-form-item>
+      <t-form-item :label="t('workflow.editor.timeout')">
+        <t-input-number
+          :value="numParam('timeout_seconds', 30)"
+          :min="1"
+          :max="120"
+          theme="column"
+          @change="setParam('timeout_seconds', $event)"
+        />
+      </t-form-item>
+      <p class="wf-prop-hint">{{ t('workflow.editor.codeIntranetHint') }}</p>
+    </template>
+
     <!-- ================= ParameterExtractor ================= -->
     <template v-else-if="kind === 'ParameterExtractor'">
       <t-form-item :label="t('workflow.editor.inputText')">
@@ -951,6 +1002,10 @@ function modelLabel(name: string): string {
 
 .wf-prop-field-type {
   flex: 0 0 100px !important;
+}
+
+.wf-prop-code :deep(textarea) {
+  font-family: var(--td-font-family-code, monospace);
 }
 
 .wf-prop-hint {

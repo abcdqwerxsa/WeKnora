@@ -6784,6 +6784,7 @@ export default {
       },
     },
     nodeDesc: {
+      Code: '임시 샌드박스에서 Python/Node 스크립트 실행',
       Start: '사용자 입력을 받습니다',
       LLM: 'LLM으로 콘텐츠 생성',
       Retrieval: '지식 베이스 검색',
@@ -6831,7 +6832,7 @@ export default {
     created: '워크플로가 생성되었습니다',
     createFailed: '워크플로 생성 실패',
     saved: '워크플로가 저장되었습니다',
-    nodes: { Start: '시작', LLM: 'LLM', Retrieval: '검색', Switch: '분기', Answer: '응답', Template: '템플릿 변환', VariableAggregator: '변수 병합', HTTP: 'HTTP 요청', DataOps: '데이터 쿼리', WebSearch: '웹 검색', QuestionClassifier: '질문 분류', ParameterExtractor: '파라미터 추출' },
+    nodes: { Start: '시작', LLM: 'LLM', Retrieval: '검색', Switch: '분기', Answer: '응답', Template: '템플릿 변환', VariableAggregator: '변수 병합', HTTP: 'HTTP 요청', DataOps: '데이터 쿼리', WebSearch: '웹 검색', QuestionClassifier: '질문 분류', ParameterExtractor: '파라미터 추출', Code: '코드' },
     editor: {
       back: '뒤로',
       save: '저장',
@@ -6961,6 +6962,11 @@ export default {
       addVariable: '변수 추가',
       searchProvider: '검색 프로바이더',
       searchProviderHint: '비워 두면 기본 프로바이더 사용',
+      language: '언어',
+      code: '스크립트',
+      codePlaceholder: 'WEKNORA_WORKFLOW_INPUT에서 변수 JSON을 읽고 JSON 객체를 출력하세요',
+      codeHint: '일회성 샌드박스에서 실행되며, 마지막 완전한 JSON 객체의 키가 노드 출력이 됩니다',
+      codeIntranetHint: '샌드박스는 워크스페이스 구성 백엔드(Docker/E2B/Cube)이며 타임아웃은 실행 상한을 따릅니다',
       maxResults: '최대 결과 수',
       webSearchHint: '워크스페이스 관리자가 구성한 프로바이더만 사용합니다(내부망 가능)',
       classes: '분류',

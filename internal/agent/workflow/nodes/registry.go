@@ -54,6 +54,7 @@ type Deps struct {
 	HTTPFunc      HTTPFunc
 	DataOpsFunc   DataOpsFunc
 	WebSearchFunc WebSearchFunc
+	CodeFunc      CodeFunc
 }
 
 // LLMRequest is the rendered input handed to an injected LLMFunc.

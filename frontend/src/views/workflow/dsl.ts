@@ -45,6 +45,8 @@ export function defaultParams(kind: WorkflowNodeType): Record<string, unknown> {
       return { query: '', classes: [] as unknown[], default: '' }
     case 'ParameterExtractor':
       return { query: '', parameters: [] as unknown[] }
+    case 'Code':
+      return { language: 'python3', code: '', variables: [] as Array<{ name: string; ref: string }>, timeout_seconds: 30 }
     default:
       return {}
   }

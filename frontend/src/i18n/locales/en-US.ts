@@ -6784,6 +6784,7 @@ export default {
       },
     },
     nodeDesc: {
+      Code: 'Run a Python/Node script in an ephemeral sandbox',
       Start: 'Receives the user input',
       LLM: 'Generate content with an LLM',
       Retrieval: 'Search knowledge bases',
@@ -6831,7 +6832,7 @@ export default {
     created: 'Workflow created',
     createFailed: 'Failed to create workflow',
     saved: 'Workflow saved',
-    nodes: { Start: 'Start', LLM: 'LLM', Retrieval: 'Retrieval', Switch: 'Switch', Answer: 'Answer', Template: 'Template', VariableAggregator: 'Variable Aggregator', HTTP: 'HTTP Request', DataOps: 'DataOps (SQL)', WebSearch: 'Web Search', QuestionClassifier: 'Question Classifier', ParameterExtractor: 'Parameter Extractor' },
+    nodes: { Start: 'Start', LLM: 'LLM', Retrieval: 'Retrieval', Switch: 'Switch', Answer: 'Answer', Template: 'Template', VariableAggregator: 'Variable Aggregator', HTTP: 'HTTP Request', DataOps: 'DataOps (SQL)', WebSearch: 'Web Search', QuestionClassifier: 'Question Classifier', ParameterExtractor: 'Parameter Extractor', Code: 'Code' },
     editor: {
       back: 'Back',
       save: 'Save',
@@ -6961,6 +6962,11 @@ export default {
       addVariable: 'Add variable',
       searchProvider: 'Search provider',
       searchProviderHint: 'Empty uses the default provider',
+      language: 'Language',
+      code: 'Script',
+      codePlaceholder: 'Read variables JSON from WEKNORA_WORKFLOW_INPUT, print a JSON object as the output',
+      codeHint: 'Runs in a one-shot sandbox; keys of the last complete JSON object become node outputs',
+      codeIntranetHint: 'Sandbox is the workspace-configured backend (Docker/E2B/Cube); timeout bounded by the run cap',
       maxResults: 'Max results',
       webSearchHint: 'Uses only providers configured by your workspace admin (intranet-capable)',
       classes: 'Classes',

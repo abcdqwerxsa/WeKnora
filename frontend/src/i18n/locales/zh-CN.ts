@@ -6786,6 +6786,7 @@ export default {
       },
     },
     nodeDesc: {
+      Code: '在临时沙箱执行 Python/Node 脚本',
       Start: '接收用户输入',
       LLM: '调用大模型生成内容',
       Retrieval: '从知识库检索',
@@ -6833,7 +6834,7 @@ export default {
     created: '工作流已创建',
     createFailed: '创建工作流失败',
     saved: '工作流已保存',
-    nodes: { Start: '开始', LLM: 'LLM', Retrieval: '知识检索', Switch: '条件分支', Answer: '回答', Template: '模板变换', VariableAggregator: '变量汇聚', HTTP: 'HTTP 请求', DataOps: '数据查询', WebSearch: '网页搜索', QuestionClassifier: '问题分类', ParameterExtractor: '参数提取' },
+    nodes: { Start: '开始', LLM: 'LLM', Retrieval: '知识检索', Switch: '条件分支', Answer: '回答', Template: '模板变换', VariableAggregator: '变量汇聚', HTTP: 'HTTP 请求', DataOps: '数据查询', WebSearch: '网页搜索', QuestionClassifier: '问题分类', ParameterExtractor: '参数提取', Code: '代码' },
     editor: {
       back: '返回',
       save: '保存',
@@ -6963,6 +6964,11 @@ export default {
       addVariable: '添加变量',
       searchProvider: '搜索 Provider',
       searchProviderHint: '留空使用默认 Provider',
+      language: '语言',
+      code: '脚本',
+      codePlaceholder: '从 WEKNORA_WORKFLOW_INPUT 读取变量 JSON，打印一个 JSON 对象作为输出',
+      codeHint: '脚本在一次性沙箱中执行；最后一个完整 JSON 对象的键成为节点输出',
+      codeIntranetHint: '沙箱为工作空间配置的后端（Docker/E2B/Cube）；执行超时受运行上限约束',
       maxResults: '结果数上限',
       webSearchHint: '仅使用本空间管理员配置的搜索 Provider（可为内网部署）',
       classes: '分类',

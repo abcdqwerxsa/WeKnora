@@ -32,7 +32,7 @@ func newAsyncTestService(t *testing.T, dsl string) (*workflowService, *runRepoSt
 	wf := &types.Workflow{ID: "wf-async", TenantID: 10001, Name: "wf", DSL: types.JSON(dsl), Status: types.WorkflowStatusPublished}
 	repo := newRunRepoStub(wf)
 	enq := &captureEnqueuer{}
-	svc := NewWorkflowService(repo, &wfStubModelSvc{reply: "llm-answer"}, &wfStubKBSvc{}, enq, nil, nil, nil)
+	svc := NewWorkflowService(repo, &wfStubModelSvc{reply: "llm-answer"}, &wfStubKBSvc{}, enq, nil, nil, nil, nil)
 	return svc.(*workflowService), repo, enq
 }
 
