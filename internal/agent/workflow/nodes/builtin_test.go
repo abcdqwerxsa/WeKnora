@@ -265,12 +265,12 @@ func TestLLMNodePassesSystemPromptAndMaxTokens(t *testing.T) {
 func TestRetrievalNodePassesThresholdsAndRerank(t *testing.T) {
 	var got RetrievalRequest
 	n, err := New("Retrieval", map[string]any{
-		"query":             "q",
-		"kb_ids":            []any{"kb1"},
+		"query":                "q",
+		"kb_ids":               []any{"kb1"},
 		"similarity_threshold": 0.55,
-		"keyword_threshold": 0.2,
-		"use_rerank":        true,
-		"rerank_model_id":   "rr",
+		"keyword_threshold":    0.2,
+		"use_rerank":           true,
+		"rerank_model_id":      "rr",
 	}, Deps{RetrievalFunc: func(_ context.Context, req RetrievalRequest) (*RetrievalResult, error) {
 		got = req
 		return &RetrievalResult{Chunks: []map[string]any{{"content": "x"}}}, nil
@@ -310,5 +310,203 @@ func TestRetrievalNodeRerankWithoutModelIsConfigError(t *testing.T) {
 	}, Deps{})
 	if err == nil || !strings.Contains(err.Error(), "rerank_model_id") {
 		t.Errorf("err = %v, want rerank_model_id required", err)
+	}
+}
+
+// ---- Switch condition operators (Phase 2) --------------------------------
+
+func condCase(ref, op, value, to string) map[string]any {
+	return map[string]any{
+		"conditions": []any{map[string]any{"ref": ref, "op": op, "value": value}},
+		"to":         to,
+	}
+}
+
+func TestSwitchConditionOperators(t *testing.T) {
+	n, err := New("Switch", map[string]any{
+		"cases": []any{
+			condCase("{sys.text}", "contains", "err", "has_err"),
+			condCase("{sys.text}", "starts_with", "OK", "ok_prefix"),
+			condCase("{sys.score}", "gte", "80", "high"),
+		},
+		"default": "fallback",
+	}, Deps{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	cases := []struct {
+		name string
+		sys  map[string]any
+		want string
+	}{
+		{"contains matches substring", map[string]any{"text": "server errored"}, "has_err"},
+		{"starts_with matches prefix", map[string]any{"text": "OK: done"}, "ok_prefix"},
+		{"numeric gte passes", map[string]any{"score": "93.5"}, "high"},
+		{"numeric gte fails → default", map[string]any{"score": "12"}, "fallback"},
+		{"unrelated sys → default", map[string]any{"text": "hello"}, "fallback"},
+	}
+	for _, tc := range cases {
+		out, err := n.Invoke(context.Background(), withState(nil, &fakeState{sys: tc.sys}))
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if out[RouteOutputKey] != tc.want {
+			t.Errorf("%s: route=%v want %s", tc.name, out[RouteOutputKey], tc.want)
+		}
+	}
+}
+
+func TestSwitchConditionOperatorsEdgeSet(t *testing.T) {
+	// Ordered alternatives: each input text must satisfy exactly its own
+	// case (earlier cases arranged not to swallow later ones).
+	n, err := New("Switch", map[string]any{
+		"cases": []any{
+			condCase("{sys.text}", "empty", "", "is_empty"),
+			condCase("{sys.text}", "regex", `^\d+$`, "numeric"),
+			condCase("{sys.text}", "in", "a, b ,c", "in_set"),
+			condCase("{sys.text}", "ends_with", "!", "bang"),
+			condCase("{sys.text}", "not_empty", "", "has_text"),
+		},
+		"default": "fallback",
+	}, Deps{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	cases := []struct {
+		text string
+		want string
+	}{
+		{"", "is_empty"},
+		{"12345", "numeric"},
+		{"b", "in_set"},
+		{"wow!", "bang"},
+		{"hello", "has_text"},
+	}
+
+	// Negative operators (ne / not_in / not_contains) are catch-alls in an
+	// ordered list — each gets a dedicated single-case switch.
+	for _, tc := range []struct {
+		op, value, text string
+		want            string
+	}{
+		{"ne", "zzz", "hello", "hit"},
+		{"ne", "zzz", "zzz", "fallback"},
+		{"not_in", "a,b", "q", "hit"},
+		{"not_in", "a,b", "b", "fallback"},
+		{"not_contains", "x", "no letter here", "hit"},
+		{"not_contains", "x", "x-ray", "fallback"},
+	} {
+		nn, nerr := New("Switch", map[string]any{
+			"cases":   []any{condCase("{sys.text}", tc.op, tc.value, "hit")},
+			"default": "fallback",
+		}, Deps{})
+		if nerr != nil {
+			t.Fatalf("New(%s): %v", tc.op, nerr)
+		}
+		out, ierr := nn.Invoke(context.Background(), withState(nil, &fakeState{sys: map[string]any{"text": tc.text}}))
+		if ierr != nil {
+			t.Fatalf("%s text=%q: %v", tc.op, tc.text, ierr)
+		}
+		if out[RouteOutputKey] != tc.want {
+			t.Errorf("%s text=%q route=%v want %s", tc.op, tc.text, out[RouteOutputKey], tc.want)
+		}
+	}
+	for _, tc := range cases {
+		st := &fakeState{sys: map[string]any{"text": tc.text}}
+		out, err := n.Invoke(context.Background(), withState(nil, st))
+		if err != nil {
+			t.Fatalf("text=%q: %v", tc.text, err)
+		}
+		if out[RouteOutputKey] != tc.want {
+			t.Errorf("text=%q route=%v want %s", tc.text, out[RouteOutputKey], tc.want)
+		}
+	}
+}
+
+func TestSwitchLogicOrAndNumericErrors(t *testing.T) {
+	// OR group: second condition holds.
+	n, err := New("Switch", map[string]any{
+		"cases": []any{map[string]any{
+			"conditions": []any{
+				map[string]any{"ref": "{sys.a}", "op": "eq", "value": "1"},
+				map[string]any{"ref": "{sys.b}", "op": "eq", "value": "2"},
+			},
+			"logic": "or",
+			"to":    "either",
+		}},
+		"default": "none",
+	}, Deps{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	out, err := n.Invoke(context.Background(), withState(nil, &fakeState{sys: map[string]any{"a": "9", "b": "2"}}))
+	if err != nil || out[RouteOutputKey] != "either" {
+		t.Errorf("or-group: out=%v err=%v, want either", out, err)
+	}
+
+	// Numeric operator with non-numeric operand fails the node (loud).
+	n2, err := New("Switch", map[string]any{
+		"cases": []any{condCase("{sys.a}", "gt", "10", "big")},
+	}, Deps{})
+	if err != nil {
+		t.Fatalf("New2: %v", err)
+	}
+	if _, err := n2.Invoke(context.Background(), withState(nil, &fakeState{sys: map[string]any{"a": "not-a-number"}})); err == nil {
+		t.Error("numeric op on non-numeric operand must error, not silently route")
+	}
+}
+
+func TestSwitchUnknownOperatorRejectedAtBuild(t *testing.T) {
+	if _, err := New("Switch", map[string]any{
+		"cases": []any{condCase("{sys.x}", "wat", "1", "a")},
+	}, Deps{}); err == nil {
+		t.Error("unknown operator must fail compilation")
+	}
+	if _, err := New("Switch", map[string]any{
+		"cases": []any{condCase("{sys.x}", "regex", "([unclosed", "a")},
+	}, Deps{}); err == nil {
+		t.Error("invalid regex must fail compilation")
+	}
+}
+
+func TestStartNodeMaterializesFormInputs(t *testing.T) {
+	n, err := New("Start", map[string]any{
+		"fields": []any{
+			map[string]any{"name": "city", "type": "text", "required": true},
+			map[string]any{"name": "days", "type": "number", "default": "3"},
+			map[string]any{"name": "mode", "type": "select", "options": []any{"fast", "slow"}, "default": "fast"},
+		},
+	}, Deps{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	out, err := n.Invoke(context.Background(), map[string]any{
+		"query":  "hello",
+		"inputs": map[string]any{"city": "Shenzhen"},
+	})
+	if err != nil {
+		t.Fatalf("Invoke: %v", err)
+	}
+	if out["city"] != "Shenzhen" {
+		t.Errorf("city = %v, want Shenzhen", out["city"])
+	}
+	if out["days"] != "3" {
+		t.Errorf("days default = %v, want 3", out["days"])
+	}
+	if out["mode"] != "fast" {
+		t.Errorf("mode default = %v, want fast", out["mode"])
+	}
+	if out["query"] != "hello" {
+		t.Errorf("query = %v, want hello", out["query"])
+	}
+}
+
+func TestStartFieldsBadTypeRejected(t *testing.T) {
+	if _, err := New("Start", map[string]any{
+		"fields": []any{map[string]any{"name": "x", "type": "date"}},
+	}, Deps{}); err == nil {
+		t.Error("unknown field type must fail compilation")
 	}
 }

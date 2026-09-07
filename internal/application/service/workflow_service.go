@@ -58,6 +58,9 @@ var (
 	ErrWorkflowInvalidDSL = errors.New("invalid workflow dsl")
 	// ErrWorkflowTenantRequired: no tenant on the request context.
 	ErrWorkflowTenantRequired = errors.New("workspace context required")
+	// ErrWorkflowMissingInput: a Start-node form field marked required is
+	// absent/blank in the run request (HTTP 400).
+	ErrWorkflowMissingInput = errors.New("workflow run input missing required field")
 )
 
 // workflowDSLShape is the minimal structural view used to validate the DSL
@@ -344,6 +347,39 @@ func capTraceOutputs(ev wfengine.NodeEvent) wfengine.NodeEvent {
 	return ev
 }
 
+// validateRunInputs checks the run request's inputs against the workflow's
+// Start-node form: every declared required field must be present and
+// non-blank. Unknown keys pass through untouched (forward compatibility —
+// the engine materialises only declared fields anyway).
+func validateRunInputs(normalized *wfengine.DSL, req *types.RunWorkflowRequest) error {
+	for _, comp := range normalized.Components {
+		if !strings.EqualFold(comp.Obj.ComponentName, nodes.ComponentStart) {
+			continue
+		}
+		fields, err := nodes.StartFieldsOf(comp.Obj.Params)
+		if err != nil {
+			return fmt.Errorf("%w: %v", ErrWorkflowInvalidDSL, err)
+		}
+		for _, f := range fields {
+			if !f.Required {
+				continue
+			}
+			v, ok := req.Inputs[f.Name]
+			blank := !ok || v == nil
+			if !blank {
+				if s, isStr := v.(string); isStr {
+					blank = strings.TrimSpace(s) == ""
+				}
+			}
+			if blank {
+				return fmt.Errorf("%w: %q", ErrWorkflowMissingInput, f.Name)
+			}
+		}
+		break // one Start node per graph (compile enforces a single entry)
+	}
+	return nil
+}
+
 // RunWorkflow executes one run of a workflow in the caller's tenant.
 //
 // Lifecycle: a workflow_runs row is created in "pending" state first so
@@ -369,6 +405,9 @@ func (s *workflowService) RunWorkflow(ctx context.Context, id string, req *types
 	if err != nil {
 		return nil, err
 	}
+	if verr := validateRunInputs(normalized, req); verr != nil {
+		return nil, verr
+	}
 
 	inputDoc, _ := json.Marshal(req)
 	run := &types.WorkflowRun{
@@ -389,6 +428,7 @@ func (s *workflowService) RunWorkflow(ctx context.Context, id string, req *types
 			TenantID:   tenantID,
 			Query:      req.Query,
 			Files:      req.Files,
+			Inputs:     req.Inputs,
 		})
 		if merr != nil {
 			s.failWorkflowRun(ctx, run, merr)
@@ -464,7 +504,7 @@ func (s *workflowService) ProcessWorkflowRun(ctx context.Context, t *asynq.Task)
 		s.failWorkflowRun(ctx, run, nerr)
 		return nil
 	}
-	req := &types.RunWorkflowRequest{Query: payload.Query, Files: payload.Files, Async: true}
+	req := &types.RunWorkflowRequest{Query: payload.Query, Files: payload.Files, Inputs: payload.Inputs, Async: true}
 	// Execution errors are already persisted as the run's terminal state.
 	_ = s.executeWorkflowRun(ctx, run, wf, normalized, req)
 	return nil
@@ -605,6 +645,7 @@ func (s *workflowService) executeWorkflowRun(
 		// re-executes with the same id and completed nodes are replayed, not
 		// re-invoked. Lite mode (nil KV) degrades to fresh runs.
 		CheckpointID: run.ID,
+		Inputs:       req.Inputs,
 	})
 	if rerr != nil {
 		s.failWorkflowRunWithTrace(ctx, run, rerr, traceJSON)
@@ -856,6 +897,7 @@ func (s *workflowService) ResumeWorkflowRun(ctx context.Context, workflowID, run
 		TenantID:   tenantID,
 		Query:      orig.Query,
 		Files:      orig.Files,
+		Inputs:     orig.Inputs,
 		Resume:     true,
 	})
 	if merr != nil {

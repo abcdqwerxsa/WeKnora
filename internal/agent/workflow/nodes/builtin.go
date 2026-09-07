@@ -3,6 +3,7 @@ package nodes
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -32,10 +33,34 @@ func init() {
 // own outputs so downstream templates can use {start_id@query}. sys.* is
 // populated by the runtime itself; Start is intentionally a no-op shell
 // that only materialises the request as node output.
+//
+// Input form (Dify-style): params.fields declares typed form fields
+// (name / label / type / required / default / options). The run request's
+// `inputs` map is materialised into outputs by field name — missing values
+// fall back to the declared default. Required enforcement lives at the API
+// layer (the service inspects the compiled Start params), not here: the
+// engine stays a pure executor.
 
-type startNode struct{}
+type StartField struct {
+	Name     string   `json:"name"`
+	Label    string   `json:"label,omitempty"`
+	Type     string   `json:"type"` // text | paragraph | number | select
+	Required bool     `json:"required,omitempty"`
+	Default  string   `json:"default,omitempty"`
+	Options  []string `json:"options,omitempty"` // select choices
+}
 
-func newStart(params map[string]any, deps Deps) (Node, error) { return &startNode{}, nil }
+type startNode struct {
+	fields []StartField
+}
+
+func newStart(params map[string]any, deps Deps) (Node, error) {
+	fields, err := startFields(params)
+	if err != nil {
+		return nil, err
+	}
+	return &startNode{fields: fields}, nil
+}
 
 func (n *startNode) Invoke(ctx context.Context, inputs map[string]any) (map[string]any, error) {
 	out := map[string]any{}
@@ -45,7 +70,88 @@ func (n *startNode) Invoke(ctx context.Context, inputs map[string]any) (map[stri
 	if v, ok := inputs["files"]; ok {
 		out["files"] = v
 	}
+	form, _ := inputs["inputs"].(map[string]any)
+	for _, f := range n.fields {
+		if f.Name == "" {
+			continue
+		}
+		if v, ok := form[f.Name]; ok && v != nil {
+			out[f.Name] = v
+			continue
+		}
+		if f.Default != "" {
+			out[f.Name] = f.Default
+		}
+	}
 	return out, nil
+}
+
+// startFields parses params.fields, accepting the JSON shape ([]any of
+// maps) and tolerant of an absent/empty list.
+func startFields(params map[string]any) ([]StartField, error) {
+	raw, ok := params["fields"]
+	if !ok || raw == nil {
+		return nil, nil
+	}
+	list, ok := raw.([]any)
+	if !ok {
+		return nil, fmt.Errorf("workflow Start: param \"fields\" must be a list, got %T", raw)
+	}
+	out := make([]StartField, 0, len(list))
+	for i, item := range list {
+		m, ok := item.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("workflow Start: fields[%d] must be an object, got %T", i, item)
+		}
+		f := StartField{}
+		if v, ok := m["name"]; ok {
+			f.Name, _ = v.(string)
+		}
+		if v, ok := m["label"]; ok {
+			f.Label, _ = v.(string)
+		}
+		if v, ok := m["type"]; ok {
+			f.Type, _ = v.(string)
+		}
+		f.Type = strings.ToLower(strings.TrimSpace(f.Type))
+		if f.Type == "" {
+			f.Type = "text"
+		}
+		switch f.Type {
+		case "text", "paragraph", "number", "select":
+		default:
+			return nil, fmt.Errorf("workflow Start: fields[%d] has unknown type %q (text|paragraph|number|select)", i, f.Type)
+		}
+		if v, ok := m["required"]; ok {
+			f.Required, _ = v.(bool)
+		}
+		if v, ok := m["default"]; ok {
+			f.Default, _ = v.(string)
+		}
+		if rawOpts, ok := m["options"]; ok && rawOpts != nil {
+			opts, ok := rawOpts.([]any)
+			if !ok {
+				return nil, fmt.Errorf("workflow Start: fields[%d].options must be a list, got %T", i, rawOpts)
+			}
+			for _, o := range opts {
+				if s, ok := o.(string); ok {
+					f.Options = append(f.Options, s)
+				}
+			}
+		}
+		if f.Name == "" {
+			return nil, fmt.Errorf("workflow Start: fields[%d] has an empty \"name\"", i)
+		}
+		out = append(out, f)
+	}
+	return out, nil
+}
+
+// StartFieldsOf parses params.fields via startFields; exported for the
+// service layer's required-field validation (same coercion rules as the
+// engine, one source of truth).
+func StartFieldsOf(params map[string]any) ([]StartField, error) {
+	return startFields(params)
 }
 
 // ---- Answer --------------------------------------------------------------
@@ -75,12 +181,12 @@ func (n *answerNode) Invoke(ctx context.Context, inputs map[string]any) (map[str
 // ---- LLM -----------------------------------------------------------------
 
 type llmNode struct {
-	prompt        string
-	systemPrompt  string
-	model         string
-	temperature   float64
-	maxTokens     int
-	llm           LLMFunc
+	prompt       string
+	systemPrompt string
+	model        string
+	temperature  float64
+	maxTokens    int
+	llm          LLMFunc
 }
 
 func newLLM(params map[string]any, deps Deps) (Node, error) {
@@ -144,14 +250,14 @@ func (n *llmNode) Invoke(ctx context.Context, inputs map[string]any) (map[string
 // ---- Retrieval -----------------------------------------------------------
 
 type retrievalNode struct {
-	query           string
-	kbIDs           []string
-	topK            int
-	vectorThresh    float64
-	keywordThresh   float64
-	useRerank       bool
-	rerankModelID   string
-	retr            RetrievalFunc
+	query         string
+	kbIDs         []string
+	topK          int
+	vectorThresh  float64
+	keywordThresh float64
+	useRerank     bool
+	rerankModelID string
+	retr          RetrievalFunc
 }
 
 func newRetrieval(params map[string]any, deps Deps) (Node, error) {
@@ -223,8 +329,8 @@ func (n *retrievalNode) Invoke(ctx context.Context, inputs map[string]any) (map[
 		Query: query, KBIDs: n.kbIDs, TopK: n.topK,
 		VectorThreshold:  n.vectorThresh,
 		KeywordThreshold: n.keywordThresh,
-		UseRerank:       n.useRerank,
-		RerankModelID:   n.rerankModelID,
+		UseRerank:        n.useRerank,
+		RerankModelID:    n.rerankModelID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("workflow Retrieval: retrieval failed: %w", err)
@@ -244,30 +350,109 @@ func (n *retrievalNode) Invoke(ctx context.Context, inputs map[string]any) (map[
 
 // ---- Switch --------------------------------------------------------------
 
-// SwitchCase is one equality rule: when the rendered value equals Value the
-// branch routes to node id To.
-type SwitchCase struct {
+// SwitchCondition is one comparison inside a case group. Ref and Value are
+// templates ({node@param} / {sys.*} / {env.*} render normally), so a case
+// can compare a node output against a literal or another output.
+type SwitchCondition struct {
+	Ref   string `json:"ref"`
+	Op    string `json:"op"`
 	Value string `json:"value"`
-	To    string `json:"to"`
 }
 
+// SwitchCase is one routing rule: a group of conditions joined by Logic,
+// routing to node id To when the group evaluates true. The legacy shape
+// ({value, to} + the node-level `value` template, pure string equality)
+// migrates to Conditions=[{Ref: <node value>, Op: "eq", Value: <case value>}]
+// at build time — old DSLs keep running unchanged.
+type SwitchCase struct {
+	Conditions []SwitchCondition `json:"conditions,omitempty"`
+	Logic      string            `json:"logic,omitempty"` // "and" (default) | "or"
+	To         string            `json:"to"`
+	// Legacy equality form (pre-conditions DSLs). Ignored when Conditions
+	// is non-empty.
+	Value string `json:"value,omitempty"`
+}
+
+// Condition operators (Dify IF/ELSE subset). Numeric ops fail the node on
+// non-numeric operands (loud, not silently-false).
+const (
+	OpEq          = "eq"
+	OpNe          = "ne"
+	OpContains    = "contains"
+	OpNotContains = "not_contains"
+	OpStartsWith  = "starts_with"
+	OpEndsWith    = "ends_with"
+	OpEmpty       = "empty"
+	OpNotEmpty    = "not_empty"
+	OpGt          = "gt"
+	OpGte         = "gte"
+	OpLt          = "lt"
+	OpLte         = "lte"
+	OpRegex       = "regex"
+	OpIn          = "in"
+	OpNotIn       = "not_in"
+)
+
+var conditionOps = map[string]bool{
+	OpEq: true, OpNe: true, OpContains: true, OpNotContains: true,
+	OpStartsWith: true, OpEndsWith: true, OpEmpty: true, OpNotEmpty: true,
+	OpGt: true, OpGte: true, OpLt: true, OpLte: true,
+	OpRegex: true, OpIn: true, OpNotIn: true,
+}
+
+// opsNeedingValue: operators that ignore the right-hand Value.
+var opsNeedingNoValue = map[string]bool{OpEmpty: true, OpNotEmpty: true}
+
 type switchNode struct {
-	value     string
 	cases     []SwitchCase
 	defaultTo string
+	regexes   map[int]*regexp.Regexp // case index → compiled pattern (Op regex)
 }
 
 func newSwitch(params map[string]any, deps Deps) (Node, error) {
-	value, err := strParam("Switch", "value", params, true)
-	if err != nil {
-		return nil, err
-	}
 	cases, err := switchCases(params)
 	if err != nil {
 		return nil, err
 	}
+	// Legacy migration: cases carrying the old {value, to} shape compare
+	// against the node-level `value` template with eq.
+	legacyValue, _ := params["value"].(string)
+	for i := range cases {
+		if len(cases[i].Conditions) == 0 {
+			if legacyValue == "" {
+				return nil, fmt.Errorf("workflow Switch: cases[%d] uses the legacy equality form which requires the node-level \"value\" param", i)
+			}
+			cases[i].Conditions = []SwitchCondition{{Ref: legacyValue, Op: OpEq, Value: cases[i].Value}}
+		}
+	}
+	// Validate operators / compile regexes up front so bad params fail at
+	// compile time, not mid-run.
+	regexes := map[int]*regexp.Regexp{}
+	for i, c := range cases {
+		if len(c.Conditions) == 0 {
+			return nil, fmt.Errorf("workflow Switch: cases[%d] has no conditions", i)
+		}
+		if c.Logic != "" && c.Logic != "and" && c.Logic != "or" {
+			return nil, fmt.Errorf("workflow Switch: cases[%d] logic must be \"and\" or \"or\", got %q", i, c.Logic)
+		}
+		for j, cond := range c.Conditions {
+			if cond.Ref == "" {
+				return nil, fmt.Errorf("workflow Switch: cases[%d].conditions[%d] has an empty \"ref\"", i, j)
+			}
+			if !conditionOps[cond.Op] {
+				return nil, fmt.Errorf("workflow Switch: cases[%d].conditions[%d] has unknown operator %q", i, j, cond.Op)
+			}
+			if cond.Op == OpRegex {
+				re, rerr := regexp.Compile(cond.Value)
+				if rerr != nil {
+					return nil, fmt.Errorf("workflow Switch: cases[%d].conditions[%d] regex: %w", i, j, rerr)
+				}
+				regexes[i] = re
+			}
+		}
+	}
 	defaultTo, _ := params["default"].(string)
-	return &switchNode{value: value, cases: cases, defaultTo: defaultTo}, nil
+	return &switchNode{cases: cases, defaultTo: defaultTo, regexes: regexes}, nil
 }
 
 func (n *switchNode) Invoke(ctx context.Context, inputs map[string]any) (map[string]any, error) {
@@ -275,19 +460,134 @@ func (n *switchNode) Invoke(ctx context.Context, inputs map[string]any) (map[str
 	if err != nil {
 		return nil, err
 	}
-	value, err := Render(n.value, st)
-	if err != nil {
-		return nil, fmt.Errorf("workflow Switch: %w", err)
-	}
-	for _, c := range n.cases {
-		if c.Value == value {
-			return map[string]any{RouteOutputKey: c.To, "matched": value}, nil
+	for i, c := range n.cases {
+		matched, left, err := n.evalCase(st, i, c)
+		if err != nil {
+			return nil, fmt.Errorf("workflow Switch: case %d: %w", i, err)
+		}
+		if matched {
+			return map[string]any{RouteOutputKey: c.To, "matched": left}, nil
 		}
 	}
 	if n.defaultTo == "" {
-		return nil, fmt.Errorf("workflow Switch: value %q matched no case and no default target is set", value)
+		return nil, fmt.Errorf("workflow Switch: no case matched and no default target is set")
 	}
-	return map[string]any{RouteOutputKey: n.defaultTo, "matched": value}, nil
+	return map[string]any{RouteOutputKey: n.defaultTo, "matched": ""}, nil
+}
+
+// evalCase renders and evaluates one case group. Returns whether the group
+// holds plus the rendered left operand of its first condition (the
+// "matched" output for traces). A ref that cannot resolve evaluates to
+// false (not an error): cases are ordered alternatives, and a later case
+// legitimately references vars that only exist on other execution paths.
+// Type errors inside an operator (e.g. numeric compare on text) stay loud.
+// AND short-circuits on the first false condition, OR on the first true.
+func (n *switchNode) evalCase(st StateView, index int, c SwitchCase) (bool, string, error) {
+	logicIsOr := c.Logic == "or"
+	firstLeft := ""
+	for j, cond := range c.Conditions {
+		left, lerr := Render(cond.Ref, st)
+		if lerr != nil {
+			if logicIsOr {
+				continue // unresolved ref cannot satisfy an OR member
+			}
+			return false, firstLeft, nil
+		}
+		if j == 0 {
+			firstLeft = left
+		}
+		right := cond.Value
+		if !opsNeedingNoValue[cond.Op] {
+			var rerr error
+			right, rerr = Render(cond.Value, st)
+			if rerr != nil {
+				if logicIsOr {
+					continue
+				}
+				return false, firstLeft, nil
+			}
+		}
+		holds, err := evalCondition(left, cond.Op, right, n.regexes[index])
+		if err != nil {
+			return false, "", fmt.Errorf("conditions[%d]: %w", j, err)
+		}
+		if logicIsOr && holds {
+			return true, firstLeft, nil
+		}
+		if !logicIsOr && !holds {
+			return false, firstLeft, nil
+		}
+	}
+	return !logicIsOr, firstLeft, nil
+}
+
+func evalCondition(left, op, right string, re *regexp.Regexp) (bool, error) {
+	switch op {
+	case OpEq:
+		return left == right, nil
+	case OpNe:
+		return left != right, nil
+	case OpContains:
+		return strings.Contains(left, right), nil
+	case OpNotContains:
+		return !strings.Contains(left, right), nil
+	case OpStartsWith:
+		return strings.HasPrefix(left, right), nil
+	case OpEndsWith:
+		return strings.HasSuffix(left, right), nil
+	case OpEmpty:
+		return strings.TrimSpace(left) == "", nil
+	case OpNotEmpty:
+		return strings.TrimSpace(left) != "", nil
+	case OpGt, OpGte, OpLt, OpLte:
+		ln, lerr := strconv.ParseFloat(strings.TrimSpace(left), 64)
+		rn, rerr := strconv.ParseFloat(strings.TrimSpace(right), 64)
+		if lerr != nil || rerr != nil {
+			return false, fmt.Errorf("operator %q needs numeric operands, got %q and %q", op, left, right)
+		}
+		switch op {
+		case OpGt:
+			return ln > rn, nil
+		case OpGte:
+			return ln >= rn, nil
+		case OpLt:
+			return ln < rn, nil
+		default:
+			return ln <= rn, nil
+		}
+	case OpRegex:
+		if re == nil {
+			return false, fmt.Errorf("regex operator lost its compiled pattern")
+		}
+		return re.MatchString(left), nil
+	case OpIn:
+		return sliceContains(splitList(right), left), nil
+	case OpNotIn:
+		return !sliceContains(splitList(right), left), nil
+	default:
+		return false, fmt.Errorf("unknown operator %q", op)
+	}
+}
+
+// splitList splits a comma-separated literal into trimmed members.
+func splitList(s string) []string {
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
+func sliceContains(list []string, s string) bool {
+	for _, item := range list {
+		if item == s {
+			return true
+		}
+	}
+	return false
 }
 
 // RouteTargets returns the set of possible downstream node ids for a
@@ -302,9 +602,9 @@ func RouteTargets(componentName string, params map[string]any) ([]string, error)
 		return nil, err
 	}
 	set := map[string]bool{}
-	for _, c := range cases {
+	for i, c := range cases {
 		if c.To == "" {
-			return nil, fmt.Errorf("workflow Switch: case %q has empty target", c.Value)
+			return nil, fmt.Errorf("workflow Switch: cases[%d] has empty target", i)
 		}
 		set[c.To] = true
 	}
@@ -346,6 +646,32 @@ func switchCases(params map[string]any) ([]SwitchCase, error) {
 			}
 			if v, ok := m["to"]; ok {
 				c.To, _ = v.(string)
+			}
+			if v, ok := m["logic"]; ok {
+				c.Logic, _ = v.(string)
+			}
+			if rawConds, ok := m["conditions"]; ok && rawConds != nil {
+				condList, ok := rawConds.([]any)
+				if !ok {
+					return nil, fmt.Errorf("workflow Switch: cases[%d].conditions must be a list, got %T", i, rawConds)
+				}
+				for j, rawCond := range condList {
+					cm, ok := rawCond.(map[string]any)
+					if !ok {
+						return nil, fmt.Errorf("workflow Switch: cases[%d].conditions[%d] must be an object, got %T", i, j, rawCond)
+					}
+					cond := SwitchCondition{}
+					if v, ok := cm["ref"]; ok {
+						cond.Ref, _ = v.(string)
+					}
+					if v, ok := cm["op"]; ok {
+						cond.Op, _ = v.(string)
+					}
+					if v, ok := cm["value"]; ok {
+						cond.Value, _ = v.(string)
+					}
+					c.Conditions = append(c.Conditions, cond)
+				}
 			}
 			if c.To == "" {
 				return nil, fmt.Errorf("workflow Switch: cases[%d] has empty \"to\"", i)

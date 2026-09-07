@@ -351,6 +351,8 @@ type WorkflowRunPayload struct {
 	TenantID   uint64   `json:"tenant_id"`
 	Query      string   `json:"query"`
 	Files      []string `json:"files,omitempty"`
+	// Inputs carries the Start-node form values (RunWorkflowRequest.Inputs).
+	Inputs map[string]any `json:"inputs,omitempty"`
 	// Resume marks a checkpoint-resume re-delivery of an earlier failed
 	// run (POST /workflows/:id/runs/:run_id/resume). Execution semantics
 	// are identical; the flag only widens the handler's row-state guard

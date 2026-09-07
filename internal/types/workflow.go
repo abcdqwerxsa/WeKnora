@@ -86,6 +86,10 @@ type RunWorkflowRequest struct {
 	Query string `json:"query"`
 	// Files (optional) are materialized into sys.files.
 	Files []string `json:"files,omitempty"`
+	// Inputs (optional) carries Start-node form values keyed by the declared
+	// field name; required fields are validated by the service against the
+	// workflow's Start node definition.
+	Inputs map[string]any `json:"inputs,omitempty"`
 	// Async selects the execution mode: true enqueues a workflow:run task
 	// and returns the run row immediately in status=pending (HTTP 202);
 	// false/omitted executes synchronously (HTTP 200, 120s cap).

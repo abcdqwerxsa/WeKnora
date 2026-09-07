@@ -73,6 +73,7 @@ func workflowHTTPError(err error) *apperrors.AppError {
 		errors.Is(err, service.ErrWorkflowInvalidStatus),
 		errors.Is(err, service.ErrWorkflowDSLRequired),
 		errors.Is(err, service.ErrWorkflowInvalidDSL),
+		errors.Is(err, service.ErrWorkflowMissingInput),
 		errors.Is(err, service.ErrWorkflowTenantRequired):
 		return apperrors.NewBadRequestError(err.Error())
 	default:
@@ -248,6 +249,10 @@ func (h *WorkflowHandler) CreateWorkflowRun(c *gin.Context) {
 		}
 		if errors.Is(err, service.ErrWorkflowInvalidDSL) {
 			c.Error(apperrors.NewValidationError("invalid workflow DSL").WithDetails(err.Error()))
+			return
+		}
+		if errors.Is(err, service.ErrWorkflowMissingInput) {
+			c.Error(apperrors.NewValidationError(err.Error()))
 			return
 		}
 		// A persisted failed run is a legitimate execution outcome, not a

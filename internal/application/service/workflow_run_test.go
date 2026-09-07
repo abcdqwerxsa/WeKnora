@@ -277,3 +277,26 @@ func (r *runRepoStub) lastCreatedRunID() string {
 func (r *runRepoStub) runRow(runID string) *types.WorkflowRun {
 	return r.runs[runID]
 }
+
+func TestRunWorkflow_RequiredStartInputValidated(t *testing.T) {
+	// A Start node declaring a required field rejects blank input before a
+	// run row exists; providing the field runs normally.
+	dsl := `{"version":1,"components":{
+		"start": {"obj": {"component_name": "Start", "params": {"fields": [{"name": "city", "type": "text", "required": true}]}}, "upstream": [], "downstream": ["ans"]},
+		"ans":   {"obj": {"component_name": "Answer", "params": {"template": "city: {start@city}"}}, "upstream": ["start"], "downstream": []}
+	}}`
+	wf := &types.Workflow{ID: "wf-1", TenantID: 10001, Name: "wf", DSL: types.JSON(dsl)}
+	repo := newRunRepoStub(wf)
+	svc := NewWorkflowService(repo, nil, nil, nil, nil)
+	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(10001))
+
+	if _, err := svc.RunWorkflow(ctx, "wf-1", &types.RunWorkflowRequest{Query: "hi"}); !errors.Is(err, ErrWorkflowMissingInput) {
+		t.Fatalf("missing required input: err=%v, want ErrWorkflowMissingInput", err)
+	}
+	assert.Empty(t, repo.created, "rejected run must not persist a row")
+
+	run, err := svc.RunWorkflow(ctx, "wf-1", &types.RunWorkflowRequest{Query: "hi", Inputs: map[string]any{"city": "Shenzhen"}})
+	require.NoError(t, err)
+	assert.Equal(t, types.WorkflowRunStatusSucceeded, run.Status)
+	assert.Contains(t, string(run.Output), "city: Shenzhen")
+}

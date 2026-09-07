@@ -75,9 +75,10 @@ type Workflow struct {
 // runRequest is the per-run payload carried on the context so eino's
 // GenLocalState closure (created once at compile time) can seed the state.
 type runRequest struct {
-	query string
-	files []string
-	state *CanvasState
+	query  string
+	files  []string
+	inputs map[string]any
+	state  *CanvasState
 	// resume, when non-nil, seeds the fresh CanvasState from a checkpoint
 	// side-car (outputs/path of previously completed nodes). Sys/Env come
 	// from the ORIGINAL run via the snapshot, so {sys.query} keeps its
@@ -247,6 +248,10 @@ func Compile(dsl *DSL, deps Deps) (*Workflow, error) {
 // A missing side-car (fresh id) degrades to a normal run.
 type RunOptions struct {
 	CheckpointID string
+	// Inputs carries the Start-node form values (keyed by declared field
+	// name). Materialised into the Start node's outputs; nil = query-only
+	// runs (the pre-form DSL behaviour).
+	Inputs map[string]any
 }
 
 // Run executes the workflow once. query/files are exposed to templates as
@@ -258,7 +263,7 @@ func (w *Workflow) Run(ctx context.Context, query string, files []string) (*RunR
 // RunWithOptions executes the workflow with per-run options. See
 // RunOptions for the checkpoint semantics.
 func (w *Workflow) RunWithOptions(ctx context.Context, query string, files []string, opts RunOptions) (*RunResult, error) {
-	req := &runRequest{query: query, files: files}
+	req := &runRequest{query: query, files: files, inputs: opts.Inputs}
 
 	ckptEnabled := opts.CheckpointID != "" && w.deps.CheckpointKV != nil
 	var invokeOpts []compose.Option
@@ -285,7 +290,11 @@ func (w *Workflow) RunWithOptions(ctx context.Context, query string, files []str
 			}
 		}
 	}
-	_, invokeErr := w.runnable.Invoke(ctx, map[string]any{"query": query, "files": files}, invokeOpts...)
+	startInput := map[string]any{"query": query, "files": files}
+	if opts.Inputs != nil {
+		startInput["inputs"] = opts.Inputs
+	}
+	_, invokeErr := w.runnable.Invoke(ctx, startInput, invokeOpts...)
 
 	// Persist the terminal CanvasState side-car for failed/interrupted
 	// runs (that is exactly what makes the NEXT RunWithOptions resumable).
