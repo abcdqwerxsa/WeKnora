@@ -102,7 +102,7 @@ func runTestWorkflow(t *testing.T, dsl string) (*runRepoStub, *types.WorkflowRun
 	repo := newRunRepoStub(wf)
 	svc := NewWorkflowService(repo, &wfStubModelSvc{reply: "llm-answer"}, &wfStubKBSvc{
 		hits: []*types.SearchResult{{ID: "c1", Content: "chunk text", KnowledgeTitle: "doc"}},
-	}, nil, nil)
+	}, nil, nil, nil, nil)
 	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(10001))
 	run, err := svc.RunWorkflow(ctx, "wf-1", &types.RunWorkflowRequest{Query: "hello"})
 	return repo, run, err
@@ -180,7 +180,7 @@ func TestRunWorkflow_FailedNodeTraceRecordsError(t *testing.T) {
 	}}`
 	wf := &types.Workflow{ID: "wf-1", TenantID: 10001, Name: "wf", DSL: types.JSON(failDSL)}
 	repo := newRunRepoStub(wf)
-	svc := NewWorkflowService(repo, &wfStubModelSvc{reply: "x"}, &failingKBSvc{}, nil, nil)
+	svc := NewWorkflowService(repo, &wfStubModelSvc{reply: "x"}, &failingKBSvc{}, nil, nil, nil, nil)
 	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(10001))
 	run, err := svc.RunWorkflow(ctx, "wf-1", &types.RunWorkflowRequest{Query: "hello"})
 	require.Error(t, err)
@@ -237,7 +237,7 @@ func TestRunWorkflow_CompileCyclePersistsFailedRun(t *testing.T) {
 }
 
 func TestRunWorkflow_MissingTenantRejected(t *testing.T) {
-	svc := NewWorkflowService(newRunRepoStub(nil), nil, nil, nil, nil)
+	svc := NewWorkflowService(newRunRepoStub(nil), nil, nil, nil, nil, nil, nil)
 	_, err := svc.RunWorkflow(context.Background(), "wf-1", &types.RunWorkflowRequest{Query: "q"})
 	assert.ErrorIs(t, err, ErrWorkflowTenantRequired)
 }
@@ -287,7 +287,7 @@ func TestRunWorkflow_RequiredStartInputValidated(t *testing.T) {
 	}}`
 	wf := &types.Workflow{ID: "wf-1", TenantID: 10001, Name: "wf", DSL: types.JSON(dsl)}
 	repo := newRunRepoStub(wf)
-	svc := NewWorkflowService(repo, nil, nil, nil, nil)
+	svc := NewWorkflowService(repo, nil, nil, nil, nil, nil, nil)
 	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(10001))
 
 	if _, err := svc.RunWorkflow(ctx, "wf-1", &types.RunWorkflowRequest{Query: "hi"}); !errors.Is(err, ErrWorkflowMissingInput) {

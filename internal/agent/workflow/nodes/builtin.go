@@ -591,12 +591,20 @@ func sliceContains(list []string, s string) bool {
 }
 
 // RouteTargets returns the set of possible downstream node ids for a
-// component, used at compile time to build an eino branch instead of plain
-// edges. Non-routing components return nil.
+// routing component (Switch, QuestionClassifier), used at compile time to
+// build an eino branch instead of plain edges. Non-routing components
+// return nil.
 func RouteTargets(componentName string, params map[string]any) ([]string, error) {
-	if !isSwitch(componentName) {
-		return nil, nil
+	if isSwitch(componentName) {
+		return switchTargets(params)
 	}
+	if canonical(componentName) == canonical(ComponentQuestionClassifier) {
+		return classifierTargets(params)
+	}
+	return nil, nil
+}
+
+func switchTargets(params map[string]any) ([]string, error) {
 	cases, err := switchCases(params)
 	if err != nil {
 		return nil, err
@@ -611,12 +619,31 @@ func RouteTargets(componentName string, params map[string]any) ([]string, error)
 	if d, _ := params["default"].(string); d != "" {
 		set[d] = true
 	}
+	return sortedTargets(set), nil
+}
+
+func classifierTargets(params map[string]any) ([]string, error) {
+	classes, err := classifierClasses(params)
+	if err != nil {
+		return nil, err
+	}
+	set := map[string]bool{}
+	for _, c := range classes {
+		set[c.To] = true
+	}
+	if d, _ := params["default"].(string); d != "" {
+		set[d] = true
+	}
+	return sortedTargets(set), nil
+}
+
+func sortedTargets(set map[string]bool) []string {
 	out := make([]string, 0, len(set))
 	for t := range set {
 		out = append(out, t)
 	}
 	sort.Strings(out)
-	return out, nil
+	return out
 }
 
 func isSwitch(componentName string) bool {

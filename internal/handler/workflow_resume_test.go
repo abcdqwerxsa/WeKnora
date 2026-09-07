@@ -34,7 +34,7 @@ func TestResumeWorkflowRunHandler_FailedResumesTerminalConflicts(t *testing.T) {
 			repo.runs = map[string]*types.WorkflowRun{
 				"run-1": {ID: "run-1", TenantID: 7, WorkflowID: "wf-r", Status: tc.status, Input: types.JSON(input)},
 			}
-			svc := service.NewWorkflowService(repo, nil, nil, &wfEventsEnqueuer{}, nil)
+			svc := service.NewWorkflowService(repo, nil, nil, &wfEventsEnqueuer{}, nil, nil, nil)
 			h := NewWorkflowHandler(svc)
 
 			ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(7))

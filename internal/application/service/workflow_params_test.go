@@ -75,7 +75,7 @@ func newParamsTestService() (*workflowService, *captureModelSvc, *captureKBSvc) 
 		{ID: "c1", Content: "one"},
 		{ID: "c2", Content: "two"},
 	}}
-	svc := NewWorkflowService(nil, m, k, nil, nil)
+	svc := NewWorkflowService(nil, m, k, nil, nil, nil, nil)
 	return svc.(*workflowService), m, k
 }
 

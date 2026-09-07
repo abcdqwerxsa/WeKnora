@@ -39,7 +39,7 @@ func runWithDefaultModels(t *testing.T, listed []*types.Model) (*types.WorkflowR
 	t.Helper()
 	wf := &types.Workflow{ID: "wf-def", TenantID: 9, Name: "wf", DSL: types.JSON(emptyModelLLMDSL)}
 	svcModels := &defaultModelSvc{listed: listed}
-	svc := NewWorkflowService(newRunRepoStub(wf), svcModels, nil, nil, nil)
+	svc := NewWorkflowService(newRunRepoStub(wf), svcModels, nil, nil, nil, nil, nil)
 	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(9))
 	run, err := svc.RunWorkflow(ctx, "wf-def", &types.RunWorkflowRequest{Query: "q"})
 	return run, err, svcModels

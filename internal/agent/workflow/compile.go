@@ -44,6 +44,7 @@ type Deps struct {
 	RetrievalFunc nodes.RetrievalFunc
 	HTTPFunc      nodes.HTTPFunc
 	DataOpsFunc   nodes.DataOpsFunc
+	WebSearchFunc nodes.WebSearchFunc
 	OnNodeEvent   func(NodeEvent)
 
 	// CheckpointKV (optional) enables eino checkpoint persistence through
@@ -150,6 +151,7 @@ func Compile(dsl *DSL, deps Deps) (*Workflow, error) {
 			RetrievalFunc: deps.RetrievalFunc,
 			HTTPFunc:      deps.HTTPFunc,
 			DataOpsFunc:   deps.DataOpsFunc,
+			WebSearchFunc: deps.WebSearchFunc,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("workflow: node %q: %w", id, err)

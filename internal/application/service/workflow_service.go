@@ -160,6 +160,12 @@ type workflowService struct {
 	models   interfaces.ModelService
 	kbs      interfaces.KnowledgeBaseService
 	enqueuer interfaces.TaskEnqueuer
+	// webSearch backs the WebSearch node adapter (admin-configured search
+	// providers; nil in Lite mode → node fails with a clear message).
+	webSearch interfaces.WebSearchService
+	// webSearchProviders resolves the tenant-default provider when a node
+	// does not pin one.
+	webSearchProviders interfaces.WebSearchProviderRepository
 	// redis, when non-nil (full mode), bridges run frames across instances
 	// for SSE. Lite mode gets nil and stays process-local.
 	redis *redis.Client
@@ -175,13 +181,16 @@ type workflowService struct {
 // engine adapters injected into every compiled run (LLMFunc → ModelService
 // GetChatModel, RetrievalFunc → KnowledgeBaseService HybridSearch);
 // enqueuer backs the async run mode (asynq client in full mode, inline
-// sync executor in Lite mode).
+// sync executor in Lite mode); webSearch/webSearchProviders back the
+// WebSearch node (nil is legal — the node then errors at run time).
 func NewWorkflowService(
 	repo interfaces.WorkflowRepository,
 	models interfaces.ModelService,
 	kbs interfaces.KnowledgeBaseService,
 	enqueuer interfaces.TaskEnqueuer,
 	redisClient *redis.Client,
+	webSearch interfaces.WebSearchService,
+	webSearchProviders interfaces.WebSearchProviderRepository,
 ) interfaces.WorkflowService {
 	// Lite (nil redis): no checkpoint KV — engine treats nil Deps.CheckpointKV
 	// as "no persistence" and every run executes fresh (current behaviour).
@@ -190,14 +199,16 @@ func NewWorkflowService(
 		ckptKV = newRedisCheckpointKV(redisClient)
 	}
 	return &workflowService{
-		repo:     repo,
-		models:   models,
-		kbs:      kbs,
-		enqueuer: enqueuer,
-		redis:    redisClient,
-		ckptKV:   ckptKV,
-		runs:     newWorkflowRunBroker(),
-		cancels:  newWorkflowRunCancels(),
+		repo:               repo,
+		models:             models,
+		kbs:                kbs,
+		enqueuer:           enqueuer,
+		webSearch:          webSearch,
+		webSearchProviders: webSearchProviders,
+		redis:              redisClient,
+		ckptKV:             ckptKV,
+		runs:               newWorkflowRunBroker(),
+		cancels:            newWorkflowRunCancels(),
 	}
 }
 
@@ -617,6 +628,7 @@ func (s *workflowService) executeWorkflowRun(
 		RetrievalFunc: s.runRetrieval,
 		HTTPFunc:      s.runHTTP,
 		DataOpsFunc:   s.runDataOps,
+		WebSearchFunc: s.runWebSearch,
 		OnNodeEvent:   publishNode,
 		// Checkpoint persistence (full mode only): eino persists completed-
 		// node state per run, and the engine keeps a CanvasState side-car —
@@ -1012,6 +1024,50 @@ func (s *workflowService) SubscribeWorkflowRunEvents(runID string) (<-chan types
 		closeOut()
 	}
 	return out, stop
+}
+
+// runWebSearch adapts the engine's WebSearchFunc onto the platform search
+// service. Provider resolution: the node's provider_id param wins; empty
+// falls back to the tenant's default provider. No provider configured →
+// loud error naming the fix (configure one in settings).
+func (s *workflowService) runWebSearch(ctx context.Context, req nodes.WebSearchRequest) ([]nodes.WebSearchResultItem, error) {
+	if s.webSearch == nil {
+		return nil, errors.New("workflow WebSearch: search service unavailable")
+	}
+	providerID := strings.TrimSpace(req.ProviderID)
+	if providerID == "" {
+		if s.webSearchProviders == nil {
+			return nil, errors.New("workflow WebSearch: no provider configured for this node and no default provider lookup available")
+		}
+		tenantID, ok := types.TenantIDFromContext(ctx)
+		if !ok || tenantID == 0 {
+			return nil, ErrWorkflowTenantRequired
+		}
+		def, err := s.webSearchProviders.GetDefault(ctx, tenantID)
+		if err != nil {
+			return nil, fmt.Errorf("workflow WebSearch: default provider lookup failed: %w", err)
+		}
+		if def == nil {
+			return nil, errors.New("workflow WebSearch: no search provider configured (set one as default in settings or pin provider_id on the node)")
+		}
+		providerID = def.ID
+	}
+	config := types.EffectiveWebSearchConfig(nil)
+	if req.MaxResults > 0 {
+		config.MaxResults = req.MaxResults
+	}
+	results, err := s.webSearch.Search(ctx, providerID, config, req.Query)
+	if err != nil {
+		return nil, fmt.Errorf("workflow WebSearch: search failed: %w", err)
+	}
+	items := make([]nodes.WebSearchResultItem, 0, len(results))
+	for _, r := range results {
+		if r == nil {
+			continue
+		}
+		items = append(items, nodes.WebSearchResultItem{Title: r.Title, URL: r.URL, Snippet: r.Snippet})
+	}
+	return items, nil
 }
 
 // runLLM adapts the engine's LLMFunc onto the platform ModelService.
