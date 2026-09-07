@@ -1088,6 +1088,11 @@ export default {
       groupWikiEdit: 'Wiki 编辑',
       groupWikiIssue: 'Wiki 巡检',
       groupData: '数据分析',
+      groupWorkflow: '工作流',
+      listWorkflows: '查看工作流列表',
+      listWorkflowsDesc: '列出空间内已发布的工作流（仅已发布）',
+      runWorkflow: '执行工作流',
+      runWorkflowDesc: '按 ID 或名称执行已发布的工作流并返回结果',
       writeWarning: '会修改 Wiki 内容',
       dangerTag: '可写',
       statusNoKb: '当前未关联任何知识库',
@@ -1489,7 +1494,9 @@ export default {
     getDocumentInfo: '获取文档信息',
     queryKnowledgeGraph: '查询知识图谱',
     think: '深度思考',
-    todoWrite: '制定计划'
+    todoWrite: '制定计划',
+    listWorkflows: '查看工作流列表',
+    runWorkflow: '执行工作流'
   },
   commandPalette: {
     placeholder: '搜索知识库、文件、对话…',

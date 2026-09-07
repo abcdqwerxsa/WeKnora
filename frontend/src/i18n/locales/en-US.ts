@@ -5291,7 +5291,9 @@ export default {
     getDocumentInfo: 'Get Document Info',
     queryKnowledgeGraph: 'Query Knowledge Graph',
     think: 'Deep Thinking',
-    todoWrite: 'Make Plan'
+    todoWrite: 'Make Plan',
+    listWorkflows: 'List workflows',
+    runWorkflow: 'Run workflow'
   },
   vectorStoreBadge: {
     systemDefault: 'System default',
@@ -5727,6 +5729,11 @@ export default {
       groupWikiEdit: 'Wiki Edit',
       groupWikiIssue: 'Wiki Review',
       groupData: 'Data Analysis',
+      groupWorkflow: 'Workflows',
+      listWorkflows: 'List workflows',
+      listWorkflowsDesc: 'List the published workflows of this workspace (published only)',
+      runWorkflow: 'Run workflow',
+      runWorkflowDesc: 'Execute a published workflow by id or name and return its result',
       writeWarning: 'Mutates Wiki content',
       dangerTag: 'Write',
       statusNoKb: 'No knowledge base is linked',

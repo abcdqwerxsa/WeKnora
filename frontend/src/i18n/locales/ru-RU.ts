@@ -1086,6 +1086,11 @@ capabilityRunWorkflowsHint: 'Выполнение опубликованных �
       groupWikiEdit: 'Редактирование Wiki',
       groupWikiIssue: 'Проверка Wiki',
       groupData: 'Анализ данных',
+      groupWorkflow: 'Рабочие процессы',
+      listWorkflows: 'Список процессов',
+      listWorkflowsDesc: 'Показать опубликованные процессы рабочего пространства (только опубликованные)',
+      runWorkflow: 'Запустить процесс',
+      runWorkflowDesc: 'Выполнить опубликованный процесс по ID или имени и вернуть результат',
       writeWarning: 'Изменяет содержимое Wiki',
       dangerTag: 'Запись',
       statusNoKb: 'База знаний не подключена',
@@ -1487,7 +1492,9 @@ capabilityRunWorkflowsHint: 'Выполнение опубликованных �
     getDocumentInfo: 'Получить информацию о документе',
     queryKnowledgeGraph: 'Запрос к графу знаний',
     think: 'Глубокое размышление',
-    todoWrite: 'Составить план'
+    todoWrite: 'Составить план',
+    listWorkflows: 'Список процессов',
+    runWorkflow: 'Запустить процесс'
   },
   commandPalette: {
     placeholder: 'Поиск по базам знаний, файлам, диалогам…',

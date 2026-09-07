@@ -1086,6 +1086,11 @@ export default {
       groupWikiEdit: 'Wiki 편집',
       groupWikiIssue: 'Wiki 점검',
       groupData: '데이터 분석',
+      groupWorkflow: '워크플로',
+      listWorkflows: '워크플로 목록',
+      listWorkflowsDesc: '워크스페이스에 게시된 워크플로 나열(게시된 것만)',
+      runWorkflow: '워크플로 실행',
+      runWorkflowDesc: 'ID 또는 이름으로 게시된 워크플로를 실행하고 결과를 반환',
       writeWarning: 'Wiki 내용을 변경합니다',
       dangerTag: '쓰기',
       statusNoKb: '연결된 지식베이스가 없습니다',
@@ -1487,7 +1492,9 @@ export default {
     getDocumentInfo: '문서 정보 조회',
     queryKnowledgeGraph: '지식 그래프 쿼리',
     think: '깊이 생각하기',
-    todoWrite: '계획 수립'
+    todoWrite: '계획 수립',
+    listWorkflows: '워크플로 목록',
+    runWorkflow: '워크플로 실행'
   },
   commandPalette: {
     placeholder: '지식베이스, 파일, 대화 검색…',
