@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS workflows (
     name VARCHAR(255) NOT NULL,
     description TEXT,
     dsl TEXT NOT NULL DEFAULT '{}',
+    published_dsl TEXT,
     status VARCHAR(50) NOT NULL DEFAULT 'draft',
     version INTEGER NOT NULL DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,

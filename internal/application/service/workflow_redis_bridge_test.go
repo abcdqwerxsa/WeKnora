@@ -69,7 +69,7 @@ func TestRedisBridge_CrossInstanceDelivery(t *testing.T) {
 // SAME instance delivers each frame exactly once (local + redis echo are
 // deduplicated by kind|node|phase|duration).
 func TestRedisBridge_SingleInstanceDedup(t *testing.T) {
-	wf := &types.Workflow{ID: "wf-d", TenantID: 8, Name: "wf", DSL: types.JSON(linearDSL)}
+	wf := &types.Workflow{ID: "wf-d", TenantID: 8, Name: "wf", DSL: types.JSON(linearDSL), Status: types.WorkflowStatusPublished}
 	client := newRedisTestClient(t)
 	svc := NewWorkflowService(newRunRepoStub(wf), &wfStubModelSvc{reply: "ok"}, nil, nil, client, nil, nil)
 	concrete := svc.(*workflowService) // same package: reach the transport hooks

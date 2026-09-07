@@ -98,7 +98,9 @@ func (s *wfStubKBSvc) HybridSearch(_ context.Context, _ string, _ types.SearchPa
 
 func runTestWorkflow(t *testing.T, dsl string) (*runRepoStub, *types.WorkflowRun, error) {
 	t.Helper()
-	wf := &types.Workflow{ID: "wf-1", TenantID: 10001, Name: "wf", DSL: types.JSON(dsl)}
+	// Published so the run gate (draft = creator/admin only) stays out of
+	// the way for these mechanics-focused tests.
+	wf := &types.Workflow{ID: "wf-1", TenantID: 10001, Name: "wf", DSL: types.JSON(dsl), Status: types.WorkflowStatusPublished}
 	repo := newRunRepoStub(wf)
 	svc := NewWorkflowService(repo, &wfStubModelSvc{reply: "llm-answer"}, &wfStubKBSvc{
 		hits: []*types.SearchResult{{ID: "c1", Content: "chunk text", KnowledgeTitle: "doc"}},
@@ -178,7 +180,7 @@ func TestRunWorkflow_FailedNodeTraceRecordsError(t *testing.T) {
 		"ret":   {"obj": {"component_name": "Retrieval", "params": {"query": "{start@query}", "kb_ids": ["kb-1"]}}, "upstream": ["start"], "downstream": ["ans"]},
 		"ans":   {"obj": {"component_name": "Answer", "params": {"template": "x"}}, "upstream": ["ret"], "downstream": []}
 	}}`
-	wf := &types.Workflow{ID: "wf-1", TenantID: 10001, Name: "wf", DSL: types.JSON(failDSL)}
+	wf := &types.Workflow{ID: "wf-1", TenantID: 10001, Name: "wf", DSL: types.JSON(failDSL), Status: types.WorkflowStatusPublished}
 	repo := newRunRepoStub(wf)
 	svc := NewWorkflowService(repo, &wfStubModelSvc{reply: "x"}, &failingKBSvc{}, nil, nil, nil, nil)
 	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(10001))
@@ -285,7 +287,7 @@ func TestRunWorkflow_RequiredStartInputValidated(t *testing.T) {
 		"start": {"obj": {"component_name": "Start", "params": {"fields": [{"name": "city", "type": "text", "required": true}]}}, "upstream": [], "downstream": ["ans"]},
 		"ans":   {"obj": {"component_name": "Answer", "params": {"template": "city: {start@city}"}}, "upstream": ["start"], "downstream": []}
 	}}`
-	wf := &types.Workflow{ID: "wf-1", TenantID: 10001, Name: "wf", DSL: types.JSON(dsl)}
+	wf := &types.Workflow{ID: "wf-1", TenantID: 10001, Name: "wf", DSL: types.JSON(dsl), Status: types.WorkflowStatusPublished}
 	repo := newRunRepoStub(wf)
 	svc := NewWorkflowService(repo, nil, nil, nil, nil, nil, nil)
 	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(10001))

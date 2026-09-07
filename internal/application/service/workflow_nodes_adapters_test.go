@@ -124,7 +124,7 @@ func TestRunWorkflowDataOpsChain(t *testing.T) {
 
 func runFullChain(t *testing.T, dsl string) *types.WorkflowRun {
 	t.Helper()
-	wf := &types.Workflow{ID: "wf-ext", TenantID: 42, Name: "wf", DSL: types.JSON(dsl)}
+	wf := &types.Workflow{ID: "wf-ext", TenantID: 42, Name: "wf", DSL: types.JSON(dsl), Status: types.WorkflowStatusPublished}
 	repo := newRunRepoStub(wf)
 	svc := NewWorkflowService(repo, nil, nil, nil, nil, nil, nil)
 	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(42))

@@ -192,8 +192,8 @@ func Compile(dsl *DSL, deps Deps) (*Workflow, error) {
 			endNodes := make(map[string]bool, len(targets))
 			for _, t := range targets {
 				if _, ok := norm.Components[t]; !ok {
-				return nil, fmt.Errorf("workflow: node %q routes to unknown node %q", id, t)
-			}
+					return nil, fmt.Errorf("workflow: node %q routes to unknown node %q", id, t)
+				}
 				endNodes[graphKey(t)] = true
 			}
 			// Plain nodes with an error branch: success keeps the single
