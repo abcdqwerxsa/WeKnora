@@ -21,6 +21,8 @@ export type WorkflowNodeType =
   | 'ParameterExtractor'
   | 'Code'
   | 'Iteration'
+  | 'Agent'
+  | 'MCPTool'
 
 export type WorkflowStatus = 'draft' | 'published' | 'archived'
 
@@ -39,6 +41,8 @@ export const WORKFLOW_NODE_TYPES: WorkflowNodeType[] = [
   'ParameterExtractor',
   'Code',
   'Iteration',
+  'Agent',
+  'MCPTool',
 ]
 
 /** Engine output keys per node kind (source of {nodeId@param} references). */

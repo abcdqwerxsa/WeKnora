@@ -49,6 +49,10 @@ export function defaultParams(kind: WorkflowNodeType): Record<string, unknown> {
       return { language: 'python3', code: '', variables: [] as Array<{ name: string; ref: string }>, timeout_seconds: 30 }
     case 'Iteration':
       return { items: '', item_var: 'item', index_var: 'index', output_ref: '', output_var: 'results' }
+    case 'Agent':
+      return { prompt: '', system_prompt: '', model: '', kb_ids: [] as string[], temperature: 0.4 }
+    case 'MCPTool':
+      return { service_id: '', tool: '', args: '', timeout_seconds: 30 }
     default:
       return {}
   }

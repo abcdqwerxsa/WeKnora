@@ -25,6 +25,7 @@ import (
 	apprepo "github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/event"
 	"github.com/Tencent/WeKnora/internal/logger"
+	"github.com/Tencent/WeKnora/internal/mcp"
 	"github.com/Tencent/WeKnora/internal/models/chat"
 	"github.com/Tencent/WeKnora/internal/sandbox"
 	"github.com/Tencent/WeKnora/internal/types"
@@ -177,6 +178,12 @@ type workflowService struct {
 	// sandboxes resolves the tenant's sandbox backend for the Code node
 	// (nil in Lite mode → the node fails with a clear message).
 	sandboxes sandbox.TenantSandboxResolver
+	// agents runs one ReAct turn for the Agent node (nil → clear node error).
+	agents interfaces.AgentService
+	// mcpClients + mcpServices back the MCPTool node adapter. mcpClients is
+	// a one-method view of *mcp.MCPManager so tests can fake the client pool.
+	mcpClients  mcpClientProvider
+	mcpServices interfaces.MCPServiceService
 	// redis, when non-nil (full mode), bridges run frames across instances
 	// for SSE. Lite mode gets nil and stays process-local.
 	redis *redis.Client
@@ -203,6 +210,9 @@ func NewWorkflowService(
 	webSearch interfaces.WebSearchService,
 	webSearchProviders interfaces.WebSearchProviderRepository,
 	sandboxes sandbox.TenantSandboxResolver,
+	agents interfaces.AgentService,
+	mcpManager *mcp.MCPManager,
+	mcpServices interfaces.MCPServiceService,
 ) interfaces.WorkflowService {
 	// Lite (nil redis): no checkpoint KV — engine treats nil Deps.CheckpointKV
 	// as "no persistence" and every run executes fresh (current behaviour).
@@ -218,6 +228,9 @@ func NewWorkflowService(
 		webSearch:          webSearch,
 		webSearchProviders: webSearchProviders,
 		sandboxes:          sandboxes,
+		agents:             agents,
+		mcpClients:         mcpManager,
+		mcpServices:        mcpServices,
 		redis:              redisClient,
 		ckptKV:             ckptKV,
 		runs:               newWorkflowRunBroker(),
@@ -775,6 +788,8 @@ func (s *workflowService) executeWorkflowRun(
 		DataOpsFunc:   s.runDataOps,
 		WebSearchFunc: s.runWebSearch,
 		CodeFunc:      s.runCode,
+		AgentFunc:     s.runAgent,
+		MCPFunc:       s.runMCPTool,
 		OnNodeEvent:   publishNode,
 		// Checkpoint persistence (full mode only): eino persists completed-
 		// node state per run, and the engine keeps a CanvasState side-car —
@@ -1333,6 +1348,161 @@ func tail(s string, n int) string {
 		return s
 	}
 	return "…" + s[len(s)-n:]
+}
+
+// runAgent adapts the engine's AgentFunc onto the platform ReAct engine via
+// the ready-made programmatic entry (AgentService.CreateAgentEngine — same
+// surface tenant_skill_install.go uses outside the chat path). One stateless
+// turn: synthetic session/message ids, no history, no session or message
+// persistence; the engine's event bus is a throwaway with no subscribers.
+func (s *workflowService) runAgent(ctx context.Context, req nodes.AgentRequest) (string, error) {
+	if s.agents == nil {
+		return "", errors.New("workflow Agent: agent runtime unavailable")
+	}
+	if s.models == nil {
+		return "", errors.New("workflow Agent: model service unavailable")
+	}
+	tenantID, ok := types.TenantIDFromContext(ctx)
+	if !ok || tenantID == 0 {
+		return "", ErrWorkflowTenantRequired
+	}
+	modelID := strings.TrimSpace(req.Model)
+	if modelID == "" {
+		fallback, ferr := s.defaultChatModelID(ctx)
+		if ferr != nil {
+			return "", ferr
+		}
+		modelID = fallback
+	}
+	chatModel, err := s.models.GetChatModel(ctx, modelID)
+	if err != nil {
+		return "", fmt.Errorf("workflow Agent: model %q unavailable: %w", modelID, err)
+	}
+
+	cfg := &types.AgentConfig{
+		MaxIterations: 5,
+		SystemPrompt:  req.SystemPrompt,
+		Temperature:   req.Temperature,
+	}
+	if len(req.KBIDs) > 0 {
+		cfg.AllowedTools = []string{"knowledge_search"}
+		for _, kbID := range req.KBIDs {
+			cfg.SearchTargets = append(cfg.SearchTargets, &types.SearchTarget{
+				Type:            types.SearchTargetTypeKnowledgeBase,
+				KnowledgeBaseID: kbID,
+				TenantID:        tenantID,
+			})
+		}
+	}
+	// A throwaway event bus keeps engine-internal streaming a no-op.
+	engine, err := s.agents.CreateAgentEngine(ctx, cfg, chatModel, nil, event.NewEventBus(), "workflow-agent-node", "")
+	if err != nil {
+		return "", fmt.Errorf("workflow Agent: engine setup failed: %w", err)
+	}
+	if engine == nil {
+		return "", errors.New("workflow Agent: engine setup returned no engine")
+	}
+	// llmContext nil = fresh single turn; synthetic ids are logging metadata only.
+	state, err := engine.Execute(ctx, "workflow-agent-node", "workflow-agent-node", req.Prompt, nil)
+	if err != nil {
+		return "", fmt.Errorf("workflow Agent: turn failed: %w", err)
+	}
+	if state == nil || strings.TrimSpace(state.FinalAnswer) == "" {
+		return "", errors.New("workflow Agent: turn produced no final answer")
+	}
+	return state.FinalAnswer, nil
+}
+
+// runMCPTool adapts the engine's MCPFunc onto the tenant MCP manager.
+// Interactive OAuth services are rejected loudly (a workflow node has no
+// consent UI); none/api_key/bearer auth call synchronously.
+func (s *workflowService) runMCPTool(ctx context.Context, req nodes.MCPToolRequest) (any, string, error) {
+	if s.mcpClients == nil || s.mcpServices == nil {
+		return nil, "", errors.New("workflow MCPTool: MCP runtime unavailable")
+	}
+	tenantID, ok := types.TenantIDFromContext(ctx)
+	if !ok || tenantID == 0 {
+		return nil, "", ErrWorkflowTenantRequired
+	}
+	services, err := s.mcpServices.ListMCPServicesByIDs(ctx, tenantID, []string{req.ServiceID})
+	if err != nil {
+		return nil, "", fmt.Errorf("workflow MCPTool: service lookup failed: %w", err)
+	}
+	var service *types.MCPService
+	for _, svc := range services {
+		if svc != nil && svc.ID == req.ServiceID {
+			service = svc
+			break
+		}
+	}
+	if service == nil {
+		return nil, "", fmt.Errorf("workflow MCPTool: MCP service %q not found in this workspace", req.ServiceID)
+	}
+	if !service.Enabled {
+		return nil, "", fmt.Errorf("workflow MCPTool: MCP service %q is disabled", service.Name)
+	}
+	if service.AuthConfig.IsOAuth() {
+		return nil, "", fmt.Errorf("workflow MCPTool: service %q uses OAuth and needs interactive authorization — workflow nodes only support none/api_key/bearer auth", service.Name)
+	}
+
+	args := map[string]any{}
+	if trimmed := strings.TrimSpace(req.ArgsJSON); trimmed != "" && trimmed != "{}" {
+		if err := json.Unmarshal([]byte(trimmed), &args); err != nil {
+			return nil, "", fmt.Errorf("workflow MCPTool: args must render to a JSON object: %w", err)
+		}
+	}
+	if req.TimeoutSeconds > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(req.TimeoutSeconds)*time.Second)
+		defer cancel()
+	}
+	client, err := s.mcpClients.GetOrCreateClient(ctx, service)
+	if err != nil {
+		return nil, "", fmt.Errorf("workflow MCPTool: connect to %q failed: %w", service.Name, err)
+	}
+	result, err := client.CallTool(ctx, req.Tool, args)
+	if err != nil {
+		return nil, "", fmt.Errorf("workflow MCPTool: call %q failed: %w", req.Tool, err)
+	}
+	if result.IsError {
+		return nil, "", fmt.Errorf("workflow MCPTool: tool %q returned an error: %s", req.Tool, mcpContentText(result.Content))
+	}
+	raw := mcpContentRaw(result.Content)
+	return raw, mcpContentText(result.Content), nil
+}
+
+// mcpContentText renders the textual parts of an MCP tool result.
+func mcpContentText(items []mcp.ContentItem) string {
+	var b strings.Builder
+	for _, item := range items {
+		if item.Text != "" {
+			if b.Len() > 0 {
+				b.WriteByte('\n')
+			}
+			b.WriteString(item.Text)
+		}
+	}
+	return b.String()
+}
+
+// mcpContentRaw maps content items to plain values for {node@result} refs.
+func mcpContentRaw(items []mcp.ContentItem) any {
+	texts := make([]any, 0, len(items))
+	for _, item := range items {
+		if item.Text != "" {
+			texts = append(texts, item.Text)
+		}
+	}
+	if len(texts) == 1 {
+		return texts[0]
+	}
+	return texts
+}
+
+// mcpClientProvider is the one-method slice of *mcp.MCPManager the
+// MCPTool adapter needs (test seam; production passes the manager).
+type mcpClientProvider interface {
+	GetOrCreateClient(ctx context.Context, service *types.MCPService) (mcp.MCPClient, error)
 }
 
 // runLLMStream is the streaming sibling of runLLM: identical resolution

@@ -57,6 +57,8 @@ type Deps struct {
 	DataOpsFunc   nodes.DataOpsFunc
 	WebSearchFunc nodes.WebSearchFunc
 	CodeFunc      nodes.CodeFunc
+	AgentFunc     nodes.AgentFunc
+	MCPFunc       nodes.MCPFunc
 	OnNodeEvent   func(NodeEvent)
 
 	// CheckpointKV (optional) enables eino checkpoint persistence through
@@ -230,6 +232,8 @@ func Compile(dsl *DSL, deps Deps) (*Workflow, error) {
 			DataOpsFunc:   deps.DataOpsFunc,
 			WebSearchFunc: deps.WebSearchFunc,
 			CodeFunc:      deps.CodeFunc,
+			AgentFunc:     deps.AgentFunc,
+			MCPFunc:       deps.MCPFunc,
 		}
 		if deps.OnNodeEvent != nil {
 			// Bind this node's delta sink before construction so the LLM

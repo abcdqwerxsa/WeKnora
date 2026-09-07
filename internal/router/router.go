@@ -76,7 +76,7 @@ type RouterParams struct {
 	FAQHandler                   *handler.FAQHandler
 	TagHandler                   *handler.TagHandler
 	CustomAgentHandler           *handler.CustomAgentHandler
-	WorkflowHandler             *handler.WorkflowHandler
+	WorkflowHandler              *handler.WorkflowHandler
 	UserFavoriteHandler          *handler.UserResourceFavoriteHandler
 	SkillHandler                 *handler.SkillHandler
 	OrganizationHandler          *handler.OrganizationHandler

@@ -510,6 +510,97 @@
       </t-form-item>
     </template>
 
+    <!-- ================= Agent ================= -->
+    <template v-else-if="kind === 'Agent'">
+      <t-form-item :label="t('workflow.editor.prompt')">
+        <div class="wf-prop-field">
+          <RefTextarea
+            :model-value="strParam('prompt')"
+            :autosize="{ minRows: 3, maxRows: 10 }"
+            :placeholder="t('workflow.editor.promptHint')"
+            :suggestions="refSuggestions"
+            @change="setParam('prompt', $event)"
+          />
+          <VariableRefPicker
+            :current-node-id="currentNodeId"
+            :nodes="nodes"
+            :edges="edges"
+            :env-names="envNames"
+            @insert="insertRef('prompt', $event)"
+          />
+        </div>
+      </t-form-item>
+      <t-form-item :label="t('workflow.editor.systemPrompt')">
+        <div class="wf-prop-field">
+          <RefTextarea
+            :model-value="strParam('system_prompt')"
+            :autosize="{ minRows: 2, maxRows: 8 }"
+            :placeholder="t('workflow.editor.promptHint')"
+            :suggestions="refSuggestions"
+            @change="setParam('system_prompt', $event)"
+          />
+        </div>
+      </t-form-item>
+      <t-form-item :label="t('workflow.editor.model')">
+        <t-select
+          :value="strParam('model')"
+          :placeholder="t('workflow.editor.modelPlaceholder')"
+          clearable
+          filterable
+          @change="setParam('model', $event)"
+        >
+          <t-option v-for="m in chatModels" :key="m.id" :value="m.id" :label="modelLabel(m.name)" />
+        </t-select>
+      </t-form-item>
+      <t-form-item :label="t('workflow.editor.kbSelect')">
+        <t-select
+          :value="kbIds"
+          :placeholder="t('workflow.editor.kbSelectHint')"
+          multiple
+          clearable
+          filterable
+          @change="setParam('kb_ids', $event)"
+        >
+          <t-option v-for="kb in kbOptions" :key="kb.id" :value="kb.id" :label="kb.name" />
+        </t-select>
+        <p class="wf-prop-hint">{{ t('workflow.editor.agentKbHint') }}</p>
+      </t-form-item>
+      <t-form-item :label="t('workflow.editor.temperature')">
+        <t-slider :value="numParam('temperature', 0.4)" :min="0" :max="2" :step="0.1" @change="setParam('temperature', $event)" />
+      </t-form-item>
+    </template>
+
+    <!-- ================= MCPTool ================= -->
+    <template v-else-if="kind === 'MCPTool'">
+      <t-form-item :label="t('workflow.editor.mcpService')">
+        <t-input :value="strParam('service_id')" placeholder="service id" @change="setParam('service_id', $event)" />
+      </t-form-item>
+      <t-form-item :label="t('workflow.editor.mcpTool')">
+        <t-input :value="strParam('tool')" placeholder="tool name" @change="setParam('tool', $event)" />
+      </t-form-item>
+      <t-form-item :label="t('workflow.editor.mcpArgs')">
+        <div class="wf-prop-field">
+          <RefTextarea
+            :model-value="strParam('args')"
+            :autosize="{ minRows: 2, maxRows: 8 }"
+            :placeholder="t('workflow.editor.mcpArgsPlaceholder')"
+            :suggestions="refSuggestions"
+            @change="setParam('args', $event)"
+          />
+        </div>
+      </t-form-item>
+      <t-form-item :label="t('workflow.editor.timeout')">
+        <t-input-number
+          :value="numParam('timeout_seconds', 30)"
+          :min="1"
+          :max="300"
+          theme="column"
+          @change="setParam('timeout_seconds', $event)"
+        />
+      </t-form-item>
+      <p class="wf-prop-hint">{{ t('workflow.editor.mcpIntranetHint') }}</p>
+    </template>
+
     <!-- ================= Iteration ================= -->
     <template v-else-if="kind === 'Iteration'">
       <t-form-item :label="t('workflow.editor.items')">

@@ -19,6 +19,7 @@ export const NODE_PALETTE: NodePaletteEntry[] = [
   { kind: 'Switch', group: 'basic' },
   { kind: 'QuestionClassifier', group: 'basic' },
   { kind: 'ParameterExtractor', group: 'basic' },
+  { kind: 'Agent', group: 'basic' },
   { kind: 'Answer', group: 'basic' },
   { kind: 'Template', group: 'transform' },
   { kind: 'Code', group: 'transform' },
@@ -26,6 +27,7 @@ export const NODE_PALETTE: NodePaletteEntry[] = [
   { kind: 'VariableAggregator', group: 'transform' },
   { kind: 'DataOps', group: 'data' },
   { kind: 'WebSearch', group: 'network' },
+  { kind: 'MCPTool', group: 'network' },
   { kind: 'HTTP', group: 'network' },
 ]
 
@@ -47,6 +49,8 @@ export const NODE_COLORS: Record<WorkflowNodeType, string> = {
   ParameterExtractor: '#6ca87f',
   Code: '#7a8b3f',
   Iteration: '#b06a3f',
+  Agent: '#c25b74',
+  MCPTool: '#4d8bc9',
 }
 
 /** Node-side parameter badge icon (subset of tdesign icon names). */
@@ -65,6 +69,8 @@ export const NODE_ICONS: Record<WorkflowNodeType, string> = {
   ParameterExtractor: 'filter',
   Code: 'code',
   Iteration: 'loop',
+  Agent: 'root-list',
+  MCPTool: 'server',
 }
 
 /** Upstream output params a reference picker may offer for a node kind. */
@@ -103,6 +109,10 @@ export function outputParamsOf(kind: WorkflowNodeType, params?: Record<string, u
       const out = typeof vars?.output_var === 'string' && vars.output_var ? vars.output_var : 'results'
       return [out, 'count']
     }
+    case 'Agent':
+      return ['answer']
+    case 'MCPTool':
+      return ['result', 'result_text']
     case 'VariableAggregator': {
       // Outputs are the user-declared variable names.
       const vars = params?.variables
@@ -219,6 +229,14 @@ export function paramSummary(kind: WorkflowNodeType, params?: Record<string, unk
       const items = typeof params.items === 'string' ? params.items : ''
       return items ? `${items.slice(0, 18)}` : ''
     }
+    case 'Agent':
+      return typeof params.model === 'string' && params.model
+        ? params.model
+        : count(params.kb_ids) > 0
+          ? 'agent'
+          : ''
+    case 'MCPTool':
+      return typeof params.tool === 'string' && params.tool ? params.tool : ''
     default:
       return ''
   }

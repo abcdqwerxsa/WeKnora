@@ -56,6 +56,8 @@ type Deps struct {
 	DataOpsFunc   DataOpsFunc
 	WebSearchFunc WebSearchFunc
 	CodeFunc      CodeFunc
+	AgentFunc     AgentFunc
+	MCPFunc       MCPFunc
 	// OnDelta (optional) receives incremental content chunks while a node
 	// streams (LLM token deltas). The compiler binds it per node; nodes
 	// treat nil as "no sink attached" and simply skip delta emission.
