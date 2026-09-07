@@ -116,3 +116,97 @@ test('migrateNodeParams converts legacy Switch equality cases to condition group
     to: 'c',
   })
 })
+
+test('normalizeDsl preserves iteration body membership (parent) round-trip', async () => {
+  const { normalizeDsl } = await import('./dsl.ts')
+  const dsl = normalizeDsl({
+    version: 1,
+    graph: {
+      nodes: [
+        { id: 'start', type: 'Start', position: { x: 0, y: 0 } },
+        { id: 'iter1', type: 'Iteration', position: { x: 1, y: 1 }, data: { params: { items: '[1]' } } },
+        { id: 'body1', type: 'Template', position: { x: 2, y: 2 }, data: { params: { template: '{iter1@item}' }, parent: 'iter1' } },
+      ],
+      edges: [
+        { id: 'e1', source: 'start', target: 'iter1' },
+      ],
+    },
+    components: {},
+  })
+  assert.equal(dsl.components.body1.parent, 'iter1')
+  // Round-trip: normalize again from the built graph view
+  const again = normalizeDsl(dsl)
+  assert.equal(again.components.body1.parent, 'iter1')
+})
+
+test('validateGraph checks iteration body membership', async () => {
+  const { validateGraph } = await import('./dsl.ts')
+  const iter = (tpl: { id: string; parent?: string }) => ({
+    id: tpl.id,
+    type: 'Template' as const,
+    position: { x: 0, y: 0 },
+    data: tpl.parent ? { params: { template: 'x' }, parent: tpl.parent } : { params: { template: 'x' } },
+  })
+
+  // 1. Iteration without body → emptyBody error.
+  let issues = validateGraph(
+    [node('start', 'Start'), node('iter1', 'Iteration', { items: '[1]', output_ref: '{tpl@text}' }), iter({ id: 'tpl' })],
+    [
+      { id: 'e1', source: 'start', target: 'iter1' },
+      { id: 'e2', source: 'iter1', target: 'tpl' },
+    ],
+  )
+  let keys = issues.map((i) => `${i.level}:${i.key}`)
+  assert.ok(keys.includes('error:emptyBody'), keys.join(','))
+
+  // 2. tpl joins iter1's body → single body entry, no body errors.
+  issues = validateGraph(
+    [node('start', 'Start'), node('iter1', 'Iteration', { items: '[1]', output_ref: '{tpl@text}' }), iter({ id: 'tpl', parent: 'iter1' })],
+    [
+      { id: 'e1', source: 'start', target: 'iter1' },
+      { id: 'e2', source: 'iter1', target: 'tpl' },
+    ],
+  )
+  keys = issues.map((i) => `${i.level}:${i.key}`)
+  assert.ok(!keys.includes('error:bodyEntries'), keys.join(','))
+  assert.ok(!keys.includes('error:emptyBody'), keys.join(','))
+
+  // 3. Bad parent → error.
+  issues = validateGraph(
+    [node('start', 'Start'), node('iter1', 'Iteration', { items: '[1]', output_ref: '{tpl@text}' }), iter({ id: 'tpl', parent: 'nope' })],
+    [
+      { id: 'e1', source: 'start', target: 'iter1' },
+      { id: 'e2', source: 'iter1', target: 'tpl' },
+    ],
+  )
+  keys = issues.map((i) => `${i.level}:${i.key}`)
+  assert.ok(keys.includes('error:badParent'), keys.join(','))
+
+  // 4. Two body nodes chained → single entry ok; two disconnected → bodyEntries error.
+  issues = validateGraph(
+    [
+      node('start', 'Start'),
+      node('iter1', 'Iteration', { items: '[1]', output_ref: '{b2@text}' }),
+      iter({ id: 'b1', parent: 'iter1' }),
+      iter({ id: 'b2', parent: 'iter1' }),
+    ],
+    [
+      { id: 'e1', source: 'start', target: 'iter1' },
+      { id: 'e2', source: 'iter1', target: 'b1' },
+      { id: 'e3', source: 'b1', target: 'b2' },
+    ],
+  )
+  keys = issues.map((i) => `${i.level}:${i.key}`)
+  assert.ok(!keys.includes('error:bodyEntries'), keys.join(','))
+  issues = validateGraph(
+    [
+      node('start', 'Start'),
+      node('iter1', 'Iteration', { items: '[1]', output_ref: '{b2@text}' }),
+      iter({ id: 'b1', parent: 'iter1' }),
+      iter({ id: 'b2', parent: 'iter1' }),
+    ],
+    [{ id: 'e1', source: 'start', target: 'iter1' }],
+  )
+  keys = issues.map((i) => `${i.level}:${i.key}`)
+  assert.ok(keys.includes('error:bodyEntries'), keys.join(','))
+})

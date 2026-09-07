@@ -20,6 +20,7 @@ export type WorkflowNodeType =
   | 'QuestionClassifier'
   | 'ParameterExtractor'
   | 'Code'
+  | 'Iteration'
 
 export type WorkflowStatus = 'draft' | 'published' | 'archived'
 
@@ -37,6 +38,7 @@ export const WORKFLOW_NODE_TYPES: WorkflowNodeType[] = [
   'QuestionClassifier',
   'ParameterExtractor',
   'Code',
+  'Iteration',
 ]
 
 /** Engine output keys per node kind (source of {nodeId@param} references). */

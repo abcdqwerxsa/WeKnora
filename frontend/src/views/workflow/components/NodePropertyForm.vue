@@ -510,6 +510,46 @@
       </t-form-item>
     </template>
 
+    <!-- ================= Iteration ================= -->
+    <template v-else-if="kind === 'Iteration'">
+      <t-form-item :label="t('workflow.editor.items')">
+        <div class="wf-prop-field">
+          <RefTextarea
+            :model-value="strParam('items')"
+            :autosize="{ minRows: 2, maxRows: 6 }"
+            :placeholder="t('workflow.editor.itemsPlaceholder')"
+            :suggestions="refSuggestions"
+            @change="setParam('items', $event)"
+          />
+          <VariableRefPicker
+            :current-node-id="currentNodeId"
+            :nodes="nodes"
+            :edges="edges"
+            :env-names="envNames"
+            @insert="insertRef('items', $event)"
+          />
+        </div>
+      </t-form-item>
+      <t-form-item :label="t('workflow.editor.itemVar')">
+        <t-input :value="strParam('item_var') || 'item'" @change="setParam('item_var', $event)" />
+      </t-form-item>
+      <t-form-item :label="t('workflow.editor.outputRef')">
+        <div class="wf-prop-field">
+          <RefTextarea
+            :model-value="strParam('output_ref')"
+            :autosize="{ minRows: 2, maxRows: 4 }"
+            :placeholder="t('workflow.editor.outputRefPlaceholder')"
+            :suggestions="refSuggestions"
+            @change="setParam('output_ref', $event)"
+          />
+        </div>
+      </t-form-item>
+      <t-form-item :label="t('workflow.editor.outputVar')">
+        <t-input :value="strParam('output_var') || 'results'" @change="setParam('output_var', $event)" />
+      </t-form-item>
+      <p class="wf-prop-hint">{{ t('workflow.editor.iterationHint') }}</p>
+    </template>
+
     <!-- ================= Code ================= -->
     <template v-else-if="kind === 'Code'">
       <t-form-item :label="t('workflow.editor.language')">
@@ -617,6 +657,16 @@
     </template>
     <!-- ================= Error policy + retry (all executable kinds) ================= -->
     <template v-if="kind !== 'Start'">
+      <t-form-item v-if="iterationOptions.length > 0" :label="t('workflow.editor.bodyMembership')">
+        <t-select
+          :value="bodyParent"
+          clearable
+          :placeholder="t('workflow.editor.bodyMembershipHint')"
+          @change="setBodyParent"
+        >
+          <t-option v-for="option in iterationOptions" :key="option.value" :value="option.value" :label="option.label" />
+        </t-select>
+      </t-form-item>
       <t-form-item :label="t('workflow.editor.errorHandling')">
         <t-select :value="onErrorAction" @change="setOnErrorAction">
           <t-option value="fail" :label="t('workflow.editor.onErrorFail')" />
@@ -710,6 +760,12 @@ const props = defineProps<{
   envNames?: string[]
   /** Configured web search providers (WebSearch node picker). */
   webSearchProviders?: Array<{ id: string; name: string }>
+  /** Iteration body membership (node.data.parent), when set. */
+  parent?: string
+}>()
+
+const emit = defineEmits<{
+  'set-parent': [parentId: string]
 }>()
 
 const { t } = useI18n()
@@ -776,6 +832,20 @@ const extractorParams = typedListParam<ExtractorParam>('parameters')
 
 function addExtractorParam() {
   extractorParams.value.push({ name: '', type: 'string', required: false, description: '' })
+}
+
+// ---- iteration body membership (generic section) --------------------------
+
+const iterationOptions = computed(() =>
+  props.nodes
+    .filter((node) => node.kind === 'Iteration' && node.id !== props.currentNodeId)
+    .map((node) => ({ value: node.id, label: `${t('workflow.nodes.Iteration')} · ${node.id}` })),
+)
+
+const bodyParent = computed(() => (typeof props.parent === 'string' ? props.parent : ''))
+
+function setBodyParent(target: unknown) {
+  emit('set-parent', typeof target === 'string' ? target : '')
 }
 
 // ---- error policy + retry (generic section) ------------------------------

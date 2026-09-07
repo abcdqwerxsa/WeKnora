@@ -112,6 +112,8 @@ export interface WFComponent {
   }
   upstream: string[]
   downstream: string[]
+  /** Iteration body membership: this component belongs to the loop body of the Iteration node with this id. */
+  parent?: string
 }
 
 export interface WorkflowDSL {

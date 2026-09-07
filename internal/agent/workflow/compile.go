@@ -123,6 +123,68 @@ func Compile(dsl *DSL, deps Deps) (*Workflow, error) {
 		return nil, err
 	}
 
+	// Partition loop bodies by parent-tree SUBTREE: a component with Parent
+	// set belongs to the body of the FIRST Iteration ancestor up its Parent
+	// chain (so a nested iteration's members travel into the enclosing body
+	// and partition recursively when that body compiles). Members leave the
+	// outer topology; only the membership pointer to the DIRECT owner is
+	// stripped before the recursive compile.
+	outer := map[string]*Component{}
+	bodies := map[string]map[string]*Component{}
+	topAncestor := func(id string) string {
+		for {
+			comp := norm.Components[id]
+			if comp == nil || comp.Parent == "" {
+				return id
+			}
+			id = comp.Parent
+		}
+	}
+	for id, comp := range norm.Components {
+		if comp == nil {
+			continue
+		}
+		if comp.Parent == "" {
+			outer[id] = comp
+			continue
+		}
+		root := topAncestor(id)
+		if bodies[root] == nil {
+			bodies[root] = map[string]*Component{}
+		}
+		bodies[root][id] = comp
+	}
+	// Every parent pointer must name an Iteration component (anywhere).
+	for id, comp := range norm.Components {
+		if comp == nil || comp.Parent == "" {
+			continue
+		}
+		owner := norm.Components[comp.Parent]
+		if owner == nil || !isIteration(owner.Obj.ComponentName) {
+			return nil, fmt.Errorf("workflow: loop body member %q references parent %q which is not an Iteration node", id, comp.Parent)
+		}
+	}
+	// Recursively compile each body into its own runnable (an eino graph
+	// cannot contain the loop edge, so iteration = nested runnable invoked
+	// once per item). Bodies validate independently: exactly one entry.
+	compiledBodies := make(map[string]*Workflow, len(bodies))
+	for parentID, body := range bodies {
+		own := make(map[string]*Component, len(body))
+		for id, comp := range body {
+			cp := *comp
+			if cp.Parent == parentID {
+				cp.Parent = "" // direct member: this level's outer node
+			}
+			own[id] = &cp
+		}
+		bodyWF, err := Compile(&DSL{Version: DSLVersion, Components: own}, deps)
+		if err != nil {
+			return nil, fmt.Errorf("workflow: iteration %q body: %w", parentID, err)
+		}
+		compiledBodies[parentID] = bodyWF
+	}
+	norm.Components = outer
+
 	entries := entryIDs(norm.Components)
 	if len(entries) != 1 {
 		return nil, fmt.Errorf("workflow: compile requires exactly one entry node, found %d (%v)", len(entries), entries)
@@ -175,9 +237,21 @@ func Compile(dsl *DSL, deps Deps) (*Workflow, error) {
 			sink, nodeID := deps.OnNodeEvent, id
 			nd.OnDelta = func(delta string) { sink(NodeEvent{NodeID: nodeID, Phase: PhaseDelta, Content: delta}) }
 		}
-		node, err := nodes.New(comp.Obj.ComponentName, comp.Obj.Params, nd)
-		if err != nil {
-			return nil, fmt.Errorf("workflow: node %q: %w", id, err)
+		var node nodes.Node
+		if isIteration(comp.Obj.ComponentName) {
+			body := compiledBodies[id]
+			if body == nil {
+				return nil, fmt.Errorf("workflow: node %q: Iteration has no loop body (mark body nodes with parent=%q)", id, id)
+			}
+			node, err = newIterationNode(id, comp.Obj.Params, body)
+			if err != nil {
+				return nil, fmt.Errorf("workflow: node %q: %w", id, err)
+			}
+		} else {
+			node, err = nodes.New(comp.Obj.ComponentName, comp.Obj.Params, nd)
+			if err != nil {
+				return nil, fmt.Errorf("workflow: node %q: %w", id, err)
+			}
 		}
 		fn := nodeClosure(id, node, deps, nodeErrorPolicy(comp.Obj.Params))
 		err = g.AddLambdaNode(graphKey(id), compose.InvokableLambda(fn), compose.WithStatePreHandler(

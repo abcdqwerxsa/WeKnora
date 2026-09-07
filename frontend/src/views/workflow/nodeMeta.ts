@@ -22,6 +22,7 @@ export const NODE_PALETTE: NodePaletteEntry[] = [
   { kind: 'Answer', group: 'basic' },
   { kind: 'Template', group: 'transform' },
   { kind: 'Code', group: 'transform' },
+  { kind: 'Iteration', group: 'transform' },
   { kind: 'VariableAggregator', group: 'transform' },
   { kind: 'DataOps', group: 'data' },
   { kind: 'WebSearch', group: 'network' },
@@ -45,6 +46,7 @@ export const NODE_COLORS: Record<WorkflowNodeType, string> = {
   QuestionClassifier: '#f07f6c',
   ParameterExtractor: '#6ca87f',
   Code: '#7a8b3f',
+  Iteration: '#b06a3f',
 }
 
 /** Node-side parameter badge icon (subset of tdesign icon names). */
@@ -62,6 +64,7 @@ export const NODE_ICONS: Record<WorkflowNodeType, string> = {
   QuestionClassifier: 'branch',
   ParameterExtractor: 'filter',
   Code: 'code',
+  Iteration: 'loop',
 }
 
 /** Upstream output params a reference picker may offer for a node kind. */
@@ -94,6 +97,11 @@ export function outputParamsOf(kind: WorkflowNodeType, params?: Record<string, u
       return Array.isArray(decls)
         ? decls.map((p) => String((p as { name?: unknown })?.name ?? '')).filter(Boolean)
         : []
+    }
+    case 'Iteration': {
+      const vars = params
+      const out = typeof vars?.output_var === 'string' && vars.output_var ? vars.output_var : 'results'
+      return [out, 'count']
     }
     case 'VariableAggregator': {
       // Outputs are the user-declared variable names.
@@ -207,6 +215,10 @@ export function paramSummary(kind: WorkflowNodeType, params?: Record<string, unk
       return count(params.classes) > 0 ? `${count(params.classes)} classes` : ''
     case 'ParameterExtractor':
       return count(params.parameters) > 0 ? `${count(params.parameters)} params` : ''
+    case 'Iteration': {
+      const items = typeof params.items === 'string' ? params.items : ''
+      return items ? `${items.slice(0, 18)}` : ''
+    }
     default:
       return ''
   }

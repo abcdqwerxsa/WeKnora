@@ -47,6 +47,8 @@ export function defaultParams(kind: WorkflowNodeType): Record<string, unknown> {
       return { query: '', parameters: [] as unknown[] }
     case 'Code':
       return { language: 'python3', code: '', variables: [] as Array<{ name: string; ref: string }>, timeout_seconds: 30 }
+    case 'Iteration':
+      return { items: '', item_var: 'item', index_var: 'index', output_ref: '', output_var: 'results' }
     default:
       return {}
   }
@@ -145,7 +147,9 @@ export function layoutComponents(components: Record<string, WFComponent>): { nod
       id,
       type: safeKind,
       position: { x: 80 + d * 200, y: 80 + col.length * 140 },
-      data: { params: migrateNodeParams(safeKind, (comp.obj.params as Record<string, unknown>) ?? defaultParams(safeKind)) },
+      data: comp.parent
+        ? { params: migrateNodeParams(safeKind, (comp.obj.params as Record<string, unknown>) ?? defaultParams(safeKind)), parent: comp.parent }
+        : { params: migrateNodeParams(safeKind, (comp.obj.params as Record<string, unknown>) ?? defaultParams(safeKind)) },
     }
     col.push(node)
     columns.set(d, col)
@@ -169,7 +173,8 @@ export function componentsFromGraph(nodes: WFNode[], edges: WFEdge[]): Record<st
   for (const node of nodes) {
     const kind = isNodeType(node.type) ? node.type : 'Answer'
     const params = (node.data?.params as Record<string, unknown>) ?? defaultParams(kind)
-    components[node.id] = { obj: { component_name: kind, params }, upstream: [], downstream: [] }
+    const parent = typeof node.data?.parent === 'string' ? (node.data.parent as string) : ''
+    components[node.id] = { obj: { component_name: kind, params }, upstream: [], downstream: [], parent }
   }
   for (const edge of edges) {
     const source = components[edge.source]
@@ -202,7 +207,10 @@ export function normalizeDsl(input: unknown): WorkflowDSL {
         id: n.id,
         type: n.type,
         position: { x: Number(n.position?.x) || 0, y: Number(n.position?.y) || 0 },
-        data: { params: migrateNodeParams(n.type, (n.data?.params as Record<string, unknown>) ?? defaultParams(n.type)) },
+        data: {
+          params: migrateNodeParams(n.type, (n.data?.params as Record<string, unknown>) ?? defaultParams(n.type)),
+          ...(typeof (n.data as Record<string, unknown> | undefined)?.parent === 'string' ? { parent: (n.data as Record<string, unknown>).parent } : {}),
+        },
       }))
     const nodeIds = new Set(nodes.map((n) => n.id))
     const edges = graphEdges
@@ -367,6 +375,39 @@ export function validateGraph(nodes: WFNode[], edges: WFEdge[]): GraphIssue[] {
       if (!reachable.has(node.id)) {
         issues.push({ level: 'warning', key: 'unreachable', values: { name: node.id }, nodeId: node.id })
       }
+    }
+  }
+
+  // Iteration body membership: parents must target Iteration nodes; each
+  // body needs exactly one entry (a body node not targeted by any edge).
+  const parentOf = (node: WFNode): string =>
+    typeof (node.data as Record<string, unknown> | undefined)?.parent === 'string'
+      ? ((node.data as Record<string, unknown>).parent as string)
+      : ''
+  const iterationIds = new Set(nodes.filter((n) => n.type === 'Iteration').map((n) => n.id))
+  const bodies = new Map<string, WFNode[]>()
+  for (const node of nodes) {
+    const parent = parentOf(node)
+    if (!parent) continue
+    if (!iterationIds.has(parent)) {
+      issues.push({ level: 'error', key: 'badParent', values: { name: node.id, parent }, nodeId: node.id })
+      continue
+    }
+    const body = bodies.get(parent) ?? []
+    body.push(node)
+    bodies.set(parent, body)
+  }
+  for (const [iterID, body] of bodies) {
+    const bodyIds = new Set(body.map((n) => n.id))
+    const bodyTargeted = new Set(edges.filter((e) => bodyIds.has(e.source) && bodyIds.has(e.target)).map((e) => e.target))
+    const entries = body.filter((n) => !bodyTargeted.has(n.id))
+    if (entries.length !== 1) {
+      issues.push({ level: 'error', key: 'bodyEntries', values: { name: iterID, count: entries.length } })
+    }
+  }
+  for (const iterID of iterationIds) {
+    if (!bodies.has(iterID)) {
+      issues.push({ level: 'error', key: 'emptyBody', values: { name: iterID }, nodeId: iterID })
     }
   }
 

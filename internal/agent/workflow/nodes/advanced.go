@@ -17,12 +17,23 @@ const (
 	ComponentWebSearch          = "WebSearch"
 	ComponentQuestionClassifier = "QuestionClassifier"
 	ComponentParameterExtractor = "ParameterExtractor"
+	// ComponentIteration names the loop node. Unlike the others it has NO
+	// factory here: the engine compiler builds it (it needs the recursively
+	// compiled loop body, which only the root package can produce).
+	ComponentIteration = "Iteration"
 )
 
 func init() {
 	RegisterNodeFactory(ComponentWebSearch, newWebSearch)
 	RegisterNodeFactory(ComponentQuestionClassifier, newQuestionClassifier)
 	RegisterNodeFactory(ComponentParameterExtractor, newParameterExtractor)
+	// Sentinel only: makes the name known to DSL validation. The engine
+	// compiler intercepts Iteration before nodes.New (it needs the
+	// recursively compiled loop body); reaching this factory means the
+	// compiler special case was bypassed.
+	RegisterNodeFactory(ComponentIteration, func(_ map[string]any, _ Deps) (Node, error) {
+		return nil, fmt.Errorf("workflow Iteration: constructed by the compiler — factory unreachable")
+	})
 }
 
 // ---- WebSearch ------------------------------------------------------------

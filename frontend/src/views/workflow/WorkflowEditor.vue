@@ -115,6 +115,8 @@
         :kbs="kbs"
         :env-names="envNames"
         :web-search-providers="webSearchProviders"
+        :parent="selectedParent"
+        @set-parent="setSelectedParent"
       />
       <div v-else class="wf-editor-form-empty">
         {{ $t('workflow.editor.selectNode') }}
@@ -558,6 +560,22 @@ const selectedParams = computed<Record<string, unknown> | null>(() => {
   const data = selectedNode.value?.data as { params?: Record<string, unknown> } | undefined
   return data?.params ?? null
 })
+
+// Iteration body membership lives on node.data.parent (DSL contract), not in
+// params — the form edits it through the set-parent event.
+const selectedParent = computed(() => {
+  const parent = (selectedNode.value?.data as Record<string, unknown> | undefined)?.parent
+  return typeof parent === 'string' ? parent : ''
+})
+
+function setSelectedParent(parentId: string) {
+  const node = selectedNode.value
+  if (!node) return
+  const data = (node.data ?? {}) as Record<string, unknown>
+  if (parentId) data.parent = parentId
+  else delete data.parent
+  node.data = data
+}
 
 function nodeSubtitle(data: unknown): string {
   const holder = data as { kind?: WorkflowNodeType; params?: Record<string, unknown> } | undefined
