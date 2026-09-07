@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -144,7 +145,7 @@ func TestCompileRunSwitchBothBranches(t *testing.T) {
 	if len(prompts) != 1 || prompts[0] != "A:tech" {
 		t.Errorf("tech run prompts = %v, want [A:tech]", prompts)
 	}
-	if !containsNode(res.Path, "llm_a") || containsNode(res.Path, "llm_b") {
+	if !slices.Contains(res.Path, "llm_a") || slices.Contains(res.Path, "llm_b") {
 		t.Errorf("tech run path = %v, must include llm_a only", res.Path)
 	}
 
@@ -258,15 +259,6 @@ func TestRunTemplateFailureNamesRef(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "ghost@param") {
 		t.Errorf("err = %v, want unresolved-ref error naming ghost@param", err)
 	}
-}
-
-func containsNode(list []string, id string) bool {
-	for _, v := range list {
-		if v == id {
-			return true
-		}
-	}
-	return false
 }
 
 // ---- Phase 5: node error policy (continue / route_to / retry) -------------

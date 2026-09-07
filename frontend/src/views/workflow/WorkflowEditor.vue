@@ -39,7 +39,7 @@
           <template #icon><t-icon name="download" /></template>
           {{ $t('workflow.editor.exportDsl') }}
         </t-button>
-        <t-button theme="primary" :loading="saving" :disabled="!ready" @click="save">
+        <t-button theme="primary" :loading="saving" :disabled="!ready" @click="doSave">
           {{ saveLabel }}
         </t-button>
         <t-button variant="outline" :loading="publishing" :disabled="!ready" @click="publishFromEditor">
@@ -425,7 +425,7 @@ function canvasSnapshot(): string {
       position: { x: node.position.x, y: node.position.y },
       data: JSON.parse(JSON.stringify(node.data ?? {})),
     })),
-    edges: canvasEdges.value.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target })),
+    edges: plainEdges(),
   })
 }
 
@@ -445,9 +445,23 @@ function pushHistoryDebounced(): void {
 }
 let pushHistoryTimer: number | null = null
 
-function restoreSnapshot(snap: string): void {
+// withRestoreGuard suppresses history pushes while the canvas is being
+// replaced wholesale (undo restore / graph load); the flag re-arms on the
+// next macrotask so positional watchers settling asynchronously stay
+// suppressed too.
+function withRestoreGuard(restore: () => void): void {
   restoring = true
   try {
+    restore()
+  } finally {
+    window.setTimeout(() => {
+      restoring = false
+    }, 0)
+  }
+}
+
+function restoreSnapshot(snap: string): void {
+  withRestoreGuard(() => {
     const parsed = JSON.parse(snap) as {
       nodes: Array<{ id: string; type: string; position: { x: number; y: number }; data?: Record<string, unknown> }>
       edges: Array<{ id: string; source: string; target: string }>
@@ -460,13 +474,7 @@ function restoreSnapshot(snap: string): void {
     }))
     canvasEdges.value = parsed.edges.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target }))
     refreshEdgeLabels()
-  } finally {
-    // Re-arm after the watchers have fired (they run synchronously on
-    // assignment, but positions settle asynchronously in vue-flow).
-    window.setTimeout(() => {
-      restoring = false
-    }, 0)
-  }
+  })
 }
 
 function undo() {
@@ -605,7 +613,8 @@ function onConnect(connection: Connection) {
   refreshEdgeLabels()
 }
 
-// ---- copy / paste --------------------------------------------------------// One-node clipboard (mirrors the single-selection model). Copy stores the
+// ---- copy / paste --------------------------------------------------------
+// One-node clipboard (mirrors the single-selection model). Copy stores the
 // node's kind + a deep clone of params; paste drops a fresh id nearby.
 interface NodeClipboard {
   kind: WorkflowNodeType
@@ -647,11 +656,15 @@ function addNodeFromPalette(kind: WorkflowNodeType, presetParams?: Record<string
 
 // ---- auto layout ----------------------------------------------------------
 function applyAutoLayout() {
-  const positions = autoLayout(currentGraphNodes(), canvasEdges.value.map((e) => ({ id: e.id, source: e.source, target: e.target })))
+  const positions = autoLayout(currentGraphNodes(), plainEdges())
   for (const node of canvasNodes.value) {
     const position = positions[node.id]
     if (position) node.position = { ...position }
   }
+}
+
+function plainEdges() {
+  return canvasEdges.value.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target }))
 }
 
 function currentGraphNodes() {
@@ -669,7 +682,7 @@ function formatIssues(issues: GraphIssue[]): string {
 }
 
 function validateBeforeSave(): boolean {
-  const issues = validateGraph(currentGraphNodes(), canvasEdges.value.map((e) => ({ id: e.id, source: e.source, target: e.target })))
+  const issues = validateGraph(currentGraphNodes(), plainEdges())
   const errors = issues.filter((issue) => issue.level === 'error')
   const warnings = issues.filter((issue) => issue.level === 'warning')
   if (errors.length > 0) {
@@ -685,17 +698,7 @@ function validateBeforeSave(): boolean {
 }
 
 function currentDsl(): WorkflowDSL {
-  const plainNodes = canvasNodes.value.map((node) => {
-    const kind = (node.data?.kind as WorkflowNodeType) ?? 'Answer'
-    return {
-      id: node.id,
-      type: kind,
-      position: { x: node.position.x, y: node.position.y },
-      data: { params: (node.data?.params as Record<string, unknown>) ?? defaultParams(kind) },
-    }
-  })
-  const plainEdges = canvasEdges.value.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target }))
-  return buildDsl(plainNodes, plainEdges, { ...wfVariables.value })
+  return buildDsl(currentGraphNodes(), plainEdges(), { ...wfVariables.value })
 }
 
 function setCanvas(dsl: WorkflowDSL) {
@@ -709,12 +712,10 @@ function setCanvas(dsl: WorkflowDSL) {
   wfVariables.value = { ...(dsl.variables ?? {}) }
   refreshEdgeLabels()
   // Reset the undo history for the freshly loaded graph.
-  restoring = true
-  window.setTimeout(() => {
+  withRestoreGuard(() => {
     undoStack.value = [canvasSnapshot()]
     undoIndex.value = 0
-    restoring = false
-  }, 0)
+  })
 }
 
 async function load() {
@@ -741,11 +742,6 @@ async function load() {
   } finally {
     loading.value = false
   }
-}
-
-async function save() {
-  const ok = await doSave()
-  return ok
 }
 
 async function doSave(): Promise<boolean> {
@@ -956,35 +952,9 @@ load()
   z-index: 5;
 }
 
-.wf-editor-form {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.wf-editor-form-kind {
-  margin: 0;
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
-  word-break: break-all;
-}
-
 .wf-editor-form-empty {
   padding: 32px 0;
   text-align: center;
   color: var(--td-text-color-placeholder);
-}
-
-.wf-editor-cases {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  width: 100%;
-}
-
-.wf-editor-case-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
 }
 </style>

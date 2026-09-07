@@ -96,6 +96,12 @@ func (s *wfStubKBSvc) HybridSearch(_ context.Context, _ string, _ types.SearchPa
 	return s.hits, nil
 }
 
+// newTestWFService builds a workflowService with the common test wiring:
+// repo + optional models/kbs; no enqueuer, no redis, no web search.
+func newTestWFService(repo interfaces.WorkflowRepository, models interfaces.ModelService, kbs interfaces.KnowledgeBaseService) interfaces.WorkflowService {
+	return NewWorkflowService(repo, models, kbs, nil, nil, nil, nil)
+}
+
 func runTestWorkflow(t *testing.T, dsl string) (*runRepoStub, *types.WorkflowRun, error) {
 	t.Helper()
 	// Published so the run gate (draft = creator/admin only) stays out of
@@ -182,7 +188,7 @@ func TestRunWorkflow_FailedNodeTraceRecordsError(t *testing.T) {
 	}}`
 	wf := &types.Workflow{ID: "wf-1", TenantID: 10001, Name: "wf", DSL: types.JSON(failDSL), Status: types.WorkflowStatusPublished}
 	repo := newRunRepoStub(wf)
-	svc := NewWorkflowService(repo, &wfStubModelSvc{reply: "x"}, &failingKBSvc{}, nil, nil, nil, nil)
+	svc := newTestWFService(repo, &wfStubModelSvc{reply: "x"}, &failingKBSvc{})
 	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(10001))
 	run, err := svc.RunWorkflow(ctx, "wf-1", &types.RunWorkflowRequest{Query: "hello"})
 	require.Error(t, err)
@@ -239,7 +245,7 @@ func TestRunWorkflow_CompileCyclePersistsFailedRun(t *testing.T) {
 }
 
 func TestRunWorkflow_MissingTenantRejected(t *testing.T) {
-	svc := NewWorkflowService(newRunRepoStub(nil), nil, nil, nil, nil, nil, nil)
+	svc := newTestWFService(newRunRepoStub(nil), nil, nil)
 	_, err := svc.RunWorkflow(context.Background(), "wf-1", &types.RunWorkflowRequest{Query: "q"})
 	assert.ErrorIs(t, err, ErrWorkflowTenantRequired)
 }
@@ -289,7 +295,7 @@ func TestRunWorkflow_RequiredStartInputValidated(t *testing.T) {
 	}}`
 	wf := &types.Workflow{ID: "wf-1", TenantID: 10001, Name: "wf", DSL: types.JSON(dsl), Status: types.WorkflowStatusPublished}
 	repo := newRunRepoStub(wf)
-	svc := NewWorkflowService(repo, nil, nil, nil, nil, nil, nil)
+	svc := newTestWFService(repo, nil, nil)
 	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(10001))
 
 	if _, err := svc.RunWorkflow(ctx, "wf-1", &types.RunWorkflowRequest{Query: "hi"}); !errors.Is(err, ErrWorkflowMissingInput) {

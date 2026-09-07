@@ -132,9 +132,6 @@ loop:
 				break loop
 			}
 			frames = append(frames, f)
-			if f.Kind == "run" {
-				// Next receive must be the channel close.
-			}
 		case <-timeout:
 			t.Fatal("broker did not close the channel after the terminal frame")
 		}

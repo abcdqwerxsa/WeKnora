@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -400,7 +401,7 @@ var conditionOps = map[string]bool{
 	OpRegex: true, OpIn: true, OpNotIn: true,
 }
 
-// opsNeedingValue: operators that ignore the right-hand Value.
+// opsNeedingNoValue: operators that ignore the right-hand Value.
 var opsNeedingNoValue = map[string]bool{OpEmpty: true, OpNotEmpty: true}
 
 type switchNode struct {
@@ -561,9 +562,9 @@ func evalCondition(left, op, right string, re *regexp.Regexp) (bool, error) {
 		}
 		return re.MatchString(left), nil
 	case OpIn:
-		return sliceContains(splitList(right), left), nil
+		return slices.Contains(splitList(right), left), nil
 	case OpNotIn:
-		return !sliceContains(splitList(right), left), nil
+		return !slices.Contains(splitList(right), left), nil
 	default:
 		return false, fmt.Errorf("unknown operator %q", op)
 	}
@@ -579,15 +580,6 @@ func splitList(s string) []string {
 		}
 	}
 	return out
-}
-
-func sliceContains(list []string, s string) bool {
-	for _, item := range list {
-		if item == s {
-			return true
-		}
-	}
-	return false
 }
 
 // RouteTargets returns the set of possible downstream node ids for a

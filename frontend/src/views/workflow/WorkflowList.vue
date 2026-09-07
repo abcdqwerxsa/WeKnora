@@ -87,7 +87,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
-import { deleteWorkflow, createWorkflow, listWorkflows, publishWorkflow, setWorkflowStatus, type Workflow } from '@/api/workflow'
+import { deleteWorkflow, createWorkflow, listWorkflows, publishWorkflow, setWorkflowStatus, type Workflow, type WorkflowMutationResponse } from '@/api/workflow'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -183,58 +183,36 @@ async function removeWorkflow(workflow: Workflow) {
 // Id of the workflow whose publish/unpublish/archive request is in flight.
 const actingId = ref('')
 
-async function publish(workflow: Workflow) {
+// One scaffold for the status actions (publish / unpublish / archive):
+// actingId guard → call → toast → reload → clear.
+async function act(workflow: Workflow, call: () => Promise<WorkflowMutationResponse>, successKey: string) {
   if (actingId.value) return
   actingId.value = workflow.id
   try {
-    const response = await publishWorkflow(workflow.id)
+    const response = await call()
     if (response?.success) {
-      MessagePlugin.success(t('workflow.published'))
+      MessagePlugin.success(t(successKey))
       await loadWorkflows()
     } else {
-      MessagePlugin.error(response?.message || t('workflow.publishFailed'))
+      MessagePlugin.error(response?.message || t('workflow.actionFailed'))
     }
   } catch (error) {
-    MessagePlugin.error(error instanceof Error ? error.message : t('workflow.publishFailed'))
+    MessagePlugin.error(error instanceof Error ? error.message : t('workflow.actionFailed'))
   } finally {
     actingId.value = ''
   }
 }
 
-async function unpublish(workflow: Workflow) {
-  if (actingId.value) return
-  actingId.value = workflow.id
-  try {
-    const response = await setWorkflowStatus(workflow.id, 'draft')
-    if (response?.success) {
-      MessagePlugin.success(t('workflow.unpublished'))
-      await loadWorkflows()
-    } else {
-      MessagePlugin.error(response?.message || t('workflow.publishFailed'))
-    }
-  } catch (error) {
-    MessagePlugin.error(error instanceof Error ? error.message : t('workflow.publishFailed'))
-  } finally {
-    actingId.value = ''
-  }
+function publish(workflow: Workflow) {
+  return act(workflow, () => publishWorkflow(workflow.id), 'workflow.published')
 }
 
-async function archive(workflow: Workflow) {
-  if (actingId.value) return
-  actingId.value = workflow.id
-  try {
-    const response = await setWorkflowStatus(workflow.id, 'archived')
-    if (response?.success) {
-      MessagePlugin.success(t('workflow.archived'))
-      await loadWorkflows()
-    } else {
-      MessagePlugin.error(response?.message || t('workflow.publishFailed'))
-    }
-  } catch (error) {
-    MessagePlugin.error(error instanceof Error ? error.message : t('workflow.publishFailed'))
-  } finally {
-    actingId.value = ''
-  }
+function unpublish(workflow: Workflow) {
+  return act(workflow, () => setWorkflowStatus(workflow.id, 'draft'), 'workflow.unpublished')
+}
+
+function archive(workflow: Workflow) {
+  return act(workflow, () => setWorkflowStatus(workflow.id, 'archived'), 'workflow.archived')
 }
 
 onMounted(loadWorkflows)

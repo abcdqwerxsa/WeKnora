@@ -14,9 +14,9 @@ import (
 // run id; the global bus is still notified (observability fan-out) by the
 // service alongside broker publication.
 //
-// Single-instance only: broker state is process-local. A multi-instance
-// deployment needs a redis pubsub bridge in front (deliberately out of
-// scope — see the SSE endpoint comment).
+// Broker state is process-local; workflow_service.go mirrors every frame
+// onto the run's redis pubsub channel so SSE clients on other instances
+// observe the same progress (see SubscribeWorkflowRunEvents).
 type workflowRunBroker struct {
 	mu   sync.Mutex
 	subs map[string][]chan types.WorkflowRunEvent

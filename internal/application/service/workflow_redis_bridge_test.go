@@ -20,12 +20,6 @@ func newRedisTestClient(t *testing.T) *redis.Client {
 	return client
 }
 
-// interfaces_workflowSvc is the narrow slice the bridge tests need.
-type interfaces_workflowSvc = interface {
-	RunWorkflow(ctx context.Context, id string, req *types.RunWorkflowRequest) (*types.WorkflowRun, error)
-	SubscribeWorkflowRunEvents(runID string) (<-chan types.WorkflowRunEvent, func())
-}
-
 // TestRedisBridge_CrossInstanceDelivery: publisher and subscriber live on
 // DIFFERENT service instances (separate brokers) sharing one redis — the
 // only delivery path is the pubsub channel. Frames are driven directly

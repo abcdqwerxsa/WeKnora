@@ -80,10 +80,8 @@ type Workflow struct {
 	DeletedAt gorm.DeletedAt `yaml:"deleted_at" json:"deleted_at"`
 }
 
-// WorkflowRun represents one execution record of a workflow.
-//
-// Populated by the execution-wiring slice; until then no endpoint creates
-// rows and the list endpoint returns an empty history.
+// WorkflowRun represents one execution record of a workflow; rows are
+// written by RunWorkflow and listed by ListWorkflowRuns.
 // RunWorkflowRequest is the input document of one workflow execution.
 type RunWorkflowRequest struct {
 	// Query is materialized into sys.query by the Start node.

@@ -54,7 +54,7 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Edge } from '@vue-flow/core'
 import type { WorkflowNodeType } from '@/api/workflow'
-import { outputParamsOf } from '../nodeMeta'
+import { outputParamsOf, upstreamNodeIds } from '../nodeMeta'
 
 /**
  * Reference picker for `{nodeId@param}` template insertion. Lists only the
@@ -83,22 +83,8 @@ interface RefGroup {
 }
 
 const entries = computed<RefGroup[]>(() => {
-  // Ancestors of the current node: walk upstream from it over the edges.
-  const upstream = new Map<string, string[]>()
-  for (const edge of props.edges) {
-    const list = upstream.get(edge.target) ?? []
-    list.push(edge.source)
-    upstream.set(edge.target, list)
-  }
-  const ancestors = new Set<string>()
-  const queue = [...(upstream.get(props.currentNodeId) ?? [])]
-  while (queue.length > 0) {
-    const id = queue.shift()!
-    if (ancestors.has(id)) continue
-    ancestors.add(id)
-    queue.push(...(upstream.get(id) ?? []))
-  }
-
+  // Ancestor walk shared with the inline autocomplete (nodeMeta).
+  const ancestors = upstreamNodeIds(props.currentNodeId, props.edges)
   const groups: RefGroup[] = []
   for (const node of props.nodes) {
     if (node.id === props.currentNodeId || !ancestors.has(node.id)) continue

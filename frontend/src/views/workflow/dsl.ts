@@ -4,7 +4,7 @@ export type { WFNode } from '@/api/workflow'
 // keeps this file importable from node tests without the request chain).
 import { WORKFLOW_NODE_TYPES } from '../../api/workflowContract'
 
-/**
+/*
  * DSL dual-view helpers.
  *
  * `graph` (canvas layout) and `components` (execution topology) are two
@@ -12,6 +12,7 @@ import { WORKFLOW_NODE_TYPES } from '../../api/workflowContract'
  * rebuilt from the other; the editor always edits the graph view and
  * regenerates `components` on save.
  */
+
 /**
  * Default params per node kind. Keys MUST match the engine registry
  * verbatim (snake_case) — see api/workflow.ts. Only fields the engine
@@ -135,13 +136,14 @@ export function layoutComponents(components: Record<string, WFComponent>): { nod
   const nodes: WFNode[] = []
   for (const [id, comp] of Object.entries(components)) {
     const kind = comp.obj.component_name as WorkflowNodeType
+    const safeKind = isNodeType(kind) ? kind : 'Answer'
     const d = depth.get(id) ?? 0
     const col = columns.get(d) ?? []
     const node: WFNode = {
       id,
-      type: isNodeType(kind) ? kind : 'Answer',
+      type: safeKind,
       position: { x: 80 + d * 200, y: 80 + col.length * 140 },
-      data: { params: migrateNodeParams(isNodeType(kind) ? kind : 'Answer', (comp.obj.params as Record<string, unknown>) ?? defaultParams(isNodeType(kind) ? kind : 'Answer')) },
+      data: { params: migrateNodeParams(safeKind, (comp.obj.params as Record<string, unknown>) ?? defaultParams(safeKind)) },
     }
     col.push(node)
     columns.set(d, col)
@@ -189,6 +191,7 @@ export function normalizeDsl(input: unknown): WorkflowDSL {
 
   const graphUsable = graphNodes.length > 0
   const componentsUsable = Object.keys(components).length > 0
+  const variables = dsl.variables && typeof dsl.variables === 'object' ? dsl.variables : {}
 
   if (graphUsable) {
     const nodes = graphNodes
@@ -207,7 +210,7 @@ export function normalizeDsl(input: unknown): WorkflowDSL {
       version: 1,
       graph: { nodes, edges },
       components: componentsFromGraph(nodes, edges),
-      variables: dsl.variables && typeof dsl.variables === 'object' ? dsl.variables : {},
+      variables,
     }
   }
 
@@ -217,7 +220,7 @@ export function normalizeDsl(input: unknown): WorkflowDSL {
       version: 1,
       graph: laid,
       components: componentsFromGraph(laid.nodes, laid.edges),
-      variables: dsl.variables && typeof dsl.variables === 'object' ? dsl.variables : {},
+      variables,
     }
   }
 

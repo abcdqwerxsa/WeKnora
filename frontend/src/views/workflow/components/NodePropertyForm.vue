@@ -187,7 +187,7 @@
               <t-select v-model="item.to" :placeholder="t('workflow.editor.caseTarget')" clearable size="small">
                 <t-option v-for="option in nodeOptions" :key="option.value" :value="option.value" :label="option.label" />
               </t-select>
-              <t-button variant="text" theme="danger" size="small" @click="removeAt('cases', index)">
+              <t-button variant="text" theme="danger" size="small" @click="switchCases.splice(index, 1)">
                 <template #icon><t-icon name="delete" /></template>
               </t-button>
             </div>
@@ -703,25 +703,25 @@ function insertRef(key: string, reference: string) {
 
 // ---- list editors (reactive views over params arrays) --------------------
 
-const switchCases = computed<Array<SwitchCaseGroup & Record<string, unknown>>>({
-  get: () =>
-    Array.isArray(props.params.cases) ? (props.params.cases as Array<SwitchCaseGroup & Record<string, unknown>>) : [],
-  set: (value) => setParam('cases', value),
-})
+/** Writable view of a params list: raw array in the DSL, typed list in the form. */
+function typedListParam<T>(key: string) {
+  return computed<Array<T>>({
+    get: () => (Array.isArray(props.params[key]) ? (props.params[key] as Array<T>) : []),
+    set: (value) => setParam(key, value),
+  })
+}
 
-const startFields = computed<Array<StartField & Record<string, unknown>>>({
-  get: () =>
-    Array.isArray(props.params.fields) ? (props.params.fields as Array<StartField & Record<string, unknown>>) : [],
-  set: (value) => setParam('fields', value),
-})
+const switchCases = typedListParam<SwitchCaseGroup>('cases')
+
+const startFields = typedListParam<StartField>('fields')
 
 function addField() {
   startFields.value.push({ name: '', type: 'text', required: false, default: '', label: '', options: [] })
 }
 
-const classifierClasses = computed<Array<ClassifierClass & Record<string, unknown>>>({ get: () => (Array.isArray(props.params.classes) ? (props.params.classes as Array<ClassifierClass & Record<string, unknown>>) : []), set: (value) => setParam('classes', value) })
+const classifierClasses = typedListParam<ClassifierClass>('classes')
 
-const extractorParams = computed<Array<ExtractorParam & Record<string, unknown>>>({ get: () => (Array.isArray(props.params.parameters) ? (props.params.parameters as Array<ExtractorParam & Record<string, unknown>>) : []), set: (value) => setParam('parameters', value) })
+const extractorParams = typedListParam<ExtractorParam>('parameters')
 
 function addExtractorParam() {
   extractorParams.value.push({ name: '', type: 'string', required: false, description: '' })
@@ -804,22 +804,9 @@ const refSuggestions = computed(() =>
   upstreamRefSuggestions(props.currentNodeId, props.nodes, props.edges, props.envNames ?? []),
 )
 
-const templateOps = computed<Array<TemplateOp & Record<string, unknown>>>({
-  get: () => (Array.isArray(props.params.ops) ? (props.params.ops as Array<TemplateOp & Record<string, unknown>>) : []),
-  set: (value) => setParam('ops', value),
-})
+const templateOps = typedListParam<TemplateOp>('ops')
 
-const varList = computed<Array<{ name: string; ref: string }>>({
-  get: () =>
-    Array.isArray(props.params.variables) ? (props.params.variables as Array<{ name: string; ref: string }>) : [],
-  set: (value) => setParam('variables', value),
-})
-
-function removeAt(key: string, index: number) {
-  const list = Array.isArray(props.params[key]) ? [...(props.params[key] as unknown[])] : []
-  list.splice(index, 1)
-  setParam(key, list)
-}
+const varList = typedListParam<{ name: string; ref: string }>('variables')
 
 // Headers: object in the DSL, rows in the form. Write-through on mutation.
 const headerRows = ref<Array<{ key: string; value: string }>>([])

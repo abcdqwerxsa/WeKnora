@@ -339,7 +339,6 @@ type FAQImportPayload struct {
 	Initiator   TaskInitiator     `json:"initiator,omitempty"`
 }
 
-// QuestionGenerationPayload represents the question generation task payload
 // WorkflowRunPayload is the asynq payload for an async workflow run
 // (types.TypeWorkflowRun). TenantID restores the tenant context inside the
 // worker; TracingContext keeps the W3C traceparent flowing into the
@@ -360,6 +359,7 @@ type WorkflowRunPayload struct {
 	Resume bool `json:"resume,omitempty"`
 }
 
+// QuestionGenerationPayload represents the question generation task payload
 type QuestionGenerationPayload struct {
 	TracingContext
 	TenantID        uint64 `json:"tenant_id"`

@@ -30,6 +30,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import type { RefSuggestion } from '../nodeMeta'
 
 /**
  * Textarea with inline {reference} autocomplete.
@@ -39,13 +40,6 @@ import { computed, ref } from 'vue'
  * complete `{nodeId@param}`; Escape or typing "}" dismisses. Plain wrapper:
  * v-model compatible, no canvas knowledge — options arrive via prop.
  */
-
-export interface RefSuggestion {
-  /** Full ref string without braces, e.g. "llm-1@content" or "sys.query". */
-  ref: string
-  /** Optional display hint (node kind). */
-  hint?: string
-}
 
 const props = defineProps<{
   modelValue: string

@@ -427,8 +427,7 @@ function selectHistoryRow(run: WorkflowRun) {
   }
   stop()
   // Terminal rows: outcome inline; per-node records come from the trace.
-  answer.value = run.output?.answer ?? null
-  resultError.value = run.error ?? ''
+  applyRunOutcome(run)
   void loadRunTrace(run.id)
 }
 

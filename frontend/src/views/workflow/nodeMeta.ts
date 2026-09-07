@@ -124,6 +124,30 @@ export function upstreamRefSuggestions(
   edges: Array<{ source: string; target: string }>,
   envNames: string[] = [],
 ): RefSuggestion[] {
+  const ancestors = upstreamNodeIds(currentNodeId, edges)
+  const out: RefSuggestion[] = []
+  for (const node of nodes) {
+    if (node.id === currentNodeId || !ancestors.has(node.id)) continue
+    for (const param of outputParamsOf(node.kind, node.params)) {
+      out.push({ ref: `${node.id}@${param}`, hint: node.kind })
+    }
+  }
+  out.push({ ref: 'sys.query', hint: 'sys' }, { ref: 'sys.files', hint: 'sys' })
+  for (const name of envNames) {
+    if (name) out.push({ ref: `env.${name}`, hint: 'env' })
+  }
+  return out
+}
+
+/**
+ * The set of node ids reachable by walking upstream from currentNodeId
+ * (BFS over the canvas edges) — the only nodes whose outputs the engine
+ * can have produced when this node runs.
+ */
+export function upstreamNodeIds(
+  currentNodeId: string,
+  edges: Array<{ source: string; target: string }>,
+): Set<string> {
   const upstream = new Map<string, string[]>()
   for (const edge of edges) {
     const list = upstream.get(edge.target) ?? []
@@ -138,19 +162,7 @@ export function upstreamRefSuggestions(
     ancestors.add(id)
     queue.push(...(upstream.get(id) ?? []))
   }
-
-  const out: RefSuggestion[] = []
-  for (const node of nodes) {
-    if (node.id === currentNodeId || !ancestors.has(node.id)) continue
-    for (const param of outputParamsOf(node.kind, node.params)) {
-      out.push({ ref: `${node.id}@${param}`, hint: node.kind })
-    }
-  }
-  out.push({ ref: 'sys.query', hint: 'sys' }, { ref: 'sys.files', hint: 'sys' })
-  for (const name of envNames) {
-    if (name) out.push({ ref: `env.${name}`, hint: 'env' })
-  }
-  return out
+  return ancestors
 }
 
 /** Short parameter summary rendered as the node-card subtitle. */

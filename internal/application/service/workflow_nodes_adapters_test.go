@@ -126,7 +126,7 @@ func runFullChain(t *testing.T, dsl string) *types.WorkflowRun {
 	t.Helper()
 	wf := &types.Workflow{ID: "wf-ext", TenantID: 42, Name: "wf", DSL: types.JSON(dsl), Status: types.WorkflowStatusPublished}
 	repo := newRunRepoStub(wf)
-	svc := NewWorkflowService(repo, nil, nil, nil, nil, nil, nil)
+	svc := newTestWFService(repo, nil, nil)
 	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(42))
 	run, err := svc.RunWorkflow(ctx, "wf-ext", &types.RunWorkflowRequest{Query: "chain-sql"})
 	require.NoError(t, err)
@@ -136,6 +136,3 @@ func runFullChain(t *testing.T, dsl string) *types.WorkflowRun {
 	}
 	return run
 }
-
-// The engine node types are re-declared as tiny aliases so this test file
-// stays independent of the exact import set of the other workflow tests.

@@ -138,7 +138,7 @@ var errWorkflowNotFoundStub = errors.New("workflow not found")
 
 func TestWorkflowService_CreateDerivesTenantAndCreatorFromContext(t *testing.T) {
 	repo := &stubWorkflowRepo{}
-	svc := NewWorkflowService(repo, nil, nil, nil, nil, nil, nil)
+	svc := newTestWFService(repo, nil, nil)
 
 	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(10001))
 	ctx = context.WithValue(ctx, types.UserIDContextKey, "user-a")
@@ -159,14 +159,14 @@ func TestWorkflowService_CreateDerivesTenantAndCreatorFromContext(t *testing.T) 
 }
 
 func TestWorkflowService_CreateWithoutTenantFails(t *testing.T) {
-	svc := NewWorkflowService(&stubWorkflowRepo{}, nil, nil, nil, nil, nil, nil)
+	svc := newTestWFService(&stubWorkflowRepo{}, nil, nil)
 	_, err := svc.CreateWorkflow(context.Background(), &types.Workflow{Name: "wf", DSL: types.JSON(validDSL)})
 	assert.ErrorIs(t, err, ErrWorkflowTenantRequired)
 }
 
 func TestWorkflowService_UpdateBumpsVersionAndKeepsDSLWhenOmitted(t *testing.T) {
 	repo := &stubWorkflowRepo{}
-	svc := NewWorkflowService(repo, nil, nil, nil, nil, nil, nil)
+	svc := newTestWFService(repo, nil, nil)
 
 	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(10001))
 	created, err := svc.CreateWorkflow(ctx, &types.Workflow{Name: "wf", DSL: types.JSON(validDSL)})
@@ -190,7 +190,7 @@ func publishTestService(t *testing.T, status string, published types.JSON) (inte
 	t.Helper()
 	wf := &types.Workflow{ID: "wf-1", TenantID: 10001, CreatorID: "user-9", Name: "wf", DSL: types.JSON(linearDSL), Status: status, PublishedDSL: published, Version: 1}
 	repo := newRunRepoStub(wf)
-	return NewWorkflowService(repo, &wfStubModelSvc{reply: "ok"}, &wfStubKBSvc{}, nil, nil, nil, nil), repo
+	return newTestWFService(repo, &wfStubModelSvc{reply: "ok"}, &wfStubKBSvc{}), repo
 }
 
 func publishCtx(userID string) context.Context {
@@ -210,7 +210,7 @@ func TestPublishWorkflowFreezesSnapshot(t *testing.T) {
 func TestPublishWorkflowRejectsBrokenDSL(t *testing.T) {
 	wf := &types.Workflow{ID: "wf-1", TenantID: 10001, CreatorID: "u", Name: "wf", DSL: types.JSON(`{"version":1,"components":{}}`), Status: "draft"}
 	repo := newRunRepoStub(wf)
-	svc := NewWorkflowService(repo, nil, nil, nil, nil, nil, nil)
+	svc := newTestWFService(repo, nil, nil)
 	_, err := svc.PublishWorkflow(publishCtx("u"), "wf-1")
 	assert.ErrorIs(t, err, ErrWorkflowNotPublishable)
 }

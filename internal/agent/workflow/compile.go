@@ -366,7 +366,7 @@ func (w *Workflow) RunWithOptions(ctx context.Context, query string, files []str
 	}
 	for _, id := range res.Path {
 		if comp, ok := w.dsl.Components[id]; ok &&
-			equalFold(comp.Obj.ComponentName, "Answer") {
+			strings.EqualFold(comp.Obj.ComponentName, "Answer") {
 			if v, ok := state.GetOutput(id, "answer"); ok {
 				if s, ok := v.(string); ok {
 					res.Answer = s
@@ -602,7 +602,5 @@ func terminalIDs(comps map[string]*Component) []string {
 	}
 	return out
 }
-
-func equalFold(a, b string) bool { return strings.EqualFold(a, b) }
 
 func msSince(start time.Time) int64 { return time.Since(start).Milliseconds() }
