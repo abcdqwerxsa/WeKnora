@@ -37,7 +37,7 @@ const emptyModelLLMDSL = `{"version":1,"components":{
 
 func runWithDefaultModels(t *testing.T, listed []*types.Model) (*types.WorkflowRun, error, *defaultModelSvc) {
 	t.Helper()
-	wf := &types.Workflow{ID: "wf-def", TenantID: 9, Name: "wf", DSL: types.JSON(emptyModelLLMDSL)}
+	wf := &types.Workflow{ID: "wf-def", TenantID: 9, Name: "wf", DSL: types.JSON(emptyModelLLMDSL), Status: types.WorkflowStatusPublished}
 	svcModels := &defaultModelSvc{listed: listed}
 	svc := NewWorkflowService(newRunRepoStub(wf), svcModels, nil, nil, nil, nil, nil)
 	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(9))

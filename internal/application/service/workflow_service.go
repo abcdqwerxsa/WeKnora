@@ -61,6 +61,12 @@ var (
 	// ErrWorkflowMissingInput: a Start-node form field marked required is
 	// absent/blank in the run request (HTTP 400).
 	ErrWorkflowMissingInput = errors.New("workflow run input missing required field")
+	// ErrWorkflowNotDebuggable: an unpublished (draft/archived) workflow may
+	// only be run by its creator or an Admin — the editor debug affordance.
+	ErrWorkflowNotDebuggable = errors.New("unpublished workflow can only be run by its creator or an admin (publish it for general access)")
+	// ErrWorkflowNotPublishable: publish prerequisites failed (wraps the
+	// reason, e.g. DSL does not compile).
+	ErrWorkflowNotPublishable = errors.New("workflow cannot be published")
 )
 
 // workflowDSLShape is the minimal structural view used to validate the DSL
@@ -391,6 +397,75 @@ func validateRunInputs(normalized *wfengine.DSL, req *types.RunWorkflowRequest) 
 	return nil
 }
 
+// dslForRun picks the DSL a run executes: published workflows run their
+// frozen snapshot (legacy rows without one fall back to the draft DSL);
+// drafts/archived run the live DSL (creator/admin only, see RunWorkflow).
+func dslForRun(wf *types.Workflow) types.JSON {
+	if wf.Status == types.WorkflowStatusPublished && len(wf.PublishedDSL) > 0 {
+		return wf.PublishedDSL
+	}
+	return wf.DSL
+}
+
+// canDebugUnpublished reports whether the caller may run a draft/archived
+// workflow: the creator or Admin+ (the editor's debug affordance).
+func canDebugUnpublished(ctx context.Context, wf *types.Workflow) bool {
+	if types.TenantRoleFromContext(ctx).HasPermission(types.TenantRoleAdmin) {
+		return true
+	}
+	userID, _ := types.UserIDFromContext(ctx)
+	return userID != "" && userID == wf.CreatorID
+}
+
+// PublishWorkflow freezes the current DSL as the published snapshot and
+// flips the workflow to published. The DSL must normalize (compile-shape
+// check) before it is frozen — publishing a broken graph is rejected.
+func (s *workflowService) PublishWorkflow(ctx context.Context, id string) (*types.Workflow, error) {
+	tenantID, ok := types.TenantIDFromContext(ctx)
+	if !ok || tenantID == 0 {
+		return nil, ErrWorkflowTenantRequired
+	}
+	wf, err := s.repo.GetWorkflowByIDAndTenant(ctx, id, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.normalizeWorkflowDSL(wf); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrWorkflowNotPublishable, err)
+	}
+	wf.PublishedDSL = wf.DSL
+	wf.Status = types.WorkflowStatusPublished
+	wf.Version = wf.Version + 1
+	if err := s.repo.UpdateWorkflow(ctx, wf); err != nil {
+		return nil, err
+	}
+	logger.Infof(ctx, "[workflow:%s] published (version %d)", id, wf.Version)
+	return wf, nil
+}
+
+// SetWorkflowStatus flips draft/archived (and back). Publishing must go
+// through PublishWorkflow (snapshot semantics); passing published here is
+// rejected. Unpublishing keeps the snapshot so a later re-publish is a
+// no-op diff; archived workflows keep their run history.
+func (s *workflowService) SetWorkflowStatus(ctx context.Context, id string, status string) (*types.Workflow, error) {
+	tenantID, ok := types.TenantIDFromContext(ctx)
+	if !ok || tenantID == 0 {
+		return nil, ErrWorkflowTenantRequired
+	}
+	if !types.IsValidWorkflowStatus(status) || status == types.WorkflowStatusPublished {
+		return nil, fmt.Errorf("%w: use the publish endpoint to publish (got %q)", ErrWorkflowInvalidStatus, status)
+	}
+	wf, err := s.repo.GetWorkflowByIDAndTenant(ctx, id, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	wf.Status = status
+	wf.Version = wf.Version + 1
+	if err := s.repo.UpdateWorkflow(ctx, wf); err != nil {
+		return nil, err
+	}
+	return wf, nil
+}
+
 // RunWorkflow executes one run of a workflow in the caller's tenant.
 //
 // Lifecycle: a workflow_runs row is created in "pending" state first so
@@ -411,8 +486,15 @@ func (s *workflowService) RunWorkflow(ctx context.Context, id string, req *types
 	if err != nil {
 		return nil, err
 	}
+	// Run gate (Dify draft/published model): published workflows run their
+	// frozen snapshot for everyone; drafts/archived are creator/admin-only
+	// debugging.
+	if wf.Status != types.WorkflowStatusPublished && !canDebugUnpublished(ctx, wf) {
+		return nil, ErrWorkflowNotDebuggable
+	}
 
-	normalized, err := s.normalizeWorkflowDSL(wf)
+	runDSL := dslForRun(wf)
+	normalized, err := s.normalizeDSLBytes(runDSL)
 	if err != nil {
 		return nil, err
 	}
@@ -521,11 +603,11 @@ func (s *workflowService) ProcessWorkflowRun(ctx context.Context, t *asynq.Task)
 	return nil
 }
 
-// normalizeWorkflowDSL unmarshals and normalizes the stored DSL document.
-// Shape errors are ErrWorkflowInvalidDSL (400 semantics, no run row).
-func (s *workflowService) normalizeWorkflowDSL(wf *types.Workflow) (*wfengine.DSL, error) {
+// normalizeDSLBytes unmarshals and normalizes a raw DSL document (the
+// draft or a published snapshot). Shape errors are ErrWorkflowInvalidDSL.
+func (s *workflowService) normalizeDSLBytes(raw types.JSON) (*wfengine.DSL, error) {
 	var dsl wfengine.DSL
-	if err := json.Unmarshal(wf.DSL, &dsl); err != nil {
+	if err := json.Unmarshal(raw, &dsl); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrWorkflowInvalidDSL, err)
 	}
 	normalized, err := wfengine.Normalize(&dsl)
@@ -533,6 +615,12 @@ func (s *workflowService) normalizeWorkflowDSL(wf *types.Workflow) (*wfengine.DS
 		return nil, fmt.Errorf("%w: %v", ErrWorkflowInvalidDSL, err)
 	}
 	return normalized, nil
+}
+
+// normalizeWorkflowDSL unmarshals and normalizes the stored DSL document.
+// Shape errors are ErrWorkflowInvalidDSL (400 semantics, no run row).
+func (s *workflowService) normalizeWorkflowDSL(wf *types.Workflow) (*wfengine.DSL, error) {
+	return s.normalizeDSLBytes(dslForRun(wf))
 }
 
 // executeWorkflowRun drives a freshly created (pending) run row to a
@@ -883,6 +971,15 @@ func (s *workflowService) ResumeWorkflowRun(ctx context.Context, workflowID, run
 	if run.Status != types.WorkflowRunStatusFailed {
 		return nil, fmt.Errorf("%w (status=%s)", ErrWorkflowRunNotResumable, run.Status)
 	}
+	// Same run gate as fresh runs: unpublished workflows resume only for
+	// the creator/admin (the worker executes without a user context).
+	wf, err := s.repo.GetWorkflowByIDAndTenant(ctx, workflowID, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if wf.Status != types.WorkflowStatusPublished && !canDebugUnpublished(ctx, wf) {
+		return nil, ErrWorkflowNotDebuggable
+	}
 
 	// Original inputs: the run's Input document is the marshalled
 	// RunWorkflowRequest from the first attempt.
@@ -895,10 +992,6 @@ func (s *workflowService) ResumeWorkflowRun(ctx context.Context, workflowID, run
 
 	// Fail fast on a workflow whose DSL no longer compiles BEFORE handing
 	// the row to the queue (400 semantics, row untouched).
-	wf, err := s.repo.GetWorkflowByIDAndTenant(ctx, workflowID, tenantID)
-	if err != nil {
-		return nil, err
-	}
 	if _, nerr := s.normalizeWorkflowDSL(wf); nerr != nil {
 		return nil, nerr
 	}

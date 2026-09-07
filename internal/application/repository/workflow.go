@@ -70,7 +70,7 @@ func (r *workflowRepository) ListWorkflowsByTenantID(ctx context.Context, tenant
 func (r *workflowRepository) UpdateWorkflow(ctx context.Context, workflow *types.Workflow) error {
 	return r.db.WithContext(ctx).Model(workflow).
 		Where("id = ? AND tenant_id = ?", workflow.ID, workflow.TenantID).
-		Select("name", "description", "dsl", "status", "version", "updated_at").
+		Select("name", "description", "dsl", "published_dsl", "status", "version", "updated_at").
 		Updates(workflow).Error
 }
 

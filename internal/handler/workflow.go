@@ -373,6 +373,65 @@ func (h *WorkflowHandler) ResumeWorkflowRun(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"run": run})
 }
 
+// PublishWorkflow godoc
+// @Summary      发布工作流
+// @Description  冻结当前 DSL 为发布快照并置为 published（creator 本人或 Admin 及以上）。发布后的运行执行快照，草稿可继续编辑互不影响；DSL 校验失败返回 400
+// @Tags         工作流
+// @Produce      json
+// @Param        id path string true "工作流 ID"
+// @Success      200 {object} map[string]interface{}
+// @Failure      400 {object} apperrors.AppError
+// @Failure      404 {object} apperrors.AppError
+// @Security     Bearer
+// @Router       /workflows/{id}/publish [post]
+func (h *WorkflowHandler) PublishWorkflow(c *gin.Context) {
+	workflow, err := h.service.PublishWorkflow(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		if errors.Is(err, apprepo.ErrWorkflowNotFound) {
+			c.Error(apperrors.NewNotFoundError("workflow not found"))
+			return
+		}
+		if errors.Is(err, service.ErrWorkflowNotPublishable) || errors.Is(err, service.ErrWorkflowInvalidDSL) {
+			c.Error(apperrors.NewValidationError(err.Error()))
+			return
+		}
+		c.Error(workflowHTTPError(err))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": workflow})
+}
+
+// SetWorkflowStatus godoc
+// @Summary      取消发布 / 归档工作流
+// @Description  在 draft 与 archived 间切换（creator 本人或 Admin 及以上）。发布必须走 /publish；published 在此被拒绝
+// @Tags         工作流
+// @Accept       json
+// @Produce      json
+// @Param        id      path string                        true "工作流 ID"
+// @Param        request body types.WorkflowStatusRequest    true "目标状态（draft | archived）"
+// @Success      200 {object} map[string]interface{}
+// @Failure      400 {object} apperrors.AppError
+// @Failure      404 {object} apperrors.AppError
+// @Security     Bearer
+// @Router       /workflows/{id}/status [post]
+func (h *WorkflowHandler) SetWorkflowStatus(c *gin.Context) {
+	var req types.WorkflowStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(apperrors.NewValidationError("Invalid request parameters").WithDetails(err.Error()))
+		return
+	}
+	workflow, err := h.service.SetWorkflowStatus(c.Request.Context(), c.Param("id"), req.Status)
+	if err != nil {
+		if errors.Is(err, apprepo.ErrWorkflowNotFound) {
+			c.Error(apperrors.NewNotFoundError("workflow not found"))
+			return
+		}
+		c.Error(workflowHTTPError(err))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": workflow})
+}
+
 // GetWorkflowRun godoc
 // @Summary      工作流运行详情
 // @Description  获取单次运行记录（含逐节点 trace：node_id、kind、phase、duration、outputs、error，按执行顺序）——运行详情/调试面板的数据源

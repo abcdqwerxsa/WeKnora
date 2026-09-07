@@ -66,6 +66,10 @@ type Workflow struct {
 	Description string `yaml:"description" json:"description" gorm:"type:text"`
 	// Workflow DSL document, stored verbatim (dual view: graph + components)
 	DSL JSON `yaml:"dsl" json:"dsl" gorm:"type:jsonb;not null;default:'{}'"`
+	// PublishedDSL is the frozen snapshot of the last publish (Dify
+	// draft/published model). Runs of a published workflow execute this
+	// copy; the draft DSL above keeps evolving. nil = never published.
+	PublishedDSL JSON `yaml:"published_dsl" json:"published_dsl" gorm:"type:jsonb"`
 	// Lifecycle status: draft | published | archived
 	Status string `yaml:"status" json:"status" gorm:"type:varchar(50);not null;default:'draft'"`
 	// bumped by 1 on every successful update
@@ -94,6 +98,12 @@ type RunWorkflowRequest struct {
 	// and returns the run row immediately in status=pending (HTTP 202);
 	// false/omitted executes synchronously (HTTP 200, 120s cap).
 	Async bool `json:"async,omitempty"`
+}
+
+// WorkflowStatusRequest is the REST payload for POST /workflows/:id/status
+// (draft/archived flips; publishing has its own snapshot endpoint).
+type WorkflowStatusRequest struct {
+	Status string `json:"status" binding:"required"`
 }
 
 // WorkflowRunEvent is one progress frame of a workflow run, delivered to

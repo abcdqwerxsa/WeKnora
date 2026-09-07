@@ -78,6 +78,14 @@ type WorkflowService interface {
 	// DeleteWorkflow soft-deletes the workflow in the caller's tenant.
 	DeleteWorkflow(ctx context.Context, id string) error
 
+	// PublishWorkflow freezes the current DSL as the published snapshot and
+	// flips the workflow to published (validates the DSL first).
+	PublishWorkflow(ctx context.Context, id string) (*types.Workflow, error)
+
+	// SetWorkflowStatus flips draft/archived (publish must go through
+	// PublishWorkflow; passing published is rejected).
+	SetWorkflowStatus(ctx context.Context, id string, status string) (*types.Workflow, error)
+
 	// ListWorkflowRuns returns the run history of a workflow in the caller's
 	// tenant, newest first (populated by RunWorkflow).
 	ListWorkflowRuns(ctx context.Context, workflowID string) ([]*types.WorkflowRun, error)

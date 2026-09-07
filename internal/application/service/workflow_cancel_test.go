@@ -49,7 +49,7 @@ const blockingLLMDSL = `{"version":1,"components":{
 // inside the LLM node until cancel aborts it. Returns the parking signal.
 func newCancelTestService(t *testing.T) (interfaces.WorkflowService, *runRepoStub, chan struct{}) {
 	t.Helper()
-	wf := &types.Workflow{ID: "wf-c", TenantID: 42, Name: "wf", DSL: types.JSON(blockingLLMDSL)}
+	wf := &types.Workflow{ID: "wf-c", TenantID: 42, Name: "wf", DSL: types.JSON(blockingLLMDSL), Status: types.WorkflowStatusPublished}
 	repo := newRunRepoStub(wf)
 	started := make(chan struct{})
 	svc := NewWorkflowService(repo, &blockingModelSvc{started: started}, nil, nil, nil, nil, nil)
@@ -98,7 +98,7 @@ func TestCancelWorkflowRun_AbortsInProcessRunAndKeepsCancelledTerminal(t *testin
 }
 
 func TestCancelWorkflowRun_TerminalRunIsIdempotent(t *testing.T) {
-	wf := &types.Workflow{ID: "wf-t", TenantID: 42, Name: "wf", DSL: types.JSON(linearDSL)}
+	wf := &types.Workflow{ID: "wf-t", TenantID: 42, Name: "wf", DSL: types.JSON(linearDSL), Status: types.WorkflowStatusPublished}
 	repo := newRunRepoStub(wf)
 	repo.seedRun(&types.WorkflowRun{ID: "run-done", TenantID: 42, WorkflowID: "wf-t", Status: types.WorkflowRunStatusSucceeded})
 	svc := NewWorkflowService(repo, nil, nil, nil, nil, nil, nil)
@@ -118,7 +118,7 @@ func TestCancelWorkflowRun_UnknownRunIs404(t *testing.T) {
 }
 
 func TestCancelWorkflowRun_WorkflowMismatchIs404(t *testing.T) {
-	wf := &types.Workflow{ID: "wf-a", TenantID: 42, Name: "wf", DSL: types.JSON(linearDSL)}
+	wf := &types.Workflow{ID: "wf-a", TenantID: 42, Name: "wf", DSL: types.JSON(linearDSL), Status: types.WorkflowStatusPublished}
 	repo := newRunRepoStub(wf)
 	repo.seedRun(&types.WorkflowRun{ID: "run-x", TenantID: 42, WorkflowID: "wf-other", Status: types.WorkflowRunStatusRunning})
 	svc := NewWorkflowService(repo, nil, nil, nil, nil, nil, nil)

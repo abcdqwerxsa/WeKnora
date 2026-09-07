@@ -104,6 +104,15 @@ const (
 	// agents. Agent config can carry sensitive model/MCP bindings, so this is
 	// opt-in and off by default.
 	APIKeyCapabilityManageAgents APIKeyCapability = "manage_agents"
+	// APIKeyCapabilityReadWorkflows lets a scoped key list workflow runs and
+	// inspect run details/history without being able to execute or modify
+	// workflow definitions.
+	APIKeyCapabilityReadWorkflows APIKeyCapability = "read_workflows"
+	// APIKeyCapabilityRunWorkflows lets a scoped key execute PUBLISHED
+	// workflows (sync + async), stream run events, and cancel/resume runs it
+	// started. Draft-only debugging (creator-run of unpublished DSLs) stays
+	// JWT-only; definitions cannot be read or mutated through keys.
+	APIKeyCapabilityRunWorkflows APIKeyCapability = "run_workflows"
 	// APIKeyCapabilityMessageHistory lets a key search and inspect the
 	// tenant-level chat-history knowledge base without granting full Owner
 	// access. It is separate from chat: chat only covers the caller's own

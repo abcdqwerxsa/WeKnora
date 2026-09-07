@@ -131,6 +131,8 @@ export interface Workflow {
   name: string
   description?: string
   dsl: WorkflowDSL
+  /** Frozen DSL snapshot of the last publish; null until first publish. */
+  published_dsl?: WorkflowDSL | null
   status: WorkflowStatus
   version?: number
   created_at?: string
@@ -172,6 +174,18 @@ export const updateWorkflow = (
 ): Promise<WorkflowMutationResponse> => put(`/api/v1/workflows/${id}`, payload)
 
 export const deleteWorkflow = (id: string): Promise<{ success: boolean }> => del(`/api/v1/workflows/${id}`)
+
+/**
+ * Publish: freezes the current DSL as the published snapshot and flips the
+ * workflow to published. Runs of a published workflow execute the snapshot;
+ * the draft keeps evolving. Rejects (400) a DSL that does not compile.
+ */
+export const publishWorkflow = (id: string): Promise<WorkflowMutationResponse> =>
+  post(`/api/v1/workflows/${id}/publish`)
+
+/** Flip draft/archived (unpublish or archive). Publishing has its own endpoint. */
+export const setWorkflowStatus = (id: string, status: 'draft' | 'archived'): Promise<WorkflowMutationResponse> =>
+  post(`/api/v1/workflows/${id}/status`, { status })
 
 // ---------------------------------------------------------------------------
 // Run execution + progress (consumes the stage-2 backend contract).

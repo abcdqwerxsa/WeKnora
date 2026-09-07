@@ -36,6 +36,10 @@
         <t-button theme="primary" :loading="saving" :disabled="!ready" @click="save">
           {{ saveLabel }}
         </t-button>
+        <t-button variant="outline" :loading="publishing" :disabled="!ready" @click="publishFromEditor">
+          <template #icon><t-icon name="upload-cloud" /></template>
+          {{ workflow?.status === 'published' ? $t('workflow.republish') : $t('workflow.publish') }}
+        </t-button>
         <t-button variant="outline" :disabled="!ready" @click="runDrawerVisible = true">
           <template #icon><t-icon name="play-circle" /></template>
           {{ $t('workflow.run.open') }}
@@ -178,7 +182,7 @@ import WfNodeCard from './components/WfNodeCard.vue'
 import NodePalette from './components/NodePalette.vue'
 import NodePropertyForm from './components/NodePropertyForm.vue'
 import WorkflowRunPanel from './components/WorkflowRunPanel.vue'
-import { WORKFLOW_NODE_TYPES, getWorkflow, updateWorkflow, type Workflow, type WorkflowDSL, type WorkflowNodeType } from '@/api/workflow'
+import { WORKFLOW_NODE_TYPES, getWorkflow, updateWorkflow, publishWorkflow, type Workflow, type WorkflowDSL, type WorkflowNodeType } from '@/api/workflow'
 import { buildDsl, defaultParams, makeNodeId, migrateNodeParams, normalizeDsl, autoLayout, validateGraph, type GraphIssue } from './dsl'
 import { paramSummary } from './nodeMeta'
 import { listModels, type ModelConfig } from '@/api/model'
@@ -635,12 +639,17 @@ async function load() {
 }
 
 async function save() {
+  const ok = await doSave()
+  return ok
+}
+
+async function doSave(): Promise<boolean> {
   const trimmed = name.value.trim()
   if (!trimmed) {
     MessagePlugin.warning(t('workflow.nameRequired'))
-    return
+    return false
   }
-  if (!validateBeforeSave()) return
+  if (!validateBeforeSave()) return false
   saving.value = true
   try {
     const response = await updateWorkflow(workflowId.value, { name: trimmed, dsl: currentDsl() })
@@ -648,13 +657,38 @@ async function save() {
       savedSignature = currentSignature()
       dirty.value = false
       MessagePlugin.success(t('workflow.saved'))
-    } else {
-      MessagePlugin.error(response?.message || t('workflow.editor.saveFailed'))
+      return true
     }
+    MessagePlugin.error(response?.message || t('workflow.editor.saveFailed'))
+    return false
   } catch (error) {
     MessagePlugin.error(error instanceof Error ? error.message : t('workflow.editor.saveFailed'))
+    return false
   } finally {
     saving.value = false
+  }
+}
+
+// Publish from the editor: unsaved changes are saved first (publish always
+// freezes what is on the canvas), then the snapshot endpoint runs.
+const publishing = ref(false)
+
+async function publishFromEditor() {
+  if (publishing.value) return
+  publishing.value = true
+  try {
+    if (dirty.value && !(await doSave())) return
+    const response = await publishWorkflow(workflowId.value)
+    if (response?.success && response.data) {
+      workflow.value = response.data
+      MessagePlugin.success(t('workflow.published'))
+    } else {
+      MessagePlugin.error(response?.message || t('workflow.publishFailed'))
+    }
+  } catch (error) {
+    MessagePlugin.error(error instanceof Error ? error.message : t('workflow.publishFailed'))
+  } finally {
+    publishing.value = false
   }
 }
 

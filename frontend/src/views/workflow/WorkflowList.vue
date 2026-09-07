@@ -42,6 +42,19 @@
         <template #actions="{ row }">
           <div class="wf-list-actions">
             <t-button variant="text" size="small" @click="goEdit(row)">{{ $t('workflow.edit') }}</t-button>
+            <t-popconfirm
+              v-if="row.status !== 'published'"
+              :content="$t('workflow.publishConfirm', { name: row.name })"
+              @confirm="publish(row)"
+            >
+              <t-button variant="text" size="small" theme="primary" :loading="actingId === row.id">{{ $t('workflow.publish') }}</t-button>
+            </t-popconfirm>
+            <t-button v-else variant="text" size="small" :loading="actingId === row.id" @click="unpublish(row)">
+              {{ $t('workflow.unpublish') }}
+            </t-button>
+            <t-button v-if="row.status !== 'archived'" variant="text" size="small" :disabled="actingId === row.id" @click="archive(row)">
+              {{ $t('workflow.archive') }}
+            </t-button>
             <t-popconfirm :content="$t('workflow.deleteConfirm', { name: row.name })" @confirm="removeWorkflow(row)">
               <t-button variant="text" size="small" theme="danger">{{ $t('workflow.delete') }}</t-button>
             </t-popconfirm>
@@ -74,7 +87,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
-import { deleteWorkflow, createWorkflow, listWorkflows, type Workflow } from '@/api/workflow'
+import { deleteWorkflow, createWorkflow, listWorkflows, publishWorkflow, setWorkflowStatus, type Workflow } from '@/api/workflow'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -90,10 +103,10 @@ const createForm = ref({ name: '', description: '' })
 
 const columns = computed(() => [
   { colKey: 'name', title: t('workflow.name'), minWidth: 180 },
-  { colKey: 'description', title: t('workflow.description'), ellipsis: true, minWidth: 220 },
+  { colKey: 'description', title: t('workflow.description'), ellipsis: true, minWidth: 200 },
   { colKey: 'status', title: t('workflow.status'), width: 110, align: 'center' as const },
-  { colKey: 'updated_at', title: t('workflow.updatedAt'), width: 180 },
-  { colKey: 'actions', title: t('workflow.actions'), width: 140, align: 'right' as const },
+  { colKey: 'updated_at', title: t('workflow.updatedAt'), width: 170 },
+  { colKey: 'actions', title: t('workflow.actions'), width: 250, align: 'right' as const },
 ])
 
 function statusTheme(status: Workflow['status']) {
@@ -167,6 +180,63 @@ async function removeWorkflow(workflow: Workflow) {
   }
 }
 
+// Id of the workflow whose publish/unpublish/archive request is in flight.
+const actingId = ref('')
+
+async function publish(workflow: Workflow) {
+  if (actingId.value) return
+  actingId.value = workflow.id
+  try {
+    const response = await publishWorkflow(workflow.id)
+    if (response?.success) {
+      MessagePlugin.success(t('workflow.published'))
+      await loadWorkflows()
+    } else {
+      MessagePlugin.error(response?.message || t('workflow.publishFailed'))
+    }
+  } catch (error) {
+    MessagePlugin.error(error instanceof Error ? error.message : t('workflow.publishFailed'))
+  } finally {
+    actingId.value = ''
+  }
+}
+
+async function unpublish(workflow: Workflow) {
+  if (actingId.value) return
+  actingId.value = workflow.id
+  try {
+    const response = await setWorkflowStatus(workflow.id, 'draft')
+    if (response?.success) {
+      MessagePlugin.success(t('workflow.unpublished'))
+      await loadWorkflows()
+    } else {
+      MessagePlugin.error(response?.message || t('workflow.publishFailed'))
+    }
+  } catch (error) {
+    MessagePlugin.error(error instanceof Error ? error.message : t('workflow.publishFailed'))
+  } finally {
+    actingId.value = ''
+  }
+}
+
+async function archive(workflow: Workflow) {
+  if (actingId.value) return
+  actingId.value = workflow.id
+  try {
+    const response = await setWorkflowStatus(workflow.id, 'archived')
+    if (response?.success) {
+      MessagePlugin.success(t('workflow.archived'))
+      await loadWorkflows()
+    } else {
+      MessagePlugin.error(response?.message || t('workflow.publishFailed'))
+    }
+  } catch (error) {
+    MessagePlugin.error(error instanceof Error ? error.message : t('workflow.publishFailed'))
+  } finally {
+    actingId.value = ''
+  }
+}
+
 onMounted(loadWorkflows)
 </script>
 
@@ -221,6 +291,6 @@ onMounted(loadWorkflows)
 
 .wf-list-actions {
   display: inline-flex;
-  gap: 4px;
+  gap: 2px;
 }
 </style>

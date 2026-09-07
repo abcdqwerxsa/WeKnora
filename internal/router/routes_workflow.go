@@ -26,10 +26,10 @@ import (
 //   - GET  /:id/runs        Viewer+       (tenant-scoped read)
 //   - GET  /:id/runs/:run_id/events  Viewer+ (SSE progress stream)
 //
-// API keys: workflow routes are deliberately NOT declared in the
-// APIKeyRouteAuthorizer, so X-API-Key principals are default-denied. They
-// will be declared once execution semantics (and therefore the right
-// capability set) exist.
+// API keys: the RUN surface (runs/events/cancel/resume + run reads) is
+// declared with the read_workflows + run_workflows capabilities — keys can
+// drive published workflows but never read or mutate definitions.
+// Definition routes (CRUD/publish/status) stay default-deny for keys.
 func RegisterWorkflowRoutes(r *gin.RouterGroup, workflowHandler *handler.WorkflowHandler, g *rbacGuards) {
 	if workflowHandler == nil {
 		return
@@ -41,12 +41,23 @@ func RegisterWorkflowRoutes(r *gin.RouterGroup, workflowHandler *handler.Workflo
 		workflows.GET("/:id", g.Viewer(), workflowHandler.GetWorkflow)
 		workflows.PUT("/:id", g.OwnedWorkflowOrAdmin(workflowHandler), workflowHandler.UpdateWorkflow)
 		workflows.DELETE("/:id", g.OwnedWorkflowOrAdmin(workflowHandler), workflowHandler.DeleteWorkflow)
-		workflows.POST("/:id/runs", g.Contributor(), workflowHandler.CreateWorkflowRun)
-		workflows.GET("/:id/runs", g.Viewer(), workflowHandler.ListWorkflowRuns)
-		workflows.GET("/:id/runs/:run_id", g.Viewer(), workflowHandler.GetWorkflowRun)
-		workflows.GET("/:id/runs/:run_id/events", g.Viewer(), workflowHandler.GetWorkflowRunEvents)
-		workflows.POST("/:id/runs/:run_id/cancel", g.Contributor(), workflowHandler.CancelWorkflowRun)
-		workflows.POST("/:id/runs/:run_id/resume", g.Contributor(), workflowHandler.ResumeWorkflowRun)
+		workflows.POST("/:id/publish", g.OwnedWorkflowOrAdmin(workflowHandler), workflowHandler.PublishWorkflow)
+		workflows.POST("/:id/status", g.OwnedWorkflowOrAdmin(workflowHandler), workflowHandler.SetWorkflowStatus)
+
+		// Run surface — the only API-key-accessible slice. Capabilities:
+		//   read_workflows — list runs / run detail / SSE events (read-only)
+		//   run_workflows — execute published workflows, cancel, resume
+		// Definitions (CRUD/publish) stay default-deny for keys: a key can
+		// drive published workflows but never read or mutate their DSL.
+		runs := g.apiKeyGroup(workflows, middleware.APIKeyRoutePolicy{}.
+			WithCapability(types.APIKeyCapabilityReadWorkflows).
+			WithCapability(types.APIKeyCapabilityRunWorkflows))
+		runs.POST("/:id/runs", g.Contributor(), workflowHandler.CreateWorkflowRun)
+		runs.GET("/:id/runs", g.Viewer(), workflowHandler.ListWorkflowRuns)
+		runs.GET("/:id/runs/:run_id", g.Viewer(), workflowHandler.GetWorkflowRun)
+		runs.GET("/:id/runs/:run_id/events", g.Viewer(), workflowHandler.GetWorkflowRunEvents)
+		runs.POST("/:id/runs/:run_id/cancel", g.Contributor(), workflowHandler.CancelWorkflowRun)
+		runs.POST("/:id/runs/:run_id/resume", g.Contributor(), workflowHandler.ResumeWorkflowRun)
 	}
 }
 
