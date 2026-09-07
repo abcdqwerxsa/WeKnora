@@ -6894,7 +6894,24 @@ export default {
       refPickerTitle: '选择上游输出',
       refPickerEmpty: '无可用上游输出',      deleteHint: '选中节点或连线后按 Delete 删除；双击连线可直接删除',
       startProtected: '开始节点不可删除',
-},
+      autoLayout: '自动布局',
+      copyNode: '复制节点',
+      pasteNode: '粘贴节点',
+      nodeCopied: '节点已复制',
+      nodeOutputs: '查看节点输出',
+      unsavedTitle: '有未保存的修改',
+      unsavedBody: '画布或名称已修改但尚未保存，离开将丢失这些修改。',
+      unsavedLeave: '放弃修改并离开',
+      unsavedStay: '继续编辑',
+      issues: {
+        title: '校验问题',
+        noEntry: '缺少入口节点（无上游连线的节点）',
+        multipleEntries: '存在 {count} 个入口节点：{names}（只允许一个）',
+        noTerminal: '缺少终端节点（无下游连线的节点）',
+        multipleTerminals: '存在 {count} 个终端节点：{names}（当前引擎只允许一个）',
+        unreachable: '节点 {name} 从入口不可达',
+        staleRef: '节点 {name} 引用了不存在的 {ref}',
+      }},
     run: {
       open: '运行',
       title: '运行',
@@ -6920,7 +6937,9 @@ export default {
       historyEmpty: '暂无运行记录',
       historyLoadFailed: '加载运行历史失败',
       status: { pending: '排队中', running: '执行中', succeeded: '已成功', failed: '已失败', cancelled: '已取消' },
-      phase: { started: '开始', finished: '完成', failed: '失败' }
+      phase: { started: '开始', finished: '完成', failed: '失败' },
+      replayed: '回放',
+      nodeOutputs: '节点输出',
      }
   }
 }

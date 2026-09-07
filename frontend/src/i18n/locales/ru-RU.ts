@@ -6892,7 +6892,24 @@ export default {
       refPickerTitle: 'Выбрать выход узла',
       refPickerEmpty: 'Нет доступных выходов',      deleteHint: 'Выберите узел или связь и нажмите Delete; двойной клик по связи удаляет её',
       startProtected: 'Стартовый узел нельзя удалить',
-},
+      autoLayout: 'Авторазметка',
+      copyNode: 'Копировать узел',
+      pasteNode: 'Вставить узел',
+      nodeCopied: 'Узел скопирован',
+      nodeOutputs: 'Просмотр выходных данных узла',
+      unsavedTitle: 'Несохранённые изменения',
+      unsavedBody: 'Холст или название изменены, но не сохранены. При выходе изменения будут потеряны.',
+      unsavedLeave: 'Выйти без сохранения',
+      unsavedStay: 'Продолжить',
+      issues: {
+        title: 'Проблемы проверки',
+        noEntry: 'Нет входного узла (узла без входящих рёбер)',
+        multipleEntries: 'Найдено входных узлов: {count}: {names} (допустим ровно один)',
+        noTerminal: 'Нет конечного узла (узла без исходящих рёбер)',
+        multipleTerminals: 'Найдено конечных узлов: {count}: {names} (движок допускает ровно один)',
+        unreachable: 'Узел {name} недостижим из входного',
+        staleRef: 'Узел {name} ссылается на несуществующий {ref}',
+      }},
     run: {
       open: 'Запуск',
       title: 'Запуск',
@@ -6918,7 +6935,9 @@ export default {
       historyEmpty: 'Запусков пока нет',
       historyLoadFailed: 'Не удалось загрузить историю запусков',
       status: { pending: 'В очереди', running: 'Выполняется', succeeded: 'Успешно', failed: 'Ошибка', cancelled: 'Отменено' },
-      phase: { started: 'начат', finished: 'завершён', failed: 'ошибка' }
+      phase: { started: 'начат', finished: 'завершён', failed: 'ошибка' },
+      replayed: 'воспроизведён',
+      nodeOutputs: 'Выходные данные узлов',
      }
   }
 }

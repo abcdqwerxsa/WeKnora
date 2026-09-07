@@ -9,6 +9,18 @@
         <t-tag v-if="workflow" size="small" theme="warning">{{ $t(`workflow.status.${workflow.status}`) }}</t-tag>
       </div>
       <div class="wf-editor-toolbar-right">
+        <t-button variant="outline" @click="applyAutoLayout" :disabled="!ready">
+          <template #icon><t-icon name="layout" /></template>
+          {{ $t('workflow.editor.autoLayout') }}
+        </t-button>
+        <t-button variant="outline" @click="copySelectedNode" :disabled="!ready || !selectedNode">
+          <template #icon><t-icon name="copy" /></template>
+          {{ $t('workflow.editor.copyNode') }}
+        </t-button>
+        <t-button variant="outline" :disabled="!ready || !clipboard" @click="pasteClipboardNode">
+          <template #icon><t-icon name="clipboard" /></template>
+          {{ $t('workflow.editor.pasteNode') }}
+        </t-button>
         <t-button variant="outline" @click="importDslFile?.click()">
           <template #icon><t-icon name="upload" /></template>
           {{ $t('workflow.editor.importDsl') }}
@@ -18,7 +30,7 @@
           {{ $t('workflow.editor.exportDsl') }}
         </t-button>
         <t-button theme="primary" :loading="saving" :disabled="!ready" @click="save">
-          {{ $t('workflow.editor.save') }}
+          {{ saveLabel }}
         </t-button>
         <t-button variant="outline" :disabled="!ready" @click="runDrawerVisible = true">
           <template #icon><t-icon name="play-circle" /></template>
@@ -61,6 +73,8 @@
               :selected="nodeProps.selected"
               :subtitle="nodeSubtitle(nodeProps.data)"
               :run-phase="runNodePhases[nodeProps.id]"
+              :outputs="runNodeOutputs[nodeProps.id]"
+              :node-id="nodeProps.id"
             />
           </template>
         </VueFlow>
@@ -98,15 +112,20 @@
       :close-btn="true"
       @closed="onRunDrawerClosed"
     >
-      <WorkflowRunPanel :workflow-id="workflowId" @node-phases="runNodePhases = $event" />
+      <WorkflowRunPanel
+        :workflow-id="workflowId"
+        :nodes="pickerNodes"
+        @node-phases="runNodePhases = $event"
+        @node-outputs="runNodeOutputs = $event"
+      />
     </t-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch, type Ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { useRoute, onBeforeRouteLeave, useRouter } from 'vue-router'
+import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
 import { VueFlow, MarkerType, type Connection, type Edge, type EdgeMouseEvent, type Node, type NodeMouseEvent } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
@@ -123,7 +142,7 @@ import NodePalette from './components/NodePalette.vue'
 import NodePropertyForm from './components/NodePropertyForm.vue'
 import WorkflowRunPanel from './components/WorkflowRunPanel.vue'
 import { WORKFLOW_NODE_TYPES, getWorkflow, updateWorkflow, type Workflow, type WorkflowDSL, type WorkflowNodeType } from '@/api/workflow'
-import { buildDsl, defaultParams, makeNodeId, migrateNodeParams, normalizeDsl } from './dsl'
+import { buildDsl, defaultParams, makeNodeId, migrateNodeParams, normalizeDsl, autoLayout, validateGraph, type GraphIssue } from './dsl'
 import { paramSummary } from './nodeMeta'
 import { listModels, type ModelConfig } from '@/api/model'
 import { listKnowledgeBases } from '@/api/knowledge-base'
@@ -233,6 +252,22 @@ function isTypingTarget(): boolean {
 }
 
 function onKeyDown(event: KeyboardEvent) {
+  // Copy/paste shortcuts work with a node selected (canvas focus only,
+  // never while typing in a form field).
+  if ((event.ctrlKey || event.metaKey) && (event.key === 'c' || event.key === 'C')) {
+    if (isTypingTarget()) return
+    if (selectedNode.value) {
+      event.preventDefault()
+      copySelectedNode()
+    }
+    return
+  }
+  if ((event.ctrlKey || event.metaKey) && (event.key === 'v' || event.key === 'V')) {
+    if (isTypingTarget() || !clipboard.value) return
+    event.preventDefault()
+    pasteClipboardNode()
+    return
+  }
   if (event.key !== 'Delete' && event.key !== 'Backspace') return
   if (isTypingTarget()) return
   if (selectedEdgeId.value) {
@@ -255,12 +290,61 @@ if (typeof window !== 'undefined') {
 // when the drawer closes so stale highlights never survive a panel session.
 const runDrawerVisible = ref(false)
 const runNodePhases = ref<Record<string, 'running' | 'done' | 'failed'>>({})
+// Per-node debug payload (live frames or selected history run's trace),
+// rendered as the inspect badge on canvas cards. Shares the phase lifecycle.
+const runNodeOutputs = ref<Record<string, Record<string, unknown>>>({})
 
 function onRunDrawerClosed() {
   runNodePhases.value = {}
+  runNodeOutputs.value = {}
 }
 
+// ---- dirty guard ---------------------------------------------------------
+// Snapshot the persisted DSL; any structural drift from it is unsaved work.
+// Leaving the route (or reloading) then requires explicit confirmation.
+// (Placed after `ready`, which refreshDirty reads.)
 const ready = computed(() => !loading.value && !loadError.value)
+let savedSignature = ''
+const dirty = ref(false)
+
+function currentSignature(): string {
+  return JSON.stringify({ name: name.value.trim(), dsl: currentDsl() })
+}
+
+function refreshDirty() {
+  dirty.value = ready.value && currentSignature() !== savedSignature
+}
+
+watch([canvasNodes, canvasEdges, name, ready], refreshDirty, { deep: true })
+
+onBeforeRouteLeave(() => {
+  if (!dirty.value) return true
+  return new Promise<boolean>((resolve) => {
+    const dialog = DialogPlugin.confirm({
+      header: t('workflow.editor.unsavedTitle'),
+      body: t('workflow.editor.unsavedBody'),
+      confirmBtn: { content: t('workflow.editor.unsavedLeave'), theme: 'danger' },
+      cancelBtn: t('workflow.editor.unsavedStay'),
+      onConfirm: () => { dialog.destroy(); resolve(true) },
+      onClose: () => { dialog.destroy(); resolve(false) },
+    })
+  })
+})
+
+// Reload/close with unsaved work: the browser's own guard (no custom UI).
+function onBeforeUnload(event: BeforeUnloadEvent) {
+  if (!dirty.value) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', onBeforeUnload)
+  onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
+}
+
+const saveLabel = computed(() =>
+  dirty.value ? `${t('workflow.editor.save')} *` : t('workflow.editor.save'),
+)
 
 const selectedNode = computed(() => canvasNodes.value.find((node) => node.id === selectedNodeId.value) ?? null)
 const selectedKind = computed<WorkflowNodeType>(() => (selectedNode.value?.data?.kind as WorkflowNodeType) ?? 'Answer')
@@ -332,7 +416,31 @@ function onConnect(connection: Connection) {
   refreshEdgeLabels()
 }
 
-function addNodeFromPalette(kind: WorkflowNodeType) {
+// ---- copy / paste --------------------------------------------------------
+// One-node clipboard (mirrors the single-selection model). Copy stores the
+// node's kind + a deep clone of params; paste drops a fresh id nearby.
+interface NodeClipboard {
+  kind: WorkflowNodeType
+  params: Record<string, unknown>
+}
+const clipboard = ref<NodeClipboard | null>(null)
+
+function copySelectedNode() {
+  const node = selectedNode.value
+  if (!node) return
+  clipboard.value = {
+    kind: (node.data?.kind as WorkflowNodeType) ?? 'Answer',
+    params: JSON.parse(JSON.stringify((node.data?.params as Record<string, unknown>) ?? {})),
+  }
+  MessagePlugin.success(t('workflow.editor.nodeCopied'))
+}
+
+function pasteClipboardNode() {
+  if (!clipboard.value) return
+  addNodeFromPalette(clipboard.value.kind, clipboard.value.params)
+}
+
+function addNodeFromPalette(kind: WorkflowNodeType, presetParams?: Record<string, unknown>) {
   if (!WORKFLOW_NODE_TYPES.includes(kind)) return
   // Drop near the canvas centre with a little jitter so repeated adds
   // don't stack exactly on top of each other.
@@ -342,11 +450,50 @@ function addNodeFromPalette(kind: WorkflowNodeType) {
     id: makeNodeId(kind),
     type: 'wf',
     position: { x: 140 + (n % 4) * 240 + jitter(), y: 100 + Math.floor(n / 4) * 170 + jitter() },
-    data: { kind, params: defaultParams(kind) },
+    data: { kind, params: presetParams ? JSON.parse(JSON.stringify(presetParams)) : defaultParams(kind) },
   }
   canvasNodes.value.push(node)
   selectedNodeId.value = node.id
   selectedEdgeId.value = null
+}
+
+// ---- auto layout ----------------------------------------------------------
+function applyAutoLayout() {
+  const positions = autoLayout(currentGraphNodes(), canvasEdges.value.map((e) => ({ id: e.id, source: e.source, target: e.target })))
+  for (const node of canvasNodes.value) {
+    const position = positions[node.id]
+    if (position) node.position = { ...position }
+  }
+}
+
+function currentGraphNodes() {
+  return canvasNodes.value.map((node) => ({
+    id: node.id,
+    type: (node.data?.kind as WorkflowNodeType) ?? 'Answer',
+    position: { x: node.position.x, y: node.position.y },
+    data: { params: (node.data?.params as Record<string, unknown>) ?? {} },
+  }))
+}
+
+// ---- pre-save validation --------------------------------------------------
+function formatIssues(issues: GraphIssue[]): string {
+  return issues.map((issue) => t(`workflow.editor.issues.${issue.key}`, issue.values ?? {})).join('\n')
+}
+
+function validateBeforeSave(): boolean {
+  const issues = validateGraph(currentGraphNodes(), canvasEdges.value.map((e) => ({ id: e.id, source: e.source, target: e.target })))
+  const errors = issues.filter((issue) => issue.level === 'error')
+  const warnings = issues.filter((issue) => issue.level === 'warning')
+  if (errors.length > 0) {
+    MessagePlugin.error(`${t('workflow.editor.issues.title')}\n${formatIssues(errors)}`)
+    return false
+  }
+  if (warnings.length > 0) {
+    MessagePlugin.warning(`${t('workflow.editor.issues.title')}\n${formatIssues(warnings)}`)
+    // Warnings do not block the save: the engine ignores unreachable
+    // nodes and stale refs fail at run time with a clear node-scoped error.
+  }
+  return true
 }
 
 function currentDsl(): WorkflowDSL {
@@ -389,6 +536,8 @@ async function load() {
     name.value = data.name
     workflow.value = data
     setCanvas(normalizeDsl(data.dsl))
+    savedSignature = JSON.stringify({ name: data.name, dsl: currentDsl() })
+    dirty.value = false
     void fetchPickerData()
   } catch (error) {
     loadError.value = true
@@ -404,10 +553,13 @@ async function save() {
     MessagePlugin.warning(t('workflow.nameRequired'))
     return
   }
+  if (!validateBeforeSave()) return
   saving.value = true
   try {
     const response = await updateWorkflow(workflowId.value, { name: trimmed, dsl: currentDsl() })
     if (response?.success) {
+      savedSignature = currentSignature()
+      dirty.value = false
       MessagePlugin.success(t('workflow.saved'))
     } else {
       MessagePlugin.error(response?.message || t('workflow.editor.saveFailed'))

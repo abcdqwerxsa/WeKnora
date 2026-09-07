@@ -6892,7 +6892,24 @@ export default {
       refPickerTitle: '상위 출력 선택',
       refPickerEmpty: '사용 가능한 상위 출력 없음',      deleteHint: '노드나 연결을 선택한 후 Delete 키로 삭제; 연결 더블클릭으로도 삭제',
       startProtected: '시작 노드는 삭제할 수 없습니다',
-},
+      autoLayout: '자동 레이아웃',
+      copyNode: '노드 복사',
+      pasteNode: '노드 붙여넣기',
+      nodeCopied: '노드가 복사되었습니다',
+      nodeOutputs: '노드 출력 보기',
+      unsavedTitle: '저장되지 않은 변경 사항',
+      unsavedBody: '캔버스 또는 이름이 변경되었지만 저장되지 않았습니다. 나가면 변경 사항이 사라집니다.',
+      unsavedLeave: '버리고 나가기',
+      unsavedStay: '계속 편집',
+      issues: {
+        title: '검증 문제',
+        noEntry: '진입 노드(업스트림 간선이 없는 노드)가 없습니다',
+        multipleEntries: '진입 노드가 {count}개 있습니다: {names} (정확히 하나만 허용)',
+        noTerminal: '종료 노드(다운스트림 간선이 없는 노드)가 없습니다',
+        multipleTerminals: '종료 노드가 {count}개 있습니다: {names} (엔진은 정확히 하나만 허용)',
+        unreachable: '노드 {name}은(는) 진입 노드에서 도달할 수 없습니다',
+        staleRef: '노드 {name}이(가) 존재하지 않는 {ref}을(를) 참조합니다',
+      }},
     run: {
       open: '실행',
       title: '실행',
@@ -6918,7 +6935,9 @@ export default {
       historyEmpty: '실행 기록이 없습니다',
       historyLoadFailed: '실행 기록 로드 실패',
       status: { pending: '대기 중', running: '실행 중', succeeded: '성공', failed: '실패', cancelled: '취소됨' },
-      phase: { started: '시작', finished: '완료', failed: '실패' }
+      phase: { started: '시작', finished: '완료', failed: '실패' },
+      replayed: '재실행됨',
+      nodeOutputs: '노드 출력',
      }
   }
 }

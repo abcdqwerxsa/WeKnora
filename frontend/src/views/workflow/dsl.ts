@@ -1,5 +1,8 @@
-import type { WFComponent, WFEdge, WFNode, WorkflowDSL, WorkflowNodeType } from '@/api/workflow'
-import { WORKFLOW_NODE_TYPES } from '@/api/workflow'
+import type { WFComponent, WFEdge, WFNode, WFPosition, WorkflowDSL, WorkflowNodeType } from '@/api/workflow'
+export type { WFNode } from '@/api/workflow'
+// Runtime value from the zero-dependency contract module (relative path:
+// keeps this file importable from node tests without the request chain).
+import { WORKFLOW_NODE_TYPES } from '../../api/workflowContract'
 
 /**
  * DSL dual-view helpers.
@@ -9,7 +12,6 @@ import { WORKFLOW_NODE_TYPES } from '@/api/workflow'
  * rebuilt from the other; the editor always edits the graph view and
  * regenerates `components` on save.
  */
-
 /**
  * Default params per node kind. Keys MUST match the engine registry
  * verbatim (snake_case) — see api/workflow.ts. Only fields the engine
@@ -213,4 +215,145 @@ export function buildDsl(
     components: componentsFromGraph(nodes, edges),
     variables: variables ?? {},
   }
+}
+
+// ---------------------------------------------------------------------------
+// Auto layout (port of the engine's defaultLayout: BFS depth columns).
+// ---------------------------------------------------------------------------
+
+/**
+ * Layered auto layout: depth = longest distance from an entry node
+ * (mirrors internal/agent/workflow/dsl.go defaultLayout). Returns new
+ * positions per node id; callers assign them onto the canvas.
+ */
+export function autoLayout(nodes: WFNode[], edges: WFEdge[]): Record<string, WFPosition> {
+  const downstream = new Map<string, string[]>()
+  const upstream = new Map<string, string[]>()
+  for (const id of nodes.map((n) => n.id)) {
+    downstream.set(id, [])
+    upstream.set(id, [])
+  }
+  for (const edge of edges) {
+    downstream.get(edge.source)?.push(edge.target)
+    upstream.get(edge.target)?.push(edge.source)
+  }
+
+  const depth = new Map<string, number>()
+  const resolve = (id: string, guard: Set<string>): number => {
+    const known = depth.get(id)
+    if (known !== undefined) return known
+    if (guard.has(id)) return 0 // cycle: pin to current guard depth
+    guard.add(id)
+    const parents = (upstream.get(id) ?? []).filter((u) => downstream.has(u))
+    const d = parents.length === 0 ? 0 : Math.max(...parents.map((p) => resolve(p, guard))) + 1
+    depth.set(id, d)
+    return d
+  }
+  for (const node of nodes) resolve(node.id, new Set())
+
+  const columnCount = new Map<number, number>()
+  const positions: Record<string, WFPosition> = {}
+  for (const node of nodes) {
+    const d = depth.get(node.id) ?? 0
+    const row = columnCount.get(d) ?? 0
+    columnCount.set(d, row + 1)
+    positions[node.id] = { x: 80 + d * 260, y: 80 + row * 160 }
+  }
+  return positions
+}
+
+// ---------------------------------------------------------------------------
+// Pre-save validation (mirrors the engine's compile constraints + adds
+// editor-level warnings the engine deliberately ignores).
+// ---------------------------------------------------------------------------
+
+export interface GraphIssue {
+  level: 'error' | 'warning'
+  /** i18n key under workflow.editor.issues.* */
+  key: string
+  /** Interpolation values for the i18n message. */
+  values?: Record<string, string | number>
+  nodeId?: string
+}
+
+/** `{nodeId@param}` reference pattern used inside prompt/template params. */
+export const NODE_REF_PATTERN = /\{([a-zA-Z0-9_-]+)@([a-zA-Z0-9_.-]+)\}/g
+
+/** Collect every {node@param} ref reachable from a params object. */
+function collectRefs(params: Record<string, unknown>): Array<{ node: string; param: string }> {
+  const refs: Array<{ node: string; param: string }> = []
+  const walk = (value: unknown): void => {
+    if (typeof value === 'string') {
+      for (const match of value.matchAll(NODE_REF_PATTERN)) {
+        refs.push({ node: match[1], param: match[2] })
+      }
+      return
+    }
+    if (Array.isArray(value)) {
+      value.forEach(walk)
+      return
+    }
+    if (value && typeof value === 'object') {
+      Object.values(value).forEach(walk)
+    }
+  }
+  // Every string anywhere inside params may carry refs (documented keys
+  // like prompt/template plus nested headers/ops/cases).
+  for (const value of Object.values(params)) walk(value)
+  return refs
+}
+
+/**
+ * Validate the canvas before save/run. Errors mirror engine compile
+ * constraints (the save is rejected server-side anyway); warnings cover
+ * editor-observable rot the engine ignores (unreachable nodes, stale
+ * {node@param} references).
+ */
+export function validateGraph(nodes: WFNode[], edges: WFEdge[]): GraphIssue[] {
+  const issues: GraphIssue[] = []
+  const ids = new Set(nodes.map((n) => n.id))
+
+  const targeted = new Set(edges.map((e) => e.target))
+  const entries = nodes.filter((n) => !targeted.has(n.id))
+  const terminals = nodes.filter((n) => !edges.some((e) => e.source === n.id))
+
+  if (entries.length === 0) issues.push({ level: 'error', key: 'noEntry' })
+  if (entries.length > 1) {
+    issues.push({ level: 'error', key: 'multipleEntries', values: { count: entries.length, names: entries.map((n) => n.id).join(', ') } })
+  }
+  if (terminals.length === 0) issues.push({ level: 'error', key: 'noTerminal' })
+  if (terminals.length > 1) {
+    issues.push({ level: 'error', key: 'multipleTerminals', values: { count: terminals.length, names: terminals.map((n) => n.id).join(', ') } })
+  }
+
+  // Reachability from the entry set (BFS over edges).
+  if (entries.length > 0) {
+    const reachable = new Set<string>()
+    const queue = entries.map((n) => n.id)
+    while (queue.length > 0) {
+      const id = queue.shift()!
+      if (reachable.has(id)) continue
+      reachable.add(id)
+      for (const edge of edges) {
+        if (edge.source === id && !reachable.has(edge.target)) queue.push(edge.target)
+      }
+    }
+    for (const node of nodes) {
+      if (!reachable.has(node.id)) {
+        issues.push({ level: 'warning', key: 'unreachable', values: { name: node.id }, nodeId: node.id })
+      }
+    }
+  }
+
+  // Stale {node@param} references in template params.
+  for (const node of nodes) {
+    const params = (node.data?.params as Record<string, unknown>) ?? {}
+    for (const ref of collectRefs(params)) {
+      if (!ids.has(ref.node)) {
+        issues.push({ level: 'warning', key: 'staleRef', values: { ref: `${ref.node}@${ref.param}`, name: node.id }, nodeId: node.id })
+      }
+    }
+  }
+
+  return issues
 }

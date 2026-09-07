@@ -6892,7 +6892,24 @@ export default {
       refPickerTitle: 'Pick an upstream output',
       refPickerEmpty: 'No upstream outputs available',      deleteHint: 'Select a node or edge and press Delete; double-click an edge to remove it',
       startProtected: 'The Start node cannot be deleted',
-},
+      autoLayout: 'Auto layout',
+      copyNode: 'Copy node',
+      pasteNode: 'Paste node',
+      nodeCopied: 'Node copied',
+      nodeOutputs: 'Inspect node outputs',
+      unsavedTitle: 'Unsaved changes',
+      unsavedBody: 'The canvas or name changed but was not saved. Leaving discards these changes.',
+      unsavedLeave: 'Discard and leave',
+      unsavedStay: 'Keep editing',
+      issues: {
+        title: 'Validation issues',
+        noEntry: 'No entry node (a node without upstream edges) found',
+        multipleEntries: '{count} entry nodes: {names} (exactly one allowed)',
+        noTerminal: 'No terminal node (a node without downstream edges) found',
+        multipleTerminals: '{count} terminal nodes: {names} (the engine allows exactly one)',
+        unreachable: 'Node {name} is unreachable from the entry',
+        staleRef: 'Node {name} references missing {ref}',
+      }},
     run: {
       open: 'Run',
       title: 'Run',
@@ -6918,7 +6935,9 @@ export default {
       historyEmpty: 'No runs yet',
       historyLoadFailed: 'Failed to load run history',
       status: { pending: 'Queued', running: 'Running', succeeded: 'Succeeded', failed: 'Failed', cancelled: 'Cancelled' },
-      phase: { started: 'started', finished: 'finished', failed: 'failed' }
+      phase: { started: 'started', finished: 'finished', failed: 'failed' },
+      replayed: 'replayed',
+      nodeOutputs: 'Node outputs',
      }
   }
 }

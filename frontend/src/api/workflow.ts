@@ -1,4 +1,6 @@
 import { get, post, put, del } from '@/utils/request'
+import { WORKFLOW_NODE_TYPES } from './workflowContract'
+import type { WorkflowNodeType, WorkflowStatus } from './workflowContract'
 
 /**
  * Workflow orchestration client.
@@ -15,41 +17,16 @@ import { get, post, put, del } from '@/utils/request'
  * `top_k`) — the engine reads them by literal key and fails on missing
  * required ones. Typed interfaces below document that contract; the DSL
  * itself keeps `params` as a loose record because not every field is set.
+ *
+ * The pure type/constant contract (WorkflowNodeType, WORKFLOW_NODE_TYPES,
+ * ...) lives in ./workflowContract (zero imports); this module re-exports
+ * it so existing importers keep working.
  */
-export type WorkflowNodeType =
-  | 'Start'
-  | 'LLM'
-  | 'Retrieval'
-  | 'Switch'
-  | 'Answer'
-  | 'Template'
-  | 'VariableAggregator'
-  | 'HTTP'
-  | 'DataOps'
-
-export type WorkflowStatus = 'draft' | 'published' | 'archived'
-
-export const WORKFLOW_NODE_TYPES: WorkflowNodeType[] = [
-  'Start',
-  'LLM',
-  'Retrieval',
-  'Switch',
-  'Answer',
-  'Template',
-  'VariableAggregator',
-  'HTTP',
-  'DataOps',
-]
-
-/** Engine output keys per node kind (source of {nodeId@param} references). */
-export const NODE_OUTPUT_PARAMS: Partial<Record<WorkflowNodeType, string[]>> = {
-  Start: ['query'],
-  LLM: ['content'],
-  Retrieval: ['chunks', 'doc_aggs'],
-  Template: ['text'],
-  HTTP: ['status_code', 'body', 'headers'],
-  DataOps: ['columns', 'rows', 'row_count'],
-}
+export type {
+  WorkflowNodeType,
+  WorkflowStatus,
+} from './workflowContract'
+export { WORKFLOW_NODE_TYPES, NODE_OUTPUT_PARAMS } from './workflowContract'
 
 // ---- Typed param shapes (per-node property forms) --------------------
 
@@ -170,6 +147,20 @@ export interface WorkflowRunOutput {
   outputs?: Record<string, Record<string, unknown>>
 }
 
+/** One persisted per-node record of a run's trace (run-detail endpoint). */
+export interface WorkflowRunTraceEntry {
+  node_id: string
+  /** Component name ("LLM", "Retrieval", ...); empty when unknown. */
+  kind?: string
+  /** Terminal phase of this attempt: finished | failed. */
+  phase: string
+  duration_ms?: number
+  outputs?: Record<string, unknown>
+  error?: string
+  /** true when restored from a checkpoint (resume), duration 0. */
+  replayed?: boolean
+}
+
 export interface WorkflowRun {
   id: string
   tenant_id?: number
@@ -177,6 +168,8 @@ export interface WorkflowRun {
   status: WorkflowRunStatus
   input?: unknown
   output?: WorkflowRunOutput | null
+  /** Present on run-detail responses; history list rows omit it. */
+  trace?: WorkflowRunTraceEntry[] | null
   error?: string
   created_at?: string
   updated_at?: string
@@ -193,6 +186,10 @@ export interface WorkflowRunEventFrame {
   phase: string
   error?: string
   duration_ms?: number
+  /** Node outputs on finished frames (run-debugging payload). */
+  outputs?: Record<string, unknown>
+  /** true when the finished frame replayed from a checkpoint (resume). */
+  replayed?: boolean
   status?: WorkflowRunStatus
 }
 
@@ -234,6 +231,17 @@ export const resumeWorkflowRun = (workflowId: string, runId: string): Promise<Wo
 
 export const listWorkflowRuns = (id: string): Promise<WorkflowRunListResponse> =>
   get(`/api/v1/workflows/${id}/runs`)
+
+/**
+ * Run detail — the full row including the per-node trace (execution order).
+ * History list rows deliberately omit `trace`; this endpoint is the payload
+ * source for the run-detail / debug panel.
+ */
+export const getWorkflowRun = (workflowId: string, runId: string): Promise<{
+  success: boolean
+  data?: WorkflowRun
+  message?: string
+}> => get(`/api/v1/workflows/${workflowId}/runs/${runId}`)
 
 /** Path-only SSE URL; the stream composable adds base URL + auth headers. */
 export function workflowRunEventsUrl(workflowId: string, runId: string): string {
