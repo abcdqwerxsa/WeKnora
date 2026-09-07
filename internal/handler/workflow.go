@@ -368,6 +368,33 @@ func (h *WorkflowHandler) ResumeWorkflowRun(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"run": run})
 }
 
+// GetWorkflowRun godoc
+// @Summary      工作流运行详情
+// @Description  获取单次运行记录（含逐节点 trace：node_id、kind、phase、duration、outputs、error，按执行顺序）——运行详情/调试面板的数据源
+// @Tags         工作流
+// @Produce      json
+// @Param        id      path string true "工作流 ID"
+// @Param        run_id  path string true "运行 ID"
+// @Success      200 {object} map[string]interface{}
+// @Failure      404 {object} apperrors.AppError
+// @Security     Bearer
+// @Router       /workflows/{id}/runs/{run_id} [get]
+func (h *WorkflowHandler) GetWorkflowRun(c *gin.Context) {
+	run, err := h.service.GetWorkflowRun(c.Request.Context(), c.Param("id"), c.Param("run_id"))
+	if err != nil {
+		if errors.Is(err, apprepo.ErrWorkflowNotFound) {
+			c.Error(apperrors.NewNotFoundError("workflow run not found"))
+			return
+		}
+		c.Error(apperrors.NewInternalServerError("failed to load workflow run").WithDetails(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    run,
+	})
+}
+
 // GetWorkflowRunEvents godoc
 // @Summary      工作流运行事件流（SSE）
 // @Description  以 SSE 推送一次运行的过程事件：kind=node（节点 started/finished/failed）与终态帧 kind=run（含 status，随后关流）。run 已终态时立即下发终态帧并关流

@@ -27,6 +27,13 @@ type NodeEvent struct {
 	Phase      NodePhase `json:"phase"`
 	Err        error     `json:"-"`
 	DurationMS int64     `json:"duration_ms"`
+	// Outputs is the node's recorded output map on PhaseFinished frames
+	// (nil otherwise). Populated from the CanvasState AFTER recording, so
+	// subscribers see exactly what downstream templates will reference.
+	Outputs map[string]any `json:"outputs,omitempty"`
+	// Replayed marks a finished frame whose outputs came from checkpoint
+	// replay (resume) instead of a fresh Invoke — DurationMS is 0.
+	Replayed bool `json:"replayed,omitempty"`
 }
 
 // Deps are the injected capabilities and callbacks the compiled graph uses.
@@ -341,9 +348,11 @@ func nodeClosure(id string, node nodes.Node, deps Deps) func(ctx context.Context
 		// the restored state completed in a previous attempt — replay its
 		// recorded outputs onto the graph edge instead of re-invoking it.
 		// (Nodes with no recorded outputs — interrupted mid-flight — re-run
-		// normally.) No lifecycle events are emitted for skipped nodes.
+		// normally.) Replay emits a finished frame (Replayed=true) so trace
+		// accumulators and SSE subscribers see a complete run picture.
 		if req, _ := ctx.Value(runCtxKey{}).(*runRequest); req != nil && req.resume != nil {
 			if cached := req.resume.OutputsOf(id); len(cached) > 0 {
+				emit(NodeEvent{NodeID: id, Phase: PhaseFinished, Outputs: cached, Replayed: true})
 				return cached, nil
 			}
 		}
@@ -392,7 +401,7 @@ func nodeClosure(id string, node nodes.Node, deps Deps) func(ctx context.Context
 		if req, _ := ctx.Value(runCtxKey{}).(*runRequest); req != nil && req.persistCheckpoint != nil {
 			req.persistCheckpoint()
 		}
-		emit(NodeEvent{NodeID: id, Phase: PhaseFinished, DurationMS: msSince(start)})
+		emit(NodeEvent{NodeID: id, Phase: PhaseFinished, DurationMS: msSince(start), Outputs: cs.OutputsOf(id)})
 		return out, nil
 	}
 }

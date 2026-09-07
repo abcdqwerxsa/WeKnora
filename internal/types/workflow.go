@@ -108,8 +108,36 @@ type WorkflowRunEvent struct {
 	Err string `json:"error,omitempty"`
 	// DurationMS is the node execution duration for finished/failed frames.
 	DurationMS int64 `json:"duration_ms,omitempty"`
+	// Outputs is the node's recorded output map on finished frames — the
+	// payload the run-detail / debug panel renders. Absent on started and
+	// run frames; the service layer truncates oversized maps before
+	// publishing (SSE and trace persistence share one cap).
+	Outputs map[string]any `json:"outputs,omitempty"`
+	// Replayed marks finished frames whose outputs came from a checkpoint
+	// replay instead of a fresh execution (resume path, duration 0).
+	Replayed bool `json:"replayed,omitempty"`
 	// Status is the terminal run status for Kind=run frames.
 	Status string `json:"status,omitempty"`
+}
+
+// WorkflowRunTraceEntry is one node's terminal record inside a run's
+// persisted trace (WorkflowRun.Trace), in execution order.
+type WorkflowRunTraceEntry struct {
+	// NodeID is the DSL node id.
+	NodeID string `json:"node_id"`
+	// Kind is the node's component_name ("LLM", "Retrieval", ...).
+	Kind string `json:"kind"`
+	// Phase is the terminal phase of the node in this attempt:
+	// finished | failed.
+	Phase string `json:"phase"`
+	// DurationMS is the execution duration; 0 for checkpoint replays.
+	DurationMS int64 `json:"duration_ms,omitempty"`
+	// Outputs is the node's recorded outputs (size-capped by the service).
+	Outputs map[string]any `json:"outputs,omitempty"`
+	// Err is the failure message on failed entries.
+	Err string `json:"error,omitempty"`
+	// Replayed marks entries restored from a checkpoint (resume).
+	Replayed bool `json:"replayed,omitempty"`
 }
 
 // Workflow run statuses (persisted in workflow_runs.status).
@@ -134,6 +162,11 @@ type WorkflowRun struct {
 	Input JSON `yaml:"input" json:"input" gorm:"type:jsonb"`
 	// Run output document (opaque JSON)
 	Output JSON `yaml:"output" json:"output" gorm:"type:jsonb"`
+	// Trace is the persisted per-node execution record (JSON array of
+	// WorkflowRunTraceEntry, execution order) — the payload behind the
+	// run-detail/debug panel. Terminal node phases only (finished|failed);
+	// the list endpoint omits this column to keep history pages light.
+	Trace JSON `yaml:"trace" json:"trace" gorm:"type:jsonb"`
 	// Terminal error message when status=failed
 	Error string `yaml:"error" json:"error" gorm:"type:text"`
 

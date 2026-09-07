@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -145,6 +146,61 @@ func TestRunWorkflow_RetrievalSucceeds(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, types.WorkflowRunStatusSucceeded, run.Status)
 	assert.Contains(t, string(run.Output), "chunk text")
+}
+
+func TestRunWorkflow_TracePersistsNodeOutputs(t *testing.T) {
+	// Phase 1 run-debugging: the run row must carry a per-node trace in
+	// execution order, each entry with the node's kind and recorded
+	// outputs (the payload the detail panel renders).
+	_, run, err := runTestWorkflow(t, linearDSL)
+	require.NoError(t, err)
+	require.NotEmpty(t, run.Trace)
+	var trace []types.WorkflowRunTraceEntry
+	require.NoError(t, json.Unmarshal(run.Trace, &trace))
+	require.Len(t, trace, 3) // start → llm → ans
+	assert.Equal(t, "Start", trace[0].Kind)
+	assert.Equal(t, "hello", trace[0].Outputs["query"])
+	assert.Equal(t, "LLM", trace[1].Kind)
+	assert.Equal(t, "llm-answer", trace[1].Outputs["content"])
+	assert.Equal(t, "Answer", trace[2].Kind)
+	assert.Equal(t, "result: llm-answer", trace[2].Outputs["answer"])
+	for _, e := range trace {
+		assert.Equal(t, "finished", e.Phase)
+		assert.GreaterOrEqual(t, e.DurationMS, int64(0))
+	}
+}
+
+func TestRunWorkflow_FailedNodeTraceRecordsError(t *testing.T) {
+	// A node-level failure must land in the trace with its error text so
+	// the detail panel can point at the failing node.
+	failDSL := `{"version":1,"components":{
+		"start": {"obj": {"component_name": "Start", "params": {}}, "upstream": [], "downstream": ["ret"]},
+		"ret":   {"obj": {"component_name": "Retrieval", "params": {"query": "{start@query}", "kb_ids": ["kb-1"]}}, "upstream": ["start"], "downstream": ["ans"]},
+		"ans":   {"obj": {"component_name": "Answer", "params": {"template": "x"}}, "upstream": ["ret"], "downstream": []}
+	}}`
+	wf := &types.Workflow{ID: "wf-1", TenantID: 10001, Name: "wf", DSL: types.JSON(failDSL)}
+	repo := newRunRepoStub(wf)
+	svc := NewWorkflowService(repo, &wfStubModelSvc{reply: "x"}, &failingKBSvc{}, nil, nil)
+	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(10001))
+	run, err := svc.RunWorkflow(ctx, "wf-1", &types.RunWorkflowRequest{Query: "hello"})
+	require.Error(t, err)
+	require.NotNil(t, run)
+	var trace []types.WorkflowRunTraceEntry
+	require.NoError(t, json.Unmarshal(run.Trace, &trace))
+	require.Len(t, trace, 2) // start finished, ret failed
+	assert.Equal(t, "finished", trace[0].Phase)
+	assert.Equal(t, "failed", trace[1].Phase)
+	assert.Equal(t, "Retrieval", trace[1].Kind)
+	assert.NotEmpty(t, trace[1].Err)
+}
+
+// failingKBSvc makes every HybridSearch call fail (node-failure trace test).
+type failingKBSvc struct {
+	interfaces.KnowledgeBaseService
+}
+
+func (s *failingKBSvc) HybridSearch(_ context.Context, _ string, _ types.SearchParams) ([]*types.SearchResult, error) {
+	return nil, errors.New("kb down")
 }
 
 func TestRunWorkflow_InvalidDSLIsRejectedWithoutRunRow(t *testing.T) {

@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
     status VARCHAR(50) NOT NULL DEFAULT 'pending',
     input TEXT,
     output TEXT,
+    trace TEXT,
     error TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,

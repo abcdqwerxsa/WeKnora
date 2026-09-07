@@ -322,6 +322,28 @@ func (s *workflowService) ListWorkflowRuns(ctx context.Context, workflowID strin
 // execution synchronous behind this cap.
 const workflowRunTimeout = 120 * time.Second
 
+// workflowTraceNodeBytes caps one node's serialized outputs inside SSE
+// frames and the persisted trace. Oversized maps are replaced by a
+// truncated marker — the debug panel stays responsive and the run row
+// bounded no matter how large a retrieval or LLM payload is.
+// ponytail: fixed cap, no per-node override; raise via constant if a
+// workflow ever legitimately needs bigger payloads inspected.
+const workflowTraceNodeBytes = 256 * 1024
+
+// capTraceOutputs returns ev's outputs size-capped: maps whose marshalled
+// size exceeds the cap collapse to {"_truncated": true, "bytes": n}.
+func capTraceOutputs(ev wfengine.NodeEvent) wfengine.NodeEvent {
+	if len(ev.Outputs) == 0 {
+		return ev
+	}
+	data, err := json.Marshal(ev.Outputs)
+	if err == nil && len(data) <= workflowTraceNodeBytes {
+		return ev
+	}
+	ev.Outputs = map[string]any{"_truncated": true, "bytes": len(data)}
+	return ev
+}
+
 // RunWorkflow executes one run of a workflow in the caller's tenant.
 //
 // Lifecycle: a workflow_runs row is created in "pending" state first so
@@ -480,7 +502,40 @@ func (s *workflowService) executeWorkflowRun(
 		return err
 	}
 
+	// Trace accumulator: one entry per terminal node frame, execution
+	// order. Persisted on the run row at both terminal paths so the
+	// run-detail panel can replay any attempt (replayed nodes included —
+	// the engine emits Replayed frames for checkpoint resume).
+	trace := make([]types.WorkflowRunTraceEntry, 0, 8)
+	traceMu := sync.Mutex{}
+	appendTrace := func(entry types.WorkflowRunTraceEntry) {
+		traceMu.Lock()
+		defer traceMu.Unlock()
+		trace = append(trace, entry)
+	}
+	traceJSON := func() types.JSON {
+		traceMu.Lock()
+		defer traceMu.Unlock()
+		if len(trace) == 0 {
+			return nil
+		}
+		data, err := json.Marshal(trace)
+		if err != nil {
+			return nil
+		}
+		return types.JSON(data)
+	}
+	// nodeKind resolves a node id to its component_name for trace entries;
+	// unknown ids (should not happen) degrade to "".
+	nodeKind := func(nodeID string) string {
+		if comp, ok := normalized.Components[nodeID]; ok {
+			return comp.Obj.ComponentName
+		}
+		return ""
+	}
+
 	publishNode := func(ev wfengine.NodeEvent) {
+		ev = capTraceOutputs(ev)
 		logger.Infof(ctx, "[workflow:%s run:%s] node %s %s (%dms)",
 			wf.ID, run.ID, ev.NodeID, ev.Phase, ev.DurationMS)
 		frame := types.WorkflowRunEvent{
@@ -490,6 +545,8 @@ func (s *workflowService) executeWorkflowRun(
 			NodeID:     ev.NodeID,
 			Phase:      string(ev.Phase),
 			DurationMS: ev.DurationMS,
+			Outputs:    ev.Outputs,
+			Replayed:   ev.Replayed,
 		}
 		if ev.Err != nil {
 			frame.Err = ev.Err.Error()
@@ -501,6 +558,18 @@ func (s *workflowService) executeWorkflowRun(
 			SessionID: run.ID,
 			Data:      frame,
 		})
+		// Terminal node phases land in the persisted trace.
+		if ev.Phase == wfengine.PhaseFinished || ev.Phase == wfengine.PhaseFailed {
+			appendTrace(types.WorkflowRunTraceEntry{
+				NodeID:     ev.NodeID,
+				Kind:       nodeKind(ev.NodeID),
+				Phase:      string(ev.Phase),
+				DurationMS: ev.DurationMS,
+				Outputs:    ev.Outputs,
+				Err:        frame.Err,
+				Replayed:   ev.Replayed,
+			})
+		}
 	}
 
 	compiled, cerr := wfengine.Compile(normalized, wfengine.Deps{
@@ -517,7 +586,7 @@ func (s *workflowService) executeWorkflowRun(
 		CheckpointTTL: workflowCheckpointTTL,
 	})
 	if cerr != nil {
-		s.failWorkflowRun(ctx, run, cerr)
+		s.failWorkflowRunWithTrace(ctx, run, cerr, traceJSON)
 		return cerr
 	}
 
@@ -538,7 +607,7 @@ func (s *workflowService) executeWorkflowRun(
 		CheckpointID: run.ID,
 	})
 	if rerr != nil {
-		s.failWorkflowRun(ctx, run, rerr)
+		s.failWorkflowRunWithTrace(ctx, run, rerr, traceJSON)
 		return rerr
 	}
 
@@ -549,7 +618,7 @@ func (s *workflowService) executeWorkflowRun(
 	}
 	outJSON, merr := json.Marshal(outDoc)
 	if merr != nil {
-		s.failWorkflowRun(ctx, run, merr)
+		s.failWorkflowRunWithTrace(ctx, run, merr, traceJSON)
 		return merr
 	}
 	if s.runAlreadyCancelled(ctx, run) {
@@ -560,6 +629,7 @@ func (s *workflowService) executeWorkflowRun(
 	}
 	run.Status = types.WorkflowRunStatusSucceeded
 	run.Output = types.JSON(outJSON)
+	run.Trace = traceJSON()
 	if uerr := s.repo.UpdateWorkflowRun(ctx, run); uerr != nil {
 		logger.Errorf(ctx, "workflow run %s terminal update failed: %v", run.ID, uerr)
 		return uerr
@@ -574,6 +644,13 @@ func (s *workflowService) executeWorkflowRun(
 // racing the failure) is left alone — cancelled is also terminal and the
 // cancel path already closed SSE subscribers.
 func (s *workflowService) failWorkflowRun(ctx context.Context, run *types.WorkflowRun, cause error) {
+	s.failWorkflowRunWithTrace(ctx, run, cause, nil)
+}
+
+// failWorkflowRunWithTrace is failWorkflowRun with the run's accumulated
+// node trace (nil traceFn for failures before any node executed — enqueue,
+// compile — where there is nothing to record).
+func (s *workflowService) failWorkflowRunWithTrace(ctx context.Context, run *types.WorkflowRun, cause error, traceJSON func() types.JSON) {
 	if s.runAlreadyCancelled(ctx, run) {
 		logger.Infof(ctx, "[workflow:%s] run %s failure suppressed: row already cancelled (%v)",
 			run.WorkflowID, run.ID, cause)
@@ -581,6 +658,9 @@ func (s *workflowService) failWorkflowRun(ctx context.Context, run *types.Workfl
 	}
 	run.Status = types.WorkflowRunStatusFailed
 	run.Error = cause.Error()
+	if traceJSON != nil {
+		run.Trace = traceJSON()
+	}
 	if err := s.repo.UpdateWorkflowRun(ctx, run); err != nil {
 		logger.Errorf(ctx, "workflow run %s failure update failed: %v", run.ID, err)
 	}
