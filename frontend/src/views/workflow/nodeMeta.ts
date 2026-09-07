@@ -17,10 +17,13 @@ export const NODE_PALETTE: NodePaletteEntry[] = [
   { kind: 'LLM', group: 'basic' },
   { kind: 'Retrieval', group: 'basic' },
   { kind: 'Switch', group: 'basic' },
+  { kind: 'QuestionClassifier', group: 'basic' },
+  { kind: 'ParameterExtractor', group: 'basic' },
   { kind: 'Answer', group: 'basic' },
   { kind: 'Template', group: 'transform' },
   { kind: 'VariableAggregator', group: 'transform' },
   { kind: 'DataOps', group: 'data' },
+  { kind: 'WebSearch', group: 'network' },
   { kind: 'HTTP', group: 'network' },
 ]
 
@@ -37,6 +40,9 @@ export const NODE_COLORS: Record<WorkflowNodeType, string> = {
   VariableAggregator: '#c25bd1',
   DataOps: '#5a6acf',
   HTTP: '#d1605a',
+  WebSearch: '#e8b339',
+  QuestionClassifier: '#f07f6c',
+  ParameterExtractor: '#6ca87f',
 }
 
 /** Node-side parameter badge icon (subset of tdesign icon names). */
@@ -50,6 +56,9 @@ export const NODE_ICONS: Record<WorkflowNodeType, string> = {
   VariableAggregator: 'merge',
   DataOps: 'server',
   HTTP: 'link',
+  WebSearch: 'internet',
+  QuestionClassifier: 'branch',
+  ParameterExtractor: 'filter',
 }
 
 /** Upstream output params a reference picker may offer for a node kind. */
@@ -73,6 +82,16 @@ export function outputParamsOf(kind: WorkflowNodeType, params?: Record<string, u
       return ['status_code', 'body', 'headers']
     case 'DataOps':
       return ['columns', 'rows', 'row_count']
+    case 'WebSearch':
+      return ['results', 'result_count']
+    case 'QuestionClassifier':
+      return ['class']
+    case 'ParameterExtractor': {
+      const decls = params?.parameters
+      return Array.isArray(decls)
+        ? decls.map((p) => String((p as { name?: unknown })?.name ?? '')).filter(Boolean)
+        : []
+    }
     case 'VariableAggregator': {
       // Outputs are the user-declared variable names.
       const vars = params?.variables
@@ -165,6 +184,14 @@ export function paramSummary(kind: WorkflowNodeType, params?: Record<string, unk
     }
     case 'DataOps':
       return typeof params.sql === 'string' && params.sql.trim() ? 'SQL' : ''
+    case 'WebSearch': {
+      const n = typeof params.max_results === 'number' ? params.max_results : 0
+      return n > 0 ? `top ${n}` : ''
+    }
+    case 'QuestionClassifier':
+      return count(params.classes) > 0 ? `${count(params.classes)} classes` : ''
+    case 'ParameterExtractor':
+      return count(params.parameters) > 0 ? `${count(params.parameters)} params` : ''
     default:
       return ''
   }

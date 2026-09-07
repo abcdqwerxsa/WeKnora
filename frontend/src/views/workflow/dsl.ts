@@ -38,6 +38,12 @@ export function defaultParams(kind: WorkflowNodeType): Record<string, unknown> {
       return { method: 'GET', url: '', headers: {}, body_template: '', timeout_seconds: 30 }
     case 'DataOps':
       return { sql: '', variables: [] as Array<{ name: string; ref: string }> }
+    case 'WebSearch':
+      return { query: '', provider_id: '', max_results: 5 }
+    case 'QuestionClassifier':
+      return { query: '', classes: [] as unknown[], default: '' }
+    case 'ParameterExtractor':
+      return { query: '', parameters: [] as unknown[] }
     default:
       return {}
   }

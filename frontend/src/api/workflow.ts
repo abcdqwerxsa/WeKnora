@@ -55,6 +55,21 @@ export interface SwitchCaseGroup {
   to: string
 }
 
+/** One classifier class: the LLM picks a class, the branch routes to To. */
+export interface ClassifierClass {
+  name: string
+  description?: string
+  to: string
+}
+
+/** One structured parameter the ParameterExtractor LLM must extract. */
+export interface ExtractorParam {
+  name: string
+  description?: string
+  type: 'string' | 'number' | 'boolean'
+  required?: boolean
+}
+
 /** Start-node input form field declaration. */
 export interface StartField {
   name: string

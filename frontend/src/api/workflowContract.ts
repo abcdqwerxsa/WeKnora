@@ -16,6 +16,9 @@ export type WorkflowNodeType =
   | 'VariableAggregator'
   | 'HTTP'
   | 'DataOps'
+  | 'WebSearch'
+  | 'QuestionClassifier'
+  | 'ParameterExtractor'
 
 export type WorkflowStatus = 'draft' | 'published' | 'archived'
 
@@ -29,6 +32,9 @@ export const WORKFLOW_NODE_TYPES: WorkflowNodeType[] = [
   'VariableAggregator',
   'HTTP',
   'DataOps',
+  'WebSearch',
+  'QuestionClassifier',
+  'ParameterExtractor',
 ]
 
 /** Engine output keys per node kind (source of {nodeId@param} references). */

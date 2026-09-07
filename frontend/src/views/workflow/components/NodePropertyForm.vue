@@ -411,6 +411,159 @@
       </t-form-item>
       <p class="wf-prop-hint">{{ t('workflow.editor.dataOpsHint') }}</p>
     </template>
+    <!-- ================= WebSearch ================= -->
+    <template v-else-if="kind === 'WebSearch'">
+      <t-form-item :label="t('workflow.editor.queryTemplate')">
+        <div class="wf-prop-field">
+          <RefTextarea
+            :model-value="strParam('query')"
+            :autosize="{ minRows: 2, maxRows: 6 }"
+            :placeholder="t('workflow.editor.promptHint')"
+            :suggestions="refSuggestions"
+            @change="setParam('query', $event)"
+          />
+          <VariableRefPicker
+            :current-node-id="currentNodeId"
+            :nodes="nodes"
+            :edges="edges"
+            :env-names="envNames"
+            @insert="insertRef('query', $event)"
+          />
+        </div>
+      </t-form-item>
+      <t-form-item :label="t('workflow.editor.searchProvider')">
+        <t-select
+          :value="strParam('provider_id')"
+          :placeholder="t('workflow.editor.searchProviderHint')"
+          clearable
+          filterable
+          @change="setParam('provider_id', $event)"
+        >
+          <t-option v-for="provider in webSearchProviders" :key="provider.id" :value="provider.id" :label="provider.name" />
+        </t-select>
+      </t-form-item>
+      <t-form-item :label="t('workflow.editor.maxResults')">
+        <t-input-number :value="numParam('max_results', 5)" :min="1" :max="20" theme="column" @change="setParam('max_results', $event)" />
+      </t-form-item>
+      <p class="wf-prop-hint">{{ t('workflow.editor.webSearchHint') }}</p>
+    </template>
+
+    <!-- ================= QuestionClassifier ================= -->
+    <template v-else-if="kind === 'QuestionClassifier'">
+      <t-form-item :label="t('workflow.editor.queryTemplate')">
+        <div class="wf-prop-field">
+          <RefTextarea
+            :model-value="strParam('query')"
+            :autosize="{ minRows: 2, maxRows: 6 }"
+            :placeholder="t('workflow.editor.promptHint')"
+            :suggestions="refSuggestions"
+            @change="setParam('query', $event)"
+          />
+          <VariableRefPicker
+            :current-node-id="currentNodeId"
+            :nodes="nodes"
+            :edges="edges"
+            :env-names="envNames"
+            @insert="insertRef('query', $event)"
+          />
+        </div>
+      </t-form-item>
+      <t-form-item :label="t('workflow.editor.model')">
+        <t-select
+          :value="strParam('model')"
+          :placeholder="t('workflow.editor.modelPlaceholder')"
+          clearable
+          filterable
+          @change="setParam('model', $event)"
+        >
+          <t-option v-for="m in chatModels" :key="m.id" :value="m.id" :label="modelLabel(m.name)" />
+        </t-select>
+      </t-form-item>
+      <t-form-item :label="t('workflow.editor.classes')">
+        <div class="wf-prop-rows">
+          <div v-for="(item, index) in classifierClasses" :key="index" class="wf-prop-case">
+            <div class="wf-prop-row">
+              <t-input v-model="item.name" :placeholder="t('workflow.editor.className')" />
+              <t-select v-model="item.to" :placeholder="t('workflow.editor.caseTarget')" clearable size="small">
+                <t-option v-for="option in nodeOptions" :key="option.value" :value="option.value" :label="option.label" />
+              </t-select>
+              <t-button variant="text" theme="danger" size="small" @click="classifierClasses.splice(index, 1)">
+                <template #icon><t-icon name="delete" /></template>
+              </t-button>
+            </div>
+            <t-input v-model="item.description" :placeholder="t('workflow.editor.classDesc')" />
+          </div>
+          <t-button variant="dashed" size="small" block @click="classifierClasses.push({ name: '', to: '' })">
+            {{ t('workflow.editor.addClass') }}
+          </t-button>
+        </div>
+      </t-form-item>
+      <t-form-item :label="t('workflow.editor.defaultBranch')">
+        <t-select
+          :value="strParam('default')"
+          :placeholder="t('workflow.editor.caseTarget')"
+          clearable
+          @change="setParam('default', $event)"
+        >
+          <t-option v-for="option in nodeOptions" :key="option.value" :value="option.value" :label="option.label" />
+        </t-select>
+      </t-form-item>
+    </template>
+
+    <!-- ================= ParameterExtractor ================= -->
+    <template v-else-if="kind === 'ParameterExtractor'">
+      <t-form-item :label="t('workflow.editor.inputText')">
+        <div class="wf-prop-field">
+          <RefTextarea
+            :model-value="strParam('query')"
+            :autosize="{ minRows: 2, maxRows: 8 }"
+            :placeholder="t('workflow.editor.promptHint')"
+            :suggestions="refSuggestions"
+            @change="setParam('query', $event)"
+          />
+          <VariableRefPicker
+            :current-node-id="currentNodeId"
+            :nodes="nodes"
+            :edges="edges"
+            :env-names="envNames"
+            @insert="insertRef('query', $event)"
+          />
+        </div>
+      </t-form-item>
+      <t-form-item :label="t('workflow.editor.model')">
+        <t-select
+          :value="strParam('model')"
+          :placeholder="t('workflow.editor.modelPlaceholder')"
+          clearable
+          filterable
+          @change="setParam('model', $event)"
+        >
+          <t-option v-for="m in chatModels" :key="m.id" :value="m.id" :label="modelLabel(m.name)" />
+        </t-select>
+      </t-form-item>
+      <t-form-item :label="t('workflow.editor.extractParams')">
+        <div class="wf-prop-rows">
+          <div v-for="(item, index) in extractorParams" :key="index" class="wf-prop-case">
+            <div class="wf-prop-row">
+              <t-input v-model="item.name" :placeholder="t('workflow.editor.varName')" />
+              <t-select v-model="item.type" class="wf-prop-field-type">
+                <t-option value="string" :label="t('workflow.editor.fieldText')" />
+                <t-option value="number" :label="t('workflow.editor.fieldNumber')" />
+                <t-option value="boolean" :label="t('workflow.editor.fieldBool')" />
+              </t-select>
+              <t-checkbox v-model="item.required">{{ t('workflow.editor.fieldRequired') }}</t-checkbox>
+              <t-button variant="text" theme="danger" size="small" @click="extractorParams.splice(index, 1)">
+                <template #icon><t-icon name="delete" /></template>
+              </t-button>
+            </div>
+            <t-input v-model="item.description" :placeholder="t('workflow.editor.classDesc')" />
+          </div>
+          <t-button variant="dashed" size="small" block @click="addExtractorParam()">
+            {{ t('workflow.editor.addExtractParam') }}
+          </t-button>
+        </div>
+      </t-form-item>
+    </template>
   </div>
 </template>
 
@@ -419,7 +572,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Edge } from '@vue-flow/core'
 import type { ModelConfig } from '@/api/model'
-import type { StartField, SwitchCaseGroup, TemplateOp, WorkflowNodeType } from '@/api/workflow'
+import type { ClassifierClass, ExtractorParam, StartField, SwitchCaseGroup, TemplateOp, WorkflowNodeType } from '@/api/workflow'
 import VariableRefPicker from './VariableRefPicker.vue'
 import RefTextarea from './RefTextarea.vue'
 import { upstreamRefSuggestions } from '../nodeMeta'
@@ -446,6 +599,8 @@ const props = defineProps<{
   kbs: Array<{ id: string; name: string }>
   /** Workflow variable names (env.* suggestions in pickers/autocomplete). */
   envNames?: string[]
+  /** Configured web search providers (WebSearch node picker). */
+  webSearchProviders?: Array<{ id: string; name: string }>
 }>()
 
 const { t } = useI18n()
@@ -504,6 +659,14 @@ const startFields = computed<Array<StartField & Record<string, unknown>>>({
 
 function addField() {
   startFields.value.push({ name: '', type: 'text', required: false, default: '', label: '', options: [] })
+}
+
+const classifierClasses = computed<Array<ClassifierClass & Record<string, unknown>>>({ get: () => (Array.isArray(props.params.classes) ? (props.params.classes as Array<ClassifierClass & Record<string, unknown>>) : []), set: (value) => setParam('classes', value) })
+
+const extractorParams = computed<Array<ExtractorParam & Record<string, unknown>>>({ get: () => (Array.isArray(props.params.parameters) ? (props.params.parameters as Array<ExtractorParam & Record<string, unknown>>) : []), set: (value) => setParam('parameters', value) })
+
+function addExtractorParam() {
+  extractorParams.value.push({ name: '', type: 'string', required: false, description: '' })
 }
 
 /** Inline {ref} autocomplete options for template textareas. */

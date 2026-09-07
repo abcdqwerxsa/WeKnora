@@ -104,6 +104,7 @@
         :rerank-models="rerankModels"
         :kbs="kbs"
         :env-names="envNames"
+        :web-search-providers="webSearchProviders"
       />
       <div v-else class="wf-editor-form-empty">
         {{ $t('workflow.editor.selectNode') }}
@@ -182,6 +183,7 @@ import { buildDsl, defaultParams, makeNodeId, migrateNodeParams, normalizeDsl, a
 import { paramSummary } from './nodeMeta'
 import { listModels, type ModelConfig } from '@/api/model'
 import { listKnowledgeBases } from '@/api/knowledge-base'
+import { listWebSearchProviders } from '@/api/web-search-provider'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -246,6 +248,7 @@ const canvasEdges = ref([]) as Ref<Edge[]>
 const chatModels = ref<ModelConfig[]>([])
 const rerankModels = ref<ModelConfig[]>([])
 const kbs = ref<Array<{ id: string; name: string }>>([])
+const webSearchProviders = ref<Array<{ id: string; name: string }>>([])
 
 const pickerNodes = computed(() =>
   canvasNodes.value.map((node) => ({
@@ -268,6 +271,15 @@ async function fetchPickerData() {
     const response = await listKnowledgeBases()
     const items = ((response as unknown as { data?: { list?: unknown[] } })?.data?.list ?? (response as unknown as { list?: unknown[] })?.list ?? []) as Array<{ id: string; name: string }>
     kbs.value = Array.isArray(items) ? items.map((item) => ({ id: String(item.id), name: String(item.name ?? item.id) })) : []
+  } catch {
+    // keep empty pickers
+  }
+  try {
+    const response = await listWebSearchProviders()
+    const items = ((response as unknown as { data?: unknown })?.data ?? response ?? []) as Array<{ id: string; name?: string }>
+    webSearchProviders.value = Array.isArray(items)
+      ? items.map((item) => ({ id: String(item.id), name: String(item.name ?? item.id) }))
+      : []
   } catch {
     // keep empty pickers
   }
