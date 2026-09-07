@@ -6924,7 +6924,6 @@ export default {
         noEntry: 'No entry node (a node without upstream edges) found',
         multipleEntries: '{count} entry nodes: {names} (exactly one allowed)',
         noTerminal: 'No terminal node (a node without downstream edges) found',
-        multipleTerminals: '{count} terminal nodes: {names} (the engine allows exactly one)',
         unreachable: 'Node {name} is unreachable from the entry',
         staleRef: 'Node {name} references missing {ref}',
       },

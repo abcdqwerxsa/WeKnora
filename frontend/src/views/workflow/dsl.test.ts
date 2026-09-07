@@ -38,8 +38,10 @@ test('validateGraph flags multiple entries, multiple terminals, stale refs and u
   )
   const keys = issues.map((i) => i.key)
   assert.ok(keys.includes('multipleEntries'))
-  // b, c, x, y all lack downstream edges → multiple terminals
-  assert.ok(keys.includes('multipleTerminals'))
+  // Multiple terminals are legal now (parallel fan-out) — must NOT be flagged.
+  assert.ok(!keys.includes('multipleTerminals'))
+  // b, c, x, y all lack downstream edges → no noTerminal (each is a terminal)
+  assert.ok(!keys.includes('noTerminal'))
   assert.deepEqual(
     issues.filter((i) => i.key === 'unreachable').map((i) => i.nodeId),
     ['x', 'y'],

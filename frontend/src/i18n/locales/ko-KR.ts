@@ -6924,7 +6924,6 @@ export default {
         noEntry: '진입 노드(업스트림 간선이 없는 노드)가 없습니다',
         multipleEntries: '진입 노드가 {count}개 있습니다: {names} (정확히 하나만 허용)',
         noTerminal: '종료 노드(다운스트림 간선이 없는 노드)가 없습니다',
-        multipleTerminals: '종료 노드가 {count}개 있습니다: {names} (엔진은 정확히 하나만 허용)',
         unreachable: '노드 {name}은(는) 진입 노드에서 도달할 수 없습니다',
         staleRef: '노드 {name}이(가) 존재하지 않는 {ref}을(를) 참조합니다',
       },

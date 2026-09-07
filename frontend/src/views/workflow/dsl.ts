@@ -348,9 +348,8 @@ export function validateGraph(nodes: WFNode[], edges: WFEdge[]): GraphIssue[] {
     issues.push({ level: 'error', key: 'multipleEntries', values: { count: entries.length, names: entries.map((n) => n.id).join(', ') } })
   }
   if (terminals.length === 0) issues.push({ level: 'error', key: 'noTerminal' })
-  if (terminals.length > 1) {
-    issues.push({ level: 'error', key: 'multipleTerminals', values: { count: terminals.length, names: terminals.map((n) => n.id).join(', ') } })
-  }
+  // Multiple terminals are legal (parallel branches need not converge).
+  // One terminal answer still wins the run result — first to complete.
 
   // Reachability from the entry set (BFS over edges).
   if (entries.length > 0) {

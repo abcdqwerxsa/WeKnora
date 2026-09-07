@@ -6926,7 +6926,6 @@ export default {
         noEntry: '缺少入口节点（无上游连线的节点）',
         multipleEntries: '存在 {count} 个入口节点：{names}（只允许一个）',
         noTerminal: '缺少终端节点（无下游连线的节点）',
-        multipleTerminals: '存在 {count} 个终端节点：{names}（当前引擎只允许一个）',
         unreachable: '节点 {name} 从入口不可达',
         staleRef: '节点 {name} 引用了不存在的 {ref}',
       },

@@ -107,12 +107,14 @@ type runCtxKey struct{}
 
 // Compile normalizes and validates the DSL, then builds an eino graph.
 //
-// MVP topology constraints (surfaced as errors here):
+// Topology contract:
 //   - exactly one entry node (no upstream, not targeted by any edge) — eino
 //     feeds the graph input to a single start;
-//   - exactly one terminal node (no downstream) — the graph output type is
-//     a single map, so multiple ends would need merge semantics this engine
-//     does not define yet.
+//   - one or more terminal nodes (no downstream) — every terminal wires to
+//     END; parallel branches need not converge (the run result is assembled
+//     from the CanvasState, not the graph output, so the LAST writer to END
+//     is irrelevant). The Path/outputs of every executed node are recorded
+//     regardless of which terminal finishes first.
 //
 // Cycles are rejected by eino at compile time and passed through wrapped.
 func Compile(dsl *DSL, deps Deps) (*Workflow, error) {
@@ -126,8 +128,8 @@ func Compile(dsl *DSL, deps Deps) (*Workflow, error) {
 		return nil, fmt.Errorf("workflow: compile requires exactly one entry node, found %d (%v)", len(entries), entries)
 	}
 	terminals := terminalIDs(norm.Components)
-	if len(terminals) != 1 {
-		return nil, fmt.Errorf("workflow: compile requires exactly one terminal node, found %d (%v) — MVP graphs must converge on a single end node", len(terminals), terminals)
+	if len(terminals) == 0 {
+		return nil, fmt.Errorf("workflow: compile requires at least one terminal node (a node without downstream)")
 	}
 
 	g := compose.NewGraph[map[string]any, map[string]any](
@@ -267,13 +269,14 @@ func Compile(dsl *DSL, deps Deps) (*Workflow, error) {
 		}
 	}
 
-	// Wire the single entry to START and the single terminal to END.
-	// (entries/terminals were validated to be exactly one each above.)
+	// Wire the single entry to START and every terminal to END.
 	if err := g.AddEdge(compose.START, graphKey(entries[0])); err != nil {
 		return nil, fmt.Errorf("workflow: wire start: %w", err)
 	}
-	if err := g.AddEdge(graphKey(terminals[0]), compose.END); err != nil {
-		return nil, fmt.Errorf("workflow: wire end: %w", err)
+	for _, term := range terminals {
+		if err := g.AddEdge(graphKey(term), compose.END); err != nil {
+			return nil, fmt.Errorf("workflow: wire end %q: %w", term, err)
+		}
 	}
 
 	compileOpts := []compose.GraphCompileOption{}
@@ -495,7 +498,7 @@ func nodeClosure(id string, node nodes.Node, deps Deps, policy errorPolicy) func
 		if req, _ := ctx.Value(runCtxKey{}).(*runRequest); req != nil && req.resume != nil {
 			if cached := req.resume.OutputsOf(id); len(cached) > 0 {
 				emit(NodeEvent{NodeID: id, Phase: PhaseFinished, Outputs: cached, Replayed: true})
-				return cached, nil
+				return edgeView(cached), nil
 			}
 		}
 
@@ -557,7 +560,7 @@ func nodeClosure(id string, node nodes.Node, deps Deps, policy errorPolicy) func
 					cs.SetOutput(id, k, v)
 				}
 				emit(NodeEvent{NodeID: id, Phase: PhaseFinished, DurationMS: msSince(start), Outputs: cs.OutputsOf(id)})
-				return fallback, nil
+				return edgeView(fallback), nil
 			}
 			if policy.action == "route_to" {
 				fallback := map[string]any{nodes.RouteOutputKey: policy.routeTo, "_error": wrapped.Error()}
@@ -570,7 +573,7 @@ func nodeClosure(id string, node nodes.Node, deps Deps, policy errorPolicy) func
 					}
 				}
 				emit(NodeEvent{NodeID: id, Phase: PhaseFinished, DurationMS: msSince(start), Outputs: cs.OutputsOf(id)})
-				return fallback, nil
+				return edgeView(fallback), nil
 			}
 			finish(wrapped)
 			return nil, wrapped
@@ -586,8 +589,22 @@ func nodeClosure(id string, node nodes.Node, deps Deps, policy errorPolicy) func
 			req.persistCheckpoint()
 		}
 		emit(NodeEvent{NodeID: id, Phase: PhaseFinished, DurationMS: msSince(start), Outputs: cs.OutputsOf(id)})
-		return out, nil
+		return edgeView(out), nil
 	}
+}
+
+// edgeView projects a node's outputs onto what the graph edges carry: the
+// routing key only. All data flows through the CanvasState (nodes read
+// upstream values exclusively via StateFromInputs), so stripping the rest
+// makes every edge payload key-disjoint — eino merges multi-writer channels
+// (parallel fan-out, multiple terminals) by map key and rejects duplicates
+// (two LLM branches would both carry "content"). Branch conds still find
+// RouteOutputKey because routing nodes are single writers to their branch.
+func edgeView(out map[string]any) map[string]any {
+	if route, ok := out[nodes.RouteOutputKey].(string); ok && route != "" {
+		return map[string]any{nodes.RouteOutputKey: route}
+	}
+	return map[string]any{}
 }
 
 // graphKey maps a DSL node id onto an eino graph node key. eino reserves

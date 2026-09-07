@@ -209,11 +209,17 @@ func TestCompileTopologyErrors(t *testing.T) {
 		}
 	})
 	t.Run("two terminals", func(t *testing.T) {
-		_, err := Compile(mk(func(c map[string]*Component) {
+		// RELAXED: parallel branches need not converge — two terminals are
+		// legal; every executed branch records outputs. The run result comes
+		// from the CanvasState, not the (merged-empty) graph output.
+		wf, err := Compile(mk(func(c map[string]*Component) {
 			c["llm"].Downstream = nil // ans and retr both terminal
 		}), linearDeps(&eventLog{}))
-		if err == nil || !strings.Contains(err.Error(), "terminal") {
-			t.Errorf("err = %v, want terminal error", err)
+		if err != nil {
+			t.Fatalf("multi-terminal must compile: %v", err)
+		}
+		if _, err := wf.Run(context.Background(), "q", nil); err != nil {
+			t.Errorf("multi-terminal run: %v", err)
 		}
 	})
 	t.Run("unknown downstream", func(t *testing.T) {
@@ -373,5 +379,79 @@ func TestNodeRetryRetriesFailedInvokes(t *testing.T) {
 	}
 	if calls != 3 { // 1 initial + 2 retries
 		t.Errorf("invoke calls=%d want 3", calls)
+	}
+}
+
+// ---- multi-terminal / parallel relaxation ----------------------------------
+
+func TestCompileRunParallelFanOutMultiTerminal(t *testing.T) {
+	// start fans out to two LLM branches that NEVER converge; both are
+	// terminals. Every branch must execute and record its outputs.
+	log := &eventLog{}
+	dsl := &DSL{
+		Version: 1, Components: map[string]*Component{
+			"start": {Obj: ComponentObj{ComponentName: "Start"}, Downstream: []string{"llm_a", "llm_b"}},
+			"llm_a": {Obj: ComponentObj{ComponentName: "LLM", Params: map[string]any{"prompt": "A:{sys.query}"}}, Upstream: []string{"start"}},
+			"llm_b": {Obj: ComponentObj{ComponentName: "LLM", Params: map[string]any{"prompt": "B:{sys.query}"}}, Upstream: []string{"start"}},
+		},
+	}
+	deps := linearDeps(log)
+	wf, err := Compile(dsl, deps)
+	if err != nil {
+		t.Fatalf("Compile (multi-terminal): %v", err)
+	}
+	res, err := wf.Run(context.Background(), "q", nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	// Both branches executed and recorded outputs.
+	if _, ok := res.Outputs.Outputs["llm_a"]["content"]; !ok {
+		t.Errorf("llm_a outputs missing: %+v", res.Outputs.Outputs["llm_a"])
+	}
+	if _, ok := res.Outputs.Outputs["llm_b"]["content"]; !ok {
+		t.Errorf("llm_b outputs missing: %+v", res.Outputs.Outputs["llm_b"])
+	}
+	// Path contains start + both branches (order is completion order).
+	if len(res.Path) != 3 {
+		t.Errorf("Path = %v, want 3 nodes", res.Path)
+	}
+	// No Answer node ran → empty answer, run still succeeds.
+	if res.Answer != "" {
+		t.Errorf("Answer = %q, want empty", res.Answer)
+	}
+}
+
+func TestCompileRunParallelMultipleAnswerTerminals(t *testing.T) {
+	// Two Answer terminals in parallel: the first to complete in path order
+	// wins the run's Answer (documented nondeterminism).
+	dsl := &DSL{
+		Version: 1, Components: map[string]*Component{
+			"start": {Obj: ComponentObj{ComponentName: "Start"}, Downstream: []string{"ans_a", "ans_b"}},
+			"ans_a": {Obj: ComponentObj{ComponentName: "Answer", Params: map[string]any{"template": "from a"}}, Upstream: []string{"start"}},
+			"ans_b": {Obj: ComponentObj{ComponentName: "Answer", Params: map[string]any{"template": "from b"}}, Upstream: []string{"start"}},
+		},
+	}
+	wf, err := Compile(dsl, linearDeps(&eventLog{}))
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	res, err := wf.Run(context.Background(), "q", nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != "from a" && res.Answer != "from b" {
+		t.Errorf("Answer = %q, want one of the branches", res.Answer)
+	}
+}
+
+func TestCompileStillRejectsZeroTerminals(t *testing.T) {
+	// A pure cycle has no terminal — still rejected.
+	dsl := &DSL{Version: 1, Components: map[string]*Component{
+		"start": {Obj: ComponentObj{ComponentName: "Start"}, Downstream: []string{"a"}},
+		"a":     {Obj: ComponentObj{ComponentName: "LLM", Params: map[string]any{"prompt": "x"}}, Upstream: []string{"start", "b"}, Downstream: []string{"b"}},
+		"b":     {Obj: ComponentObj{ComponentName: "Answer", Params: map[string]any{"template": "y"}}, Upstream: []string{"a"}, Downstream: []string{"a"}},
+	}}
+	if _, err := Compile(dsl, Deps{}); err == nil {
+		t.Error("cycle without terminal must fail compilation")
 	}
 }
