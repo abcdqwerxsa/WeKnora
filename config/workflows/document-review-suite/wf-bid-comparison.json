@@ -1,0 +1,100 @@
+{
+  "name": "wf-bid-comparison",
+  "description": "Bid parse → scoring structure → item-by-item compare → risk annotate. Loop driven externally by items.length.",
+  "dsl": {
+    "version": 1,
+    "components": {
+      "start-1": {
+        "params": {},
+        "downstream": ["retrieval-bid-tpl"]
+      },
+      "retrieval-bid-tpl": {
+        "params": {
+          "query": "招标文件 结构 评分表 章节",
+          "kb_ids": ["KB_BID_TEMPLATE"],
+          "top_k": 8
+        },
+        "upstream": ["start-1"],
+        "downstream": ["llm-parser"]
+      },
+      "llm-parser": {
+        "params": {
+          "agent_id": "builtin-bid-parser",
+          "prompt": "请解析招标文件 {start_id@files[0]}，输出结构化 JSON：qualifications / scoring_table / tech_specs / knockout_clauses。",
+          "temperature": 0.1
+        },
+        "upstream": ["retrieval-bid-tpl"],
+        "downstream": ["llm-scorer"]
+      },
+      "llm-scorer": {
+        "params": {
+          "agent_id": "builtin-bid-scorer",
+          "prompt": "请把 {llm-parser@content} 中的 scoring_table 拆解为评分项五元组数组。",
+          "temperature": 0.05
+        },
+        "upstream": ["llm-parser"],
+        "downstream": ["llm-comparator-0"]
+      },
+      "llm-comparator-0": {
+        "params": {
+          "agent_id": "builtin-bid-comparator",
+          "prompt": "对评分项 id=T-001：在投标文件 {start_id@files[1]} 中检索应答并判定满足 / 偏离 / 缺失。",
+          "temperature": 0.2
+        },
+        "upstream": ["llm-scorer"],
+        "downstream": ["llm-comparator-1"]
+      },
+      "llm-comparator-1": {
+        "params": {
+          "agent_id": "builtin-bid-comparator",
+          "prompt": "对评分项 id=T-002：在投标文件 {start_id@files[1]} 中检索应答并判定。",
+          "temperature": 0.2
+        },
+        "upstream": ["llm-comparator-0"],
+        "downstream": ["llm-comparator-2"]
+      },
+      "llm-comparator-2": {
+        "params": {
+          "agent_id": "builtin-bid-comparator",
+          "prompt": "对评分项 id=T-003：在投标文件 {start_id@files[1]} 中检索应答并判定。",
+          "temperature": 0.2
+        },
+        "upstream": ["llm-comparator-1"],
+        "downstream": ["agg-results"]
+      },
+      "agg-results": {
+        "params": {
+          "variables": [
+            { "name": "all_comparisons", "ref": "[{llm-comparator-0@content}, {llm-comparator-1@content}, {llm-comparator-2@content}]" }
+          ]
+        },
+        "upstream": ["llm-comparator-2"],
+        "downstream": ["retrieval-history"]
+      },
+      "retrieval-history": {
+        "params": {
+          "query": "废标案例 负偏离 历史投标",
+          "kb_ids": ["KB_BID_HISTORY"],
+          "top_k": 12
+        },
+        "upstream": ["agg-results"],
+        "downstream": ["llm-risker"]
+      },
+      "llm-risker": {
+        "params": {
+          "agent_id": "builtin-bid-risker",
+          "prompt": "请对 {agg-results@all_comparisons} 中的缺失 / 负偏离项标注 high/medium/low 风险等级，引用历史废标案例，给出可操作修改建议。",
+          "temperature": 0.3
+        },
+        "upstream": ["retrieval-history"],
+        "downstream": ["answer-1"]
+      },
+      "answer-1": {
+        "params": {
+          "template": "## 招投标比对报告\n\n{llm-risker@content}\n\n---\n**待人工复核后定稿。**"
+        },
+        "upstream": ["llm-risker"]
+      }
+    }
+  }
+}
