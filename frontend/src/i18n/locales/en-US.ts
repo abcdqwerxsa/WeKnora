@@ -6929,6 +6929,7 @@ export default {
       refPickerEmpty: 'No upstream outputs available',
       deleteHint: 'Select a node or edge and press Delete; double-click an edge to remove it',
       startProtected: 'The Start node cannot be deleted',
+      startExists: 'A Start node already exists on the canvas',
       autoLayout: 'Auto layout',
       copyNode: 'Copy node',
       pasteNode: 'Paste node',

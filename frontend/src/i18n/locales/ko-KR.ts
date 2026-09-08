@@ -6929,6 +6929,7 @@ export default {
       refPickerEmpty: '사용 가능한 상위 출력 없음',
       deleteHint: '노드나 연결을 선택한 후 Delete 키로 삭제; 연결 더블클릭으로도 삭제',
       startProtected: '시작 노드는 삭제할 수 없습니다',
+      startExists: '캔버스에 시작 노드가 이미 있습니다',
       autoLayout: '자동 레이아웃',
       copyNode: '노드 복사',
       pasteNode: '노드 붙여넣기',

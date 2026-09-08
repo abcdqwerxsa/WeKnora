@@ -17,7 +17,7 @@
           <template #icon><t-icon name="layout" /></template>
           {{ $t('workflow.editor.autoLayout') }}
         </t-button>
-        <t-button variant="outline" @click="copySelectedNode" :disabled="!ready || !selectedNode">
+        <t-button variant="outline" @click="copySelectedNode" :disabled="!ready || !selectedNode || selectedKind === 'Start'">
           <template #icon><t-icon name="copy" /></template>
           {{ $t('workflow.editor.copyNode') }}
         </t-button>
@@ -660,6 +660,11 @@ function pasteClipboardNode() {
 
 function addNodeFromPalette(kind: WorkflowNodeType, presetParams?: Record<string, unknown>) {
   if (!WORKFLOW_NODE_TYPES.includes(kind)) return
+  // The engine compiles a single-entry graph: one Start node max.
+  if (kind === 'Start' && canvasNodes.value.some((item) => item.data?.kind === 'Start')) {
+    MessagePlugin.warning(t('workflow.editor.startExists'))
+    return
+  }
   // Drop near the canvas centre with a little jitter so repeated adds
   // don't stack exactly on top of each other.
   const n = canvasNodes.value.length
