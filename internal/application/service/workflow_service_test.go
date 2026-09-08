@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Tencent/WeKnora/internal/types"
+	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -137,7 +138,7 @@ var errWorkflowNotFoundStub = errors.New("workflow not found")
 
 func TestWorkflowService_CreateDerivesTenantAndCreatorFromContext(t *testing.T) {
 	repo := &stubWorkflowRepo{}
-	svc := NewWorkflowService(repo, nil, nil, nil, nil)
+	svc := newTestWFService(repo, nil, nil)
 
 	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(10001))
 	ctx = context.WithValue(ctx, types.UserIDContextKey, "user-a")
@@ -158,14 +159,14 @@ func TestWorkflowService_CreateDerivesTenantAndCreatorFromContext(t *testing.T) 
 }
 
 func TestWorkflowService_CreateWithoutTenantFails(t *testing.T) {
-	svc := NewWorkflowService(&stubWorkflowRepo{}, nil, nil, nil, nil)
+	svc := newTestWFService(&stubWorkflowRepo{}, nil, nil)
 	_, err := svc.CreateWorkflow(context.Background(), &types.Workflow{Name: "wf", DSL: types.JSON(validDSL)})
 	assert.ErrorIs(t, err, ErrWorkflowTenantRequired)
 }
 
 func TestWorkflowService_UpdateBumpsVersionAndKeepsDSLWhenOmitted(t *testing.T) {
 	repo := &stubWorkflowRepo{}
-	svc := NewWorkflowService(repo, nil, nil, nil, nil)
+	svc := newTestWFService(repo, nil, nil)
 
 	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(10001))
 	created, err := svc.CreateWorkflow(ctx, &types.Workflow{Name: "wf", DSL: types.JSON(validDSL)})
@@ -181,4 +182,70 @@ func TestWorkflowService_UpdateBumpsVersionAndKeepsDSLWhenOmitted(t *testing.T) 
 	assert.Equal(t, types.WorkflowStatusPublished, updated.Status)
 	assert.Equal(t, 2, updated.Version, "version must bump on update")
 	assert.Equal(t, validDSL, string(updated.DSL), "empty DSL must keep the stored document")
+}
+
+// ---- publish snapshot + run gate (Phase 4) --------------------------------
+
+func publishTestService(t *testing.T, status string, published types.JSON) (interfaces.WorkflowService, *runRepoStub) {
+	t.Helper()
+	wf := &types.Workflow{ID: "wf-1", TenantID: 10001, CreatorID: "user-9", Name: "wf", DSL: types.JSON(linearDSL), Status: status, PublishedDSL: published, Version: 1}
+	repo := newRunRepoStub(wf)
+	return newTestWFService(repo, &wfStubModelSvc{reply: "ok"}, &wfStubKBSvc{}), repo
+}
+
+func publishCtx(userID string) context.Context {
+	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(10001))
+	return context.WithValue(ctx, types.UserIDContextKey, userID)
+}
+
+func TestPublishWorkflowFreezesSnapshot(t *testing.T) {
+	svc, _ := publishTestService(t, types.WorkflowStatusDraft, nil)
+	wf, err := svc.PublishWorkflow(publishCtx("user-9"), "wf-1")
+	require.NoError(t, err)
+	assert.Equal(t, types.WorkflowStatusPublished, wf.Status)
+	assert.Equal(t, wf.DSL, wf.PublishedDSL, "publish freezes the current DSL")
+	assert.Equal(t, 2, wf.Version, "publish bumps the version")
+}
+
+func TestPublishWorkflowRejectsBrokenDSL(t *testing.T) {
+	wf := &types.Workflow{ID: "wf-1", TenantID: 10001, CreatorID: "u", Name: "wf", DSL: types.JSON(`{"version":1,"components":{}}`), Status: "draft"}
+	repo := newRunRepoStub(wf)
+	svc := newTestWFService(repo, nil, nil)
+	_, err := svc.PublishWorkflow(publishCtx("u"), "wf-1")
+	assert.ErrorIs(t, err, ErrWorkflowNotPublishable)
+}
+
+func TestRunWorkflowGate_DraftOnlyCreatorOrAdmin(t *testing.T) {
+	// Another contributor cannot run a draft.
+	svc, _ := publishTestService(t, types.WorkflowStatusDraft, nil)
+	_, err := svc.RunWorkflow(publishCtx("user-other"), "wf-1", &types.RunWorkflowRequest{Query: "q"})
+	assert.ErrorIs(t, err, ErrWorkflowNotDebuggable)
+
+	// Creator can (debug affordance).
+	_, err = svc.RunWorkflow(publishCtx("user-9"), "wf-1", &types.RunWorkflowRequest{Query: "q"})
+	assert.NoError(t, err)
+}
+
+func TestRunWorkflowGate_PublishedRunsSnapshot(t *testing.T) {
+	// Snapshot with a DIFFERENT answer than the draft: the run must prove
+	// it executed the snapshot, and any contributor may call it.
+	snapshot := `{"version":1,"components":{
+		"start": {"obj": {"component_name": "Start", "params": {}}, "upstream": [], "downstream": ["ans"]},
+		"ans":   {"obj": {"component_name": "Answer", "params": {"template": "from snapshot"}}, "upstream": ["start"], "downstream": []}
+	}}`
+	svc, _ := publishTestService(t, types.WorkflowStatusPublished, types.JSON(snapshot))
+	run, err := svc.RunWorkflow(publishCtx("user-any"), "wf-1", &types.RunWorkflowRequest{Query: "q"})
+	require.NoError(t, err)
+	assert.Equal(t, types.WorkflowRunStatusSucceeded, run.Status)
+	assert.Contains(t, string(run.Output), "from snapshot")
+}
+
+func TestSetWorkflowStatusRejectsPublished(t *testing.T) {
+	svc, _ := publishTestService(t, types.WorkflowStatusPublished, types.JSON(linearDSL))
+	_, err := svc.SetWorkflowStatus(publishCtx("u"), "wf-1", types.WorkflowStatusPublished)
+	assert.ErrorIs(t, err, ErrWorkflowInvalidStatus)
+	wf, err := svc.SetWorkflowStatus(publishCtx("u"), "wf-1", types.WorkflowStatusArchived)
+	require.NoError(t, err)
+	assert.Equal(t, types.WorkflowStatusArchived, wf.Status)
+	assert.NotNil(t, wf.PublishedDSL, "unpublish/archive keeps the snapshot for re-publish")
 }

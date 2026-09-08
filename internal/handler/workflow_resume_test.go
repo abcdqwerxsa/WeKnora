@@ -29,12 +29,15 @@ func TestResumeWorkflowRunHandler_FailedResumesTerminalConflicts(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			input, _ := json.Marshal(types.RunWorkflowRequest{Query: "q"})
-			wf := &types.Workflow{ID: "wf-r", TenantID: 7, Name: "wf", DSL: types.JSON(wfSSELinearDSL)}
+			// Published so the resume endpoint's debug gate (draft =
+			// creator/admin only) does not shadow the row-state conflicts
+			// under test.
+			wf := &types.Workflow{ID: "wf-r", TenantID: 7, Name: "wf", DSL: types.JSON(wfSSELinearDSL), Status: types.WorkflowStatusPublished}
 			repo := &wfEventsRepoStub{base: &wfEventsBaseRepo{saved: wf}}
 			repo.runs = map[string]*types.WorkflowRun{
 				"run-1": {ID: "run-1", TenantID: 7, WorkflowID: "wf-r", Status: tc.status, Input: types.JSON(input)},
 			}
-			svc := service.NewWorkflowService(repo, nil, nil, &wfEventsEnqueuer{}, nil)
+			svc := service.NewWorkflowService(repo, nil, nil, &wfEventsEnqueuer{}, nil, nil, nil, nil, nil, nil, nil)
 			h := NewWorkflowHandler(svc)
 
 			ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(7))

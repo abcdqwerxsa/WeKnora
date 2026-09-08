@@ -50,9 +50,18 @@ type Factory func(params map[string]any, deps Deps) (Node, error)
 // workflow that never runs an LLM node compiles fine without an LLMFunc.
 type Deps struct {
 	LLMFunc       LLMFunc
+	LLMStreamFunc LLMStreamFunc
 	RetrievalFunc RetrievalFunc
 	HTTPFunc      HTTPFunc
 	DataOpsFunc   DataOpsFunc
+	WebSearchFunc WebSearchFunc
+	CodeFunc      CodeFunc
+	AgentFunc     AgentFunc
+	MCPFunc       MCPFunc
+	// OnDelta (optional) receives incremental content chunks while a node
+	// streams (LLM token deltas). The compiler binds it per node; nodes
+	// treat nil as "no sink attached" and simply skip delta emission.
+	OnDelta func(delta string)
 }
 
 // LLMRequest is the rendered input handed to an injected LLMFunc.
@@ -69,6 +78,12 @@ type LLMRequest struct {
 
 // LLMFunc renders-and-calls one LLM turn. Injected by the compiler.
 type LLMFunc func(ctx context.Context, req LLMRequest) (string, error)
+
+// LLMStreamFunc is the streaming variant: every generated chunk is handed
+// to onDelta as it arrives, and the FULL concatenated text returns as the
+// result (the stream is the only executor — callers never join it twice).
+// Injected by the compiler; nil falls the node back to LLMFunc.
+type LLMStreamFunc func(ctx context.Context, req LLMRequest, onDelta func(string)) (string, error)
 
 // RetrievalRequest is the rendered input handed to an injected RetrievalFunc.
 type RetrievalRequest struct {

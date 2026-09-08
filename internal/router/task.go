@@ -275,7 +275,7 @@ func RunAsynqServer(params AsynqTaskParams) *asynq.ServeMux {
 	mux.HandleFunc(types.TypeFAQImport, params.KnowledgeService.ProcessFAQImport)
 
 	// Register question generation handler
-mux.HandleFunc(types.TypeQuestionGeneration, params.KnowledgeService.ProcessQuestionGeneration)
+	mux.HandleFunc(types.TypeQuestionGeneration, params.KnowledgeService.ProcessQuestionGeneration)
 
 	// Workflow async run: pending→terminal state machine owned by the run
 	// row; the handler no-ops on re-delivery of a non-pending run.

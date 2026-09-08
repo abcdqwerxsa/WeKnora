@@ -20,20 +20,14 @@ func newRedisTestClient(t *testing.T) *redis.Client {
 	return client
 }
 
-// interfaces_workflowSvc is the narrow slice the bridge tests need.
-type interfaces_workflowSvc = interface {
-	RunWorkflow(ctx context.Context, id string, req *types.RunWorkflowRequest) (*types.WorkflowRun, error)
-	SubscribeWorkflowRunEvents(runID string) (<-chan types.WorkflowRunEvent, func())
-}
-
 // TestRedisBridge_CrossInstanceDelivery: publisher and subscriber live on
 // DIFFERENT service instances (separate brokers) sharing one redis — the
 // only delivery path is the pubsub channel. Frames are driven directly
 // (deterministic; the full-run path is covered by the run tests).
 func TestRedisBridge_CrossInstanceDelivery(t *testing.T) {
 	client := newRedisTestClient(t)
-	instanceA := NewWorkflowService(newRunRepoStub(nil), nil, nil, nil, client).(*workflowService)
-	instanceB := NewWorkflowService(newRunRepoStub(nil), nil, nil, nil, client).(*workflowService)
+	instanceA := NewWorkflowService(newRunRepoStub(nil), nil, nil, nil, client, nil, nil, nil, nil, nil, nil).(*workflowService)
+	instanceB := NewWorkflowService(newRunRepoStub(nil), nil, nil, nil, client, nil, nil, nil, nil, nil, nil).(*workflowService)
 	ctx := context.Background()
 	const runID = "run-x-inst"
 
@@ -69,9 +63,9 @@ func TestRedisBridge_CrossInstanceDelivery(t *testing.T) {
 // SAME instance delivers each frame exactly once (local + redis echo are
 // deduplicated by kind|node|phase|duration).
 func TestRedisBridge_SingleInstanceDedup(t *testing.T) {
-	wf := &types.Workflow{ID: "wf-d", TenantID: 8, Name: "wf", DSL: types.JSON(linearDSL)}
+	wf := &types.Workflow{ID: "wf-d", TenantID: 8, Name: "wf", DSL: types.JSON(linearDSL), Status: types.WorkflowStatusPublished}
 	client := newRedisTestClient(t)
-	svc := NewWorkflowService(newRunRepoStub(wf), &wfStubModelSvc{reply: "ok"}, nil, nil, client)
+	svc := NewWorkflowService(newRunRepoStub(wf), &wfStubModelSvc{reply: "ok"}, nil, nil, client, nil, nil, nil, nil, nil, nil)
 	concrete := svc.(*workflowService) // same package: reach the transport hooks
 	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(8))
 

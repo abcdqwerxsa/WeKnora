@@ -66,6 +66,10 @@ type Workflow struct {
 	Description string `yaml:"description" json:"description" gorm:"type:text"`
 	// Workflow DSL document, stored verbatim (dual view: graph + components)
 	DSL JSON `yaml:"dsl" json:"dsl" gorm:"type:jsonb;not null;default:'{}'"`
+	// PublishedDSL is the frozen snapshot of the last publish (Dify
+	// draft/published model). Runs of a published workflow execute this
+	// copy; the draft DSL above keeps evolving. nil = never published.
+	PublishedDSL JSON `yaml:"published_dsl" json:"published_dsl" gorm:"type:jsonb"`
 	// Lifecycle status: draft | published | archived
 	Status string `yaml:"status" json:"status" gorm:"type:varchar(50);not null;default:'draft'"`
 	// bumped by 1 on every successful update
@@ -76,20 +80,28 @@ type Workflow struct {
 	DeletedAt gorm.DeletedAt `yaml:"deleted_at" json:"deleted_at"`
 }
 
-// WorkflowRun represents one execution record of a workflow.
-//
-// Populated by the execution-wiring slice; until then no endpoint creates
-// rows and the list endpoint returns an empty history.
+// WorkflowRun represents one execution record of a workflow; rows are
+// written by RunWorkflow and listed by ListWorkflowRuns.
 // RunWorkflowRequest is the input document of one workflow execution.
 type RunWorkflowRequest struct {
 	// Query is materialized into sys.query by the Start node.
 	Query string `json:"query"`
 	// Files (optional) are materialized into sys.files.
 	Files []string `json:"files,omitempty"`
+	// Inputs (optional) carries Start-node form values keyed by the declared
+	// field name; required fields are validated by the service against the
+	// workflow's Start node definition.
+	Inputs map[string]any `json:"inputs,omitempty"`
 	// Async selects the execution mode: true enqueues a workflow:run task
 	// and returns the run row immediately in status=pending (HTTP 202);
 	// false/omitted executes synchronously (HTTP 200, 120s cap).
 	Async bool `json:"async,omitempty"`
+}
+
+// WorkflowStatusRequest is the REST payload for POST /workflows/:id/status
+// (draft/archived flips; publishing has its own snapshot endpoint).
+type WorkflowStatusRequest struct {
+	Status string `json:"status" binding:"required"`
 }
 
 // WorkflowRunEvent is one progress frame of a workflow run, delivered to
@@ -97,19 +109,53 @@ type RunWorkflowRequest struct {
 type WorkflowRunEvent struct {
 	WorkflowID string `json:"workflow_id"`
 	RunID      string `json:"run_id"`
-	// Kind discriminates frames: "node" (node lifecycle) | "run" (terminal).
+	// Kind discriminates frames: "node" (node lifecycle) | "delta"
+	// (incremental answer content) | "run" (terminal).
 	Kind string `json:"kind"`
-	// NodeID is set for Kind=node frames.
+	// NodeID is set for Kind=node/delta frames.
 	NodeID string `json:"node_id,omitempty"`
-	// Phase: node frames carry started|finished|failed; run frames carry the
-	// terminal run status (succeeded|failed|cancelled).
+	// Phase: node frames carry started|finished|failed; delta frames carry
+	// "delta"; run frames carry the terminal run status.
 	Phase string `json:"phase"`
+	// Content is the incremental text chunk on Kind=delta frames.
+	Content string `json:"content,omitempty"`
+	// Stream names the logical stream a delta belongs to ("answer" when the
+	// delta feeds the terminal Answer node's single-ref template).
+	Stream string `json:"stream,omitempty"`
 	// Err is the terminal error message for failed phases.
 	Err string `json:"error,omitempty"`
 	// DurationMS is the node execution duration for finished/failed frames.
 	DurationMS int64 `json:"duration_ms,omitempty"`
+	// Outputs is the node's recorded output map on finished frames — the
+	// payload the run-detail / debug panel renders. Absent on started and
+	// run frames; the service layer truncates oversized maps before
+	// publishing (SSE and trace persistence share one cap).
+	Outputs map[string]any `json:"outputs,omitempty"`
+	// Replayed marks finished frames whose outputs came from a checkpoint
+	// replay instead of a fresh execution (resume path, duration 0).
+	Replayed bool `json:"replayed,omitempty"`
 	// Status is the terminal run status for Kind=run frames.
 	Status string `json:"status,omitempty"`
+}
+
+// WorkflowRunTraceEntry is one node's terminal record inside a run's
+// persisted trace (WorkflowRun.Trace), in execution order.
+type WorkflowRunTraceEntry struct {
+	// NodeID is the DSL node id.
+	NodeID string `json:"node_id"`
+	// Kind is the node's component_name ("LLM", "Retrieval", ...).
+	Kind string `json:"kind"`
+	// Phase is the terminal phase of the node in this attempt:
+	// finished | failed.
+	Phase string `json:"phase"`
+	// DurationMS is the execution duration; 0 for checkpoint replays.
+	DurationMS int64 `json:"duration_ms,omitempty"`
+	// Outputs is the node's recorded outputs (size-capped by the service).
+	Outputs map[string]any `json:"outputs,omitempty"`
+	// Err is the failure message on failed entries.
+	Err string `json:"error,omitempty"`
+	// Replayed marks entries restored from a checkpoint (resume).
+	Replayed bool `json:"replayed,omitempty"`
 }
 
 // Workflow run statuses (persisted in workflow_runs.status).
@@ -134,10 +180,50 @@ type WorkflowRun struct {
 	Input JSON `yaml:"input" json:"input" gorm:"type:jsonb"`
 	// Run output document (opaque JSON)
 	Output JSON `yaml:"output" json:"output" gorm:"type:jsonb"`
+	// Trace is the persisted per-node execution record (JSON array of
+	// WorkflowRunTraceEntry, execution order) — the payload behind the
+	// run-detail/debug panel. Terminal node phases only (finished|failed);
+	// the list endpoint omits this column to keep history pages light.
+	Trace JSON `yaml:"trace" json:"trace" gorm:"type:jsonb"`
 	// Terminal error message when status=failed
 	Error string `yaml:"error" json:"error" gorm:"type:text"`
 
 	CreatedAt time.Time      `yaml:"created_at" json:"created_at"`
 	UpdatedAt time.Time      `yaml:"updated_at" json:"updated_at"`
 	DeletedAt gorm.DeletedAt `yaml:"deleted_at" json:"deleted_at"`
+}
+
+// WorkflowSchedule is one cron schedule for a published workflow: the
+// scheduler fires it while it is enabled AND the workflow stays published,
+// creating regular WorkflowRun rows (visible in the run history).
+type WorkflowSchedule struct {
+	// Unique identifier of the schedule (UUID, generated in Go)
+	ID string `yaml:"id" json:"id" gorm:"type:varchar(36);primaryKey"`
+	// Tenant ID (data-isolation scope; every repository query filters on it)
+	TenantID uint64 `yaml:"tenant_id" json:"tenant_id" gorm:"not null;index:idx_workflow_schedules_tenant_workflow"`
+	// Owning workflow ID (paired with TenantID in the composite index)
+	WorkflowID string `yaml:"workflow_id" json:"workflow_id" gorm:"type:varchar(36);not null;index:idx_workflow_schedules_tenant_workflow"`
+	// Creator user ID (informational; mutations are guarded by the
+	// workflow's OwnedWorkflowOrAdmin rule, not by this field)
+	CreatorID string `yaml:"creator_id" json:"creator_id" gorm:"type:varchar(36);not null;default:''"`
+	// Cron is a standard 5-field expression (min hour dom month dow).
+	Cron string `yaml:"cron" json:"cron" gorm:"type:varchar(64);not null"`
+	// Query is the run input materialized into sys.query at each tick.
+	Query string `yaml:"query" json:"query" gorm:"type:text"`
+	// Inputs carries the Start-node form values (RunWorkflowRequest.Inputs).
+	Inputs JSON `yaml:"inputs" json:"inputs" gorm:"type:jsonb"`
+	// Enabled: disabled schedules stay listed but never fire.
+	Enabled bool `yaml:"enabled" json:"enabled" gorm:"not null;default:true"`
+
+	CreatedAt time.Time      `yaml:"created_at" json:"created_at"`
+	UpdatedAt time.Time      `yaml:"updated_at" json:"updated_at"`
+	DeletedAt gorm.DeletedAt `yaml:"deleted_at" json:"deleted_at"`
+}
+
+// CreateWorkflowScheduleRequest is the REST payload for POST /workflows/:id/schedules.
+type CreateWorkflowScheduleRequest struct {
+	Cron    string         `json:"cron" binding:"required"`
+	Query   string         `json:"query"`
+	Inputs  map[string]any `json:"inputs,omitempty"`
+	Enabled *bool          `json:"enabled,omitempty"` // nil = enabled
 }

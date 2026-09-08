@@ -1,5 +1,35 @@
 <template>
   <div class="wf-run-panel">
+    <!-- Start-node input form (declared fields render as run inputs) -->
+    <section v-if="(startFields ?? []).length > 0" class="wf-run-section">
+      <p class="wf-run-section-title">{{ $t('workflow.run.formTitle') }}</p>
+      <t-form label-align="top">
+        <t-form-item v-for="field in startFields" :key="field.name" :label="field.label || field.name" :mark="field.required">
+          <t-select
+            v-if="field.type === 'select'"
+            v-model="formValues[field.name]"
+            clearable
+            :placeholder="field.name"
+          >
+            <t-option v-for="option in field.options ?? []" :key="option" :value="option" :label="option" />
+          </t-select>
+          <t-textarea
+            v-else-if="field.type === 'paragraph'"
+            v-model="formValues[field.name]"
+            :autosize="{ minRows: 2, maxRows: 6 }"
+            :placeholder="field.name"
+          />
+          <t-input-number
+            v-else-if="field.type === 'number'"
+            v-model="formValues[field.name]"
+            theme="column"
+            :placeholder="field.name"
+          />
+          <t-input v-else v-model="formValues[field.name]" :placeholder="field.name" />
+        </t-form-item>
+      </t-form>
+    </section>
+
     <!-- Trigger -->
     <section class="wf-run-section">
       <t-textarea
@@ -9,10 +39,24 @@
         :disabled="starting"
       />
       <div class="wf-run-actions">
-        <t-button theme="primary" size="small" :loading="starting" :disabled="!query.trim()" @click="start(false)">
+        <t-button
+          theme="primary"
+          size="small"
+          :loading="starting"
+          :disabled="!query.trim() || missingRequired.length > 0"
+          :title="missingRequired.length > 0 ? $t('workflow.run.missingFields', { names: missingRequired.join(', ') }) : undefined"
+          @click="start(false)"
+        >
           {{ $t('workflow.run.syncRun') }}
         </t-button>
-        <t-button variant="outline" size="small" :loading="starting" :disabled="!query.trim()" @click="start(true)">
+        <t-button
+          variant="outline"
+          size="small"
+          :loading="starting"
+          :disabled="!query.trim() || missingRequired.length > 0"
+          :title="missingRequired.length > 0 ? $t('workflow.run.missingFields', { names: missingRequired.join(', ') }) : undefined"
+          @click="start(true)"
+        >
           {{ $t('workflow.run.asyncRun') }}
         </t-button>
         <t-button v-if="streaming" variant="text" theme="default" size="small" @click="stop()">
@@ -39,20 +83,52 @@
       </p>
       <div v-if="frames.length === 0" class="wf-run-muted">{{ $t('workflow.run.noProgress') }}</div>
       <ul v-else class="wf-run-timeline">
-        <li v-for="(frame, index) in frames" :key="index" class="wf-run-frame" :class="`wf-run-frame--${frame.phase}`">
+        <!-- delta frames are rendered in the live answer area, not the timeline -->
+        <li v-for="(frame, index) in timelineFrames" :key="index" class="wf-run-frame" :class="`wf-run-frame--${frame.phase}`">
           <span class="wf-run-frame-dot" />
           <span class="wf-run-frame-text">
             <template v-if="frame.kind === 'node'">
-              {{ frame.node_id }} · {{ $t(`workflow.run.phase.${frame.phase}`) }}
+              {{ nodeLabel(frame.node_id) }} · {{ $t(`workflow.run.phase.${frame.phase}`) }}
             </template>
             <template v-else>
               {{ $t('workflow.run.terminalFrame') }} · {{ $t(`workflow.run.status.${frame.status ?? frame.phase}`) }}
             </template>
+            <span v-if="frame.replayed" class="wf-run-frame-duration">{{ $t('workflow.run.replayed') }}</span>
             <span v-if="frame.duration_ms" class="wf-run-frame-duration">{{ frame.duration_ms }}ms</span>
           </span>
-          <span v-if="frame.error" class="wf-run-frame-error">{{ frame.error }}</span>
+          <span v-if="frame.error" class="wf-run-frame-error" :title="frame.error">{{ frame.error }}</span>
         </li>
       </ul>
+    </section>
+
+    <!-- Per-node outputs (debug payload): live frames or selected history run -->
+    <section v-if="nodeRecords.length > 0" class="wf-run-section">
+      <p class="wf-run-section-title">{{ $t('workflow.run.nodeOutputs') }}</p>
+      <ul class="wf-run-records">
+        <li v-for="record in nodeRecords" :key="record.key" class="wf-run-record">
+          <button type="button" class="wf-run-record-head" @click="toggleRecord(record.key)">
+            <t-tag size="small" :theme="record.phase === 'failed' ? 'danger' : 'success'" class="wf-run-record-kind">
+              {{ record.kind }}
+            </t-tag>
+            <span class="wf-run-record-label">{{ record.label }}</span>
+            <span v-if="record.replayed" class="wf-run-frame-duration">{{ $t('workflow.run.replayed') }}</span>
+            <span v-if="record.duration_ms" class="wf-run-frame-duration">{{ record.duration_ms }}ms</span>
+            <t-icon :name="expandedRecords.has(record.key) ? 'chevron-up' : 'chevron-down'" />
+          </button>
+          <div v-if="expandedRecords.has(record.key)" class="wf-run-record-body">
+            <pre class="wf-run-record-json">{{ JSON.stringify(record.outputs ?? {}, null, 2) }}</pre>
+          </div>
+        </li>
+      </ul>
+    </section>
+
+    <!-- Live answer stream (kind=delta frames tagged stream=answer) -->
+    <section v-if="answerStream && streaming" class="wf-run-section">
+      <p class="wf-run-section-title">
+        {{ $t('workflow.run.result') }}
+        <span class="wf-run-live">{{ $t('workflow.run.generating') }}</span>
+      </p>
+      <pre class="wf-run-answer">{{ answerStream }}<span class="wf-run-caret" /></pre>
     </section>
 
     <!-- Result -->
@@ -109,22 +185,64 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
-import { runWorkflow, listWorkflowRuns, cancelWorkflowRun, resumeWorkflowRun, type WorkflowRun } from '@/api/workflow'
+import {
+  runWorkflow,
+  listWorkflowRuns,
+  cancelWorkflowRun,
+  resumeWorkflowRun,
+  getWorkflowRun,
+  type WorkflowRun,
+  type WorkflowRunTraceEntry,
+} from '@/api/workflow'
 import { useWorkflowRunStream } from '../useWorkflowRunStream'
 
-const props = defineProps<{ workflowId: string }>()
+const props = defineProps<{
+  workflowId: string
+  /** Canvas nodes (id + kind) so timelines show labels instead of raw ids. */
+  nodes?: Array<{ id: string; kind: string }>
+  /** Start-node form fields, rendered as run inputs. */
+  startFields?: Array<{ name: string; label?: string; type: string; required?: boolean; default?: string; options?: string[] }>
+}>()
 
 /**
  * Node highlight state lives here and is exported upward: the editor maps
  * nodePhases onto canvas nodes (started → pulse, finished → green, failed →
  * red). "update" emit fires on every phase mutation the stream observes.
+ *
+ * node-outputs carries the per-node debug payload (live SSE frames or the
+ * selected history run's trace) so canvas cards can render the inspect
+ * badge. Cleared whenever the payload source changes or the panel unmounts.
  */
-const emit = defineEmits<{ 'node-phases': [phases: Record<string, 'running' | 'done' | 'failed'>] }>()
+const emit = defineEmits<{
+  'node-phases': [phases: Record<string, 'running' | 'done' | 'failed'>]
+  'node-outputs': [outputs: Record<string, Record<string, unknown>>]
+}>()
 
 const { t } = useI18n()
 
 const query = ref('')
 const starting = ref(false)
+// Start-form values keyed by field name (defaults seeded once per prop set).
+const formValues = ref<Record<string, string>>({})
+watch(
+  () => props.startFields,
+  (fields) => {
+    const next: Record<string, string> = {}
+    for (const field of fields ?? []) {
+      next[field.name] = field.default ?? ''
+    }
+    formValues.value = next
+  },
+  { immediate: true },
+)
+
+/** Missing required form fields (drives the run button's disabled state). */
+const missingRequired = computed(() =>
+  (props.startFields ?? [])
+    .filter((field) => field.required)
+    .filter((field) => !String(formValues.value[field.name] ?? '').trim())
+    .map((field) => field.label || field.name),
+)
 const answer = ref<string | null>(null)
 const resultError = ref('')
 const activeRunId = ref('')
@@ -139,16 +257,92 @@ const resumingRunId = ref('')
 const history = ref<WorkflowRun[]>([])
 const historyError = ref(false)
 
-const { frames, nodePhases, terminalStatus, terminalError, streaming, follow, stop } = useWorkflowRunStream(
+// Trace of the selected history run (fetched from the run-detail endpoint);
+// live runs build their records straight from SSE frames instead.
+const selectedTrace = ref<WorkflowRunTraceEntry[] | null>(null)
+
+const { frames, nodePhases, answerStream, terminalStatus, terminalError, streaming, follow, stop } = useWorkflowRunStream(
   () => props.workflowId,
 )
 
 emit('node-phases', nodePhases.value)
 
+/** Lifecycle frames only — delta chunks render in the live answer area. */
+const timelineFrames = computed(() => frames.value.filter((frame) => frame.kind !== 'delta'))
+
 const cancellable = computed(
   () => activeStatus.value === 'pending' || activeStatus.value === 'running' || streaming.value,
 )
 const isCancelled = computed(() => activeStatus.value === 'cancelled' || terminalStatus.value === 'cancelled')
+
+/** nodeId → localized label (kind name + short id) for timelines/records. */
+function nodeLabel(nodeId?: string): string {
+  if (!nodeId) return ''
+  const node = props.nodes?.find((item) => item.id === nodeId)
+  const kindName = node ? t(`workflow.nodes.${node.kind}`) : nodeId
+  return `${kindName} (${nodeId})`
+}
+
+interface NodeRecord {
+  key: string
+  nodeId: string
+  kind: string
+  label: string
+  phase: string
+  duration_ms?: number
+  outputs?: Record<string, unknown>
+  error?: string
+  replayed?: boolean
+}
+
+/**
+ * Terminal node records in execution order: live frames while streaming,
+ * the selected run's trace when reviewing history. started frames carry no
+ * payload and are skipped.
+ */
+const nodeRecords = computed<NodeRecord[]>(() => {
+  if (selectedTrace.value) {
+    return selectedTrace.value.map((entry, index) => ({
+      key: `${entry.node_id}-${index}`,
+      nodeId: entry.node_id,
+      kind: entry.kind || nodeKind(entry.node_id) || '?',
+      label: nodeLabel(entry.node_id),
+      phase: entry.phase,
+      duration_ms: entry.duration_ms,
+      outputs: entry.outputs,
+      error: entry.error,
+      replayed: entry.replayed,
+    }))
+  }
+  return frames.value
+    .filter((frame) => frame.kind === 'node' && frame.phase !== 'started')
+    // (delta frames are display-stream data, not node records)
+    .map((frame, index) => ({
+      key: `${frame.node_id}-${index}`,
+      nodeId: frame.node_id ?? '',
+      kind: nodeKind(frame.node_id) || '?',
+      label: nodeLabel(frame.node_id),
+      phase: frame.phase,
+      duration_ms: frame.duration_ms,
+      outputs: frame.outputs,
+      error: frame.error,
+      replayed: frame.replayed,
+    }))
+})
+
+function nodeKind(nodeId?: string): string {
+  if (!nodeId) return ''
+  return props.nodes?.find((item) => item.id === nodeId)?.kind ?? ''
+}
+
+const expandedRecords = ref(new Set<string>())
+
+function toggleRecord(key: string) {
+  const next = new Set(expandedRecords.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  expandedRecords.value = next
+}
 
 const statusTheme = (status: WorkflowRun['status']): string => {
   if (status === 'succeeded') return 'success'
@@ -177,11 +371,18 @@ async function start(asyncMode: boolean) {
     MessagePlugin.warning(t('workflow.run.queryRequired'))
     return
   }
+  if (missingRequired.value.length > 0) {
+    MessagePlugin.warning(t('workflow.run.missingFields', { names: missingRequired.value.join(', ') }))
+    return
+  }
   starting.value = true
   answer.value = null
   resultError.value = ''
+  selectedTrace.value = null
+  expandedRecords.value = new Set()
   try {
-    const response = await runWorkflow(props.workflowId, { query: trimmed, async: asyncMode })
+    const inputs = Object.keys(formValues.value).length > 0 ? { ...formValues.value } : undefined
+    const response = await runWorkflow(props.workflowId, { query: trimmed, inputs, async: asyncMode })
     const run = response?.run
     if (!run) {
       resultError.value = response?.message || t('workflow.run.runFailed')
@@ -194,14 +395,26 @@ async function start(asyncMode: boolean) {
       follow(run.id)
     } else {
       // Synchronous runs are terminal by the time the POST returns; the
-      // stream subscription would only replay the terminal frame.
+      // stream subscription would only replay the terminal frame — pull
+      // the node trace from the run-detail endpoint instead.
       applyRunOutcome(run)
+      void loadRunTrace(run.id)
     }
   } catch (error) {
     resultError.value = error instanceof Error ? error.message : t('workflow.run.runFailed')
     MessagePlugin.error(resultError.value)
   } finally {
     starting.value = false
+  }
+}
+
+/** Fetch the trace of a run (run-detail endpoint) for the records section. */
+async function loadRunTrace(runId: string) {
+  try {
+    const response = await getWorkflowRun(props.workflowId, runId)
+    selectedTrace.value = response?.data?.trace ?? []
+  } catch {
+    selectedTrace.value = []
   }
 }
 
@@ -220,14 +433,16 @@ function selectHistoryRow(run: WorkflowRun) {
   activeStatus.value = run.status
   answer.value = null
   resultError.value = ''
+  expandedRecords.value = new Set()
   if (run.status === 'pending' || run.status === 'running') {
+    selectedTrace.value = null
     follow(run.id)
     return
   }
   stop()
-  // Terminal rows carry their outcome inline; no stream needed.
-  answer.value = run.output?.answer ?? null
-  resultError.value = run.error ?? ''
+  // Terminal rows: outcome inline; per-node records come from the trace.
+  applyRunOutcome(run)
+  void loadRunTrace(run.id)
 }
 
 // Terminal stream state mirrors into the result section (covers async runs
@@ -243,6 +458,8 @@ watch([terminalStatus, terminalError], () => {
   const row = history.value.find((item) => item.id === activeRunId.value)
   if (row?.output?.answer) answer.value = row.output.answer
   else void refreshActiveRun()
+  // Async run finished: fetch its trace for the records section.
+  void loadRunTrace(activeRunId.value)
 })
 
 /**
@@ -290,6 +507,7 @@ async function resumeRun(run: WorkflowRun) {
     activeStatus.value = resumed.status
     answer.value = null
     resultError.value = ''
+    selectedTrace.value = null
     follow(resumed.id)
     MessagePlugin.info(t('workflow.run.resumedNotice'))
   } catch (error) {
@@ -323,6 +541,19 @@ watch(
   },
   { deep: true },
 )
+
+// Propagate the debug payload upward: latest outputs per node (live frames
+// or the selected history run's trace), for the canvas inspect badges.
+watch(nodeRecords, (records) => {
+  const outputs: Record<string, Record<string, unknown>> = {}
+  for (const record of records) {
+    if (!record.nodeId) continue
+    const payload: Record<string, unknown> = { ...(record.outputs ?? {}) }
+    if (record.error) payload.error = record.error
+    outputs[record.nodeId] = payload
+  }
+  emit('node-outputs', outputs)
+}, { deep: true })
 
 onMounted(loadHistory)
 
@@ -415,6 +646,85 @@ defineExpose({ loadHistory })
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Per-node output records (debug payload). */
+.wf-run-records {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.wf-run-record {
+  border: 1px solid var(--td-component-stroke);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.wf-run-record-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 8px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--td-text-color-secondary);
+  text-align: left;
+}
+
+.wf-run-record-head:hover {
+  background: var(--td-bg-color-container-hover);
+}
+
+.wf-run-record-kind {
+  flex: none;
+}
+
+.wf-run-record-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--td-text-color-primary);
+}
+
+.wf-run-record-body {
+  border-top: 1px solid var(--td-component-stroke);
+}
+
+.wf-run-record-json {
+  margin: 0;
+  padding: 8px;
+  max-height: 180px;
+  overflow: auto;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--td-bg-color-secondarycontainer);
+}
+
+.wf-run-caret {
+  display: inline-block;
+  width: 7px;
+  height: 14px;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  background: var(--td-brand-color);
+  animation: wf-caret-blink 0.9s steps(1) infinite;
+}
+
+@keyframes wf-caret-blink {
+  50% { opacity: 0; }
 }
 
 .wf-run-answer {

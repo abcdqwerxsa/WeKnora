@@ -1,7 +1,10 @@
-import type { WFComponent, WFEdge, WFNode, WorkflowDSL, WorkflowNodeType } from '@/api/workflow'
-import { WORKFLOW_NODE_TYPES } from '@/api/workflow'
+import type { WFComponent, WFEdge, WFNode, WFPosition, WorkflowDSL, WorkflowNodeType } from '@/api/workflow'
+export type { WFNode } from '@/api/workflow'
+// Runtime value from the zero-dependency contract module (relative path:
+// keeps this file importable from node tests without the request chain).
+import { WORKFLOW_NODE_TYPES } from '../../api/workflowContract'
 
-/**
+/*
  * DSL dual-view helpers.
  *
  * `graph` (canvas layout) and `components` (execution topology) are two
@@ -19,13 +22,13 @@ import { WORKFLOW_NODE_TYPES } from '@/api/workflow'
 export function defaultParams(kind: WorkflowNodeType): Record<string, unknown> {
   switch (kind) {
     case 'Start':
-      return {}
+      return { fields: [] as unknown[] }
     case 'LLM':
       return { model: '', prompt: '', system_prompt: '', temperature: 0.7, max_tokens: 0 }
     case 'Retrieval':
       return { query: '', kb_ids: [] as string[], top_k: 10 }
     case 'Switch':
-      return { value: '', cases: [] as Array<{ value: string; to: string }>, default: '' }
+      return { cases: [] as unknown[], default: '' }
     case 'Answer':
       return { template: '' }
     case 'Template':
@@ -36,22 +39,38 @@ export function defaultParams(kind: WorkflowNodeType): Record<string, unknown> {
       return { method: 'GET', url: '', headers: {}, body_template: '', timeout_seconds: 30 }
     case 'DataOps':
       return { sql: '', variables: [] as Array<{ name: string; ref: string }> }
+    case 'WebSearch':
+      return { query: '', provider_id: '', max_results: 5 }
+    case 'QuestionClassifier':
+      return { query: '', classes: [] as unknown[], default: '' }
+    case 'ParameterExtractor':
+      return { query: '', parameters: [] as unknown[] }
+    case 'Code':
+      return { language: 'python3', code: '', variables: [] as Array<{ name: string; ref: string }>, timeout_seconds: 30 }
+    case 'Iteration':
+      return { items: '', item_var: 'item', index_var: 'index', output_ref: '', output_var: 'results' }
+    case 'Agent':
+      return { prompt: '', system_prompt: '', model: '', kb_ids: [] as string[], temperature: 0.4 }
+    case 'MCPTool':
+      return { service_id: '', tool: '', args: '', timeout_seconds: 30 }
     default:
       return {}
   }
 }
 
 /**
- * Migrate params saved by older editor builds to the engine contract:
- * camelCase relics from the MVP forms (kbIds / topK / queryPlaceholder)
- * and the Retrieval `query` template that used to be missing. Mutates
- * nothing else — unknown extra keys pass through untouched (the engine
- * ignores params it does not read).
+ * Migrate params saved by older editor builds to the engine contract.
+ * Switch legacy shape ({value, to} cases + node-level `value` template,
+ * pure equality) migrates to condition groups (eq against the node-level
+ * template) so the property form always edits the new shape; the engine
+ * applies the same migration for DSLs from other clients. Mutates nothing
+ * else — unknown extra keys pass through untouched.
  */
 export function migrateNodeParams(kind: WorkflowNodeType, params: Record<string, unknown>): Record<string, unknown> {
   const next = { ...params }
   if (kind === 'Start') {
     delete next.queryPlaceholder
+    if (!Array.isArray(next.fields)) next.fields = []
   }
   if (kind === 'Retrieval') {
     if (!Array.isArray(next.kb_ids) && Array.isArray(next.kbIds)) {
@@ -62,6 +81,19 @@ export function migrateNodeParams(kind: WorkflowNodeType, params: Record<string,
       next.top_k = next.topK
     }
     delete next.topK
+  }
+  if (kind === 'Switch' && Array.isArray(next.cases)) {
+    const nodeValue = typeof next.value === 'string' ? next.value : ''
+    next.cases = (next.cases as Array<Record<string, unknown>>).map((entry) => {
+      if (Array.isArray(entry.conditions)) return entry
+      const legacyValue = typeof entry.value === 'string' ? entry.value : ''
+      return {
+        conditions: [{ ref: nodeValue, op: 'eq', value: legacyValue }],
+        logic: 'and',
+        to: typeof entry.to === 'string' ? entry.to : '',
+      }
+    })
+    delete next.value
   }
   return next
 }
@@ -112,13 +144,16 @@ export function layoutComponents(components: Record<string, WFComponent>): { nod
   const nodes: WFNode[] = []
   for (const [id, comp] of Object.entries(components)) {
     const kind = comp.obj.component_name as WorkflowNodeType
+    const safeKind = isNodeType(kind) ? kind : 'Answer'
     const d = depth.get(id) ?? 0
     const col = columns.get(d) ?? []
     const node: WFNode = {
       id,
-      type: isNodeType(kind) ? kind : 'Answer',
+      type: safeKind,
       position: { x: 80 + d * 200, y: 80 + col.length * 140 },
-      data: { params: migrateNodeParams(isNodeType(kind) ? kind : 'Answer', (comp.obj.params as Record<string, unknown>) ?? defaultParams(isNodeType(kind) ? kind : 'Answer')) },
+      data: comp.parent
+        ? { params: migrateNodeParams(safeKind, (comp.obj.params as Record<string, unknown>) ?? defaultParams(safeKind)), parent: comp.parent }
+        : { params: migrateNodeParams(safeKind, (comp.obj.params as Record<string, unknown>) ?? defaultParams(safeKind)) },
     }
     col.push(node)
     columns.set(d, col)
@@ -142,7 +177,8 @@ export function componentsFromGraph(nodes: WFNode[], edges: WFEdge[]): Record<st
   for (const node of nodes) {
     const kind = isNodeType(node.type) ? node.type : 'Answer'
     const params = (node.data?.params as Record<string, unknown>) ?? defaultParams(kind)
-    components[node.id] = { obj: { component_name: kind, params }, upstream: [], downstream: [] }
+    const parent = typeof node.data?.parent === 'string' ? (node.data.parent as string) : ''
+    components[node.id] = { obj: { component_name: kind, params }, upstream: [], downstream: [], parent }
   }
   for (const edge of edges) {
     const source = components[edge.source]
@@ -166,6 +202,7 @@ export function normalizeDsl(input: unknown): WorkflowDSL {
 
   const graphUsable = graphNodes.length > 0
   const componentsUsable = Object.keys(components).length > 0
+  const variables = dsl.variables && typeof dsl.variables === 'object' ? dsl.variables : {}
 
   if (graphUsable) {
     const nodes = graphNodes
@@ -174,7 +211,10 @@ export function normalizeDsl(input: unknown): WorkflowDSL {
         id: n.id,
         type: n.type,
         position: { x: Number(n.position?.x) || 0, y: Number(n.position?.y) || 0 },
-        data: { params: migrateNodeParams(n.type, (n.data?.params as Record<string, unknown>) ?? defaultParams(n.type)) },
+        data: {
+          params: migrateNodeParams(n.type, (n.data?.params as Record<string, unknown>) ?? defaultParams(n.type)),
+          ...(typeof (n.data as Record<string, unknown> | undefined)?.parent === 'string' ? { parent: (n.data as Record<string, unknown>).parent } : {}),
+        },
       }))
     const nodeIds = new Set(nodes.map((n) => n.id))
     const edges = graphEdges
@@ -184,7 +224,7 @@ export function normalizeDsl(input: unknown): WorkflowDSL {
       version: 1,
       graph: { nodes, edges },
       components: componentsFromGraph(nodes, edges),
-      variables: dsl.variables && typeof dsl.variables === 'object' ? dsl.variables : {},
+      variables,
     }
   }
 
@@ -194,7 +234,7 @@ export function normalizeDsl(input: unknown): WorkflowDSL {
       version: 1,
       graph: laid,
       components: componentsFromGraph(laid.nodes, laid.edges),
-      variables: dsl.variables && typeof dsl.variables === 'object' ? dsl.variables : {},
+      variables,
     }
   }
 
@@ -213,4 +253,177 @@ export function buildDsl(
     components: componentsFromGraph(nodes, edges),
     variables: variables ?? {},
   }
+}
+
+// ---------------------------------------------------------------------------
+// Auto layout (port of the engine's defaultLayout: BFS depth columns).
+// ---------------------------------------------------------------------------
+
+/**
+ * Layered auto layout: depth = longest distance from an entry node
+ * (mirrors internal/agent/workflow/dsl.go defaultLayout). Returns new
+ * positions per node id; callers assign them onto the canvas.
+ */
+export function autoLayout(nodes: WFNode[], edges: WFEdge[]): Record<string, WFPosition> {
+  const downstream = new Map<string, string[]>()
+  const upstream = new Map<string, string[]>()
+  for (const id of nodes.map((n) => n.id)) {
+    downstream.set(id, [])
+    upstream.set(id, [])
+  }
+  for (const edge of edges) {
+    downstream.get(edge.source)?.push(edge.target)
+    upstream.get(edge.target)?.push(edge.source)
+  }
+
+  const depth = new Map<string, number>()
+  const resolve = (id: string, guard: Set<string>): number => {
+    const known = depth.get(id)
+    if (known !== undefined) return known
+    if (guard.has(id)) return 0 // cycle: pin to current guard depth
+    guard.add(id)
+    const parents = (upstream.get(id) ?? []).filter((u) => downstream.has(u))
+    const d = parents.length === 0 ? 0 : Math.max(...parents.map((p) => resolve(p, guard))) + 1
+    depth.set(id, d)
+    return d
+  }
+  for (const node of nodes) resolve(node.id, new Set())
+
+  const columnCount = new Map<number, number>()
+  const positions: Record<string, WFPosition> = {}
+  for (const node of nodes) {
+    const d = depth.get(node.id) ?? 0
+    const row = columnCount.get(d) ?? 0
+    columnCount.set(d, row + 1)
+    positions[node.id] = { x: 80 + d * 260, y: 80 + row * 160 }
+  }
+  return positions
+}
+
+// ---------------------------------------------------------------------------
+// Pre-save validation (mirrors the engine's compile constraints + adds
+// editor-level warnings the engine deliberately ignores).
+// ---------------------------------------------------------------------------
+
+export interface GraphIssue {
+  level: 'error' | 'warning'
+  /** i18n key under workflow.editor.issues.* */
+  key: string
+  /** Interpolation values for the i18n message. */
+  values?: Record<string, string | number>
+  nodeId?: string
+}
+
+/** `{nodeId@param}` reference pattern used inside prompt/template params. */
+export const NODE_REF_PATTERN = /\{([a-zA-Z0-9_-]+)@([a-zA-Z0-9_.-]+)\}/g
+
+/** Collect every {node@param} ref reachable from a params object. */
+function collectRefs(params: Record<string, unknown>): Array<{ node: string; param: string }> {
+  const refs: Array<{ node: string; param: string }> = []
+  const walk = (value: unknown): void => {
+    if (typeof value === 'string') {
+      for (const match of value.matchAll(NODE_REF_PATTERN)) {
+        refs.push({ node: match[1], param: match[2] })
+      }
+      return
+    }
+    if (Array.isArray(value)) {
+      value.forEach(walk)
+      return
+    }
+    if (value && typeof value === 'object') {
+      Object.values(value).forEach(walk)
+    }
+  }
+  // Every string anywhere inside params may carry refs (documented keys
+  // like prompt/template plus nested headers/ops/cases).
+  for (const value of Object.values(params)) walk(value)
+  return refs
+}
+
+/**
+ * Validate the canvas before save/run. Errors mirror engine compile
+ * constraints (the save is rejected server-side anyway); warnings cover
+ * editor-observable rot the engine ignores (unreachable nodes, stale
+ * {node@param} references).
+ */
+export function validateGraph(nodes: WFNode[], edges: WFEdge[]): GraphIssue[] {
+  const issues: GraphIssue[] = []
+  const ids = new Set(nodes.map((n) => n.id))
+
+  const targeted = new Set(edges.map((e) => e.target))
+  const entries = nodes.filter((n) => !targeted.has(n.id))
+  const terminals = nodes.filter((n) => !edges.some((e) => e.source === n.id))
+
+  if (entries.length === 0) issues.push({ level: 'error', key: 'noEntry' })
+  if (entries.length > 1) {
+    issues.push({ level: 'error', key: 'multipleEntries', values: { count: entries.length, names: entries.map((n) => n.id).join(', ') } })
+  }
+  if (terminals.length === 0) issues.push({ level: 'error', key: 'noTerminal' })
+  // Multiple terminals are legal (parallel branches need not converge).
+  // One terminal answer still wins the run result — first to complete.
+
+  // Reachability from the entry set (BFS over edges).
+  if (entries.length > 0) {
+    const reachable = new Set<string>()
+    const queue = entries.map((n) => n.id)
+    while (queue.length > 0) {
+      const id = queue.shift()!
+      if (reachable.has(id)) continue
+      reachable.add(id)
+      for (const edge of edges) {
+        if (edge.source === id && !reachable.has(edge.target)) queue.push(edge.target)
+      }
+    }
+    for (const node of nodes) {
+      if (!reachable.has(node.id)) {
+        issues.push({ level: 'warning', key: 'unreachable', values: { name: node.id }, nodeId: node.id })
+      }
+    }
+  }
+
+  // Iteration body membership: parents must target Iteration nodes; each
+  // body needs exactly one entry (a body node not targeted by any edge).
+  const parentOf = (node: WFNode): string =>
+    typeof (node.data as Record<string, unknown> | undefined)?.parent === 'string'
+      ? ((node.data as Record<string, unknown>).parent as string)
+      : ''
+  const iterationIds = new Set(nodes.filter((n) => n.type === 'Iteration').map((n) => n.id))
+  const bodies = new Map<string, WFNode[]>()
+  for (const node of nodes) {
+    const parent = parentOf(node)
+    if (!parent) continue
+    if (!iterationIds.has(parent)) {
+      issues.push({ level: 'error', key: 'badParent', values: { name: node.id, parent }, nodeId: node.id })
+      continue
+    }
+    const body = bodies.get(parent) ?? []
+    body.push(node)
+    bodies.set(parent, body)
+  }
+  for (const [iterID, body] of bodies) {
+    const bodyIds = new Set(body.map((n) => n.id))
+    const bodyTargeted = new Set(edges.filter((e) => bodyIds.has(e.source) && bodyIds.has(e.target)).map((e) => e.target))
+    const entries = body.filter((n) => !bodyTargeted.has(n.id))
+    if (entries.length !== 1) {
+      issues.push({ level: 'error', key: 'bodyEntries', values: { name: iterID, count: entries.length } })
+    }
+  }
+  for (const iterID of iterationIds) {
+    if (!bodies.has(iterID)) {
+      issues.push({ level: 'error', key: 'emptyBody', values: { name: iterID }, nodeId: iterID })
+    }
+  }
+
+  // Stale {node@param} references in template params.
+  for (const node of nodes) {
+    const params = (node.data?.params as Record<string, unknown>) ?? {}
+    for (const ref of collectRefs(params)) {
+      if (!ids.has(ref.node)) {
+        issues.push({ level: 'warning', key: 'staleRef', values: { ref: `${ref.node}@${ref.param}`, name: node.id }, nodeId: node.id })
+      }
+    }
+  }
+
+  return issues
 }

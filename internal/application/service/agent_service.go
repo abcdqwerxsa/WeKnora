@@ -113,6 +113,7 @@ type agentService struct {
 	toolApprovalGate      approval.MCPApproval
 	sandboxMgr            sandbox.Manager
 	sandboxResolver       sandbox.TenantSandboxResolver
+	workflowService       interfaces.WorkflowService
 	sandboxPinner         *SessionSandboxPinner
 	sandboxPolicy         WorkspaceSandboxPolicy
 }
@@ -141,6 +142,7 @@ func NewAgentService(
 	sandboxMgr sandbox.Manager,
 	sandboxResolver sandbox.TenantSandboxResolver,
 	sandboxPinner *SessionSandboxPinner,
+	workflowService interfaces.WorkflowService,
 	sandboxPolicy WorkspaceSandboxPolicy,
 ) interfaces.AgentService {
 	return &agentService{
@@ -165,6 +167,7 @@ func NewAgentService(
 		toolApprovalGate:      toolApprovalGate,
 		sandboxMgr:            sandboxMgr,
 		sandboxResolver:       sandboxResolver,
+		workflowService:       workflowService,
 		sandboxPinner:         sandboxPinner,
 		sandboxPolicy:         sandboxPolicy,
 	}
@@ -1069,6 +1072,13 @@ func (s *agentService) registerTools(
 			toolToRegister = tools.NewDataSchemaTool(s.knowledgeService, s.chunkService.GetRepository()).
 				WithSearchTargets(config.SearchTargets)
 			logger.Infof(ctx, "Registered data_schema tool")
+
+		case tools.ToolListWorkflows:
+			toolToRegister = tools.NewListWorkflowsTool(s.workflowService)
+
+		case tools.ToolRunWorkflow:
+			toolToRegister = tools.NewRunWorkflowTool(s.workflowService)
+			logger.Infof(ctx, "Registered run_workflow tool")
 
 		// Wiki tools — only registered when wiki KBs are detected
 		case tools.ToolWikiReadPage:

@@ -15,6 +15,7 @@ export type ApiKeyCapabilityGroup = {
 export const TENANT_API_KEY_CAPABILITIES: TenantAPIKeyCapability[] = [
   'retrieve', 'chat', 'read_agents', 'ingest', 'manage_kbs',
   'message_history', 'manage_agents', 'manage_mcp_services',
+  'read_workflows', 'run_workflows',
   'manage_datasources', 'manage_models', 'manage_vector_stores',
   'manage_storage_backends', 'manage_web_search', 'manage_channels',
   'run_evaluations', 'manage_members', 'manage_spaces',
@@ -53,6 +54,8 @@ export const TENANT_API_KEY_CAPABILITY_GROUPS: ApiKeyCapabilityGroup[] = [
     capabilities: [
       { value: 'read_agents', labelKey: 'integrations.api.capabilityReadAgents', hintKey: 'integrations.api.capabilityReadAgentsHint' },
       { value: 'manage_agents', labelKey: 'integrations.api.capabilityManageAgents', hintKey: 'integrations.api.capabilityManageAgentsHint' },
+      { value: 'read_workflows', labelKey: 'integrations.api.capabilityReadWorkflows', hintKey: 'integrations.api.capabilityReadWorkflowsHint' },
+      { value: 'run_workflows', labelKey: 'integrations.api.capabilityRunWorkflows', hintKey: 'integrations.api.capabilityRunWorkflowsHint' },
       { value: 'manage_mcp_services', labelKey: 'integrations.api.capabilityManageMcpServices', hintKey: 'integrations.api.capabilityManageMcpServicesHint' },
       { value: 'manage_datasources', labelKey: 'integrations.api.capabilityManageDatasources', hintKey: 'integrations.api.capabilityManageDatasourcesHint' },
     ],

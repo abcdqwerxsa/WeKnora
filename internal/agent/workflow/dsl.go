@@ -65,6 +65,11 @@ type Component struct {
 	Obj        ComponentObj `json:"obj"`
 	Upstream   []string     `json:"upstream"`
 	Downstream []string     `json:"downstream"`
+	// Parent, when non-empty, scopes this component into the loop body of
+	// the Iteration node with that id: it is excluded from the outer graph
+	// and compiled as part of the iteration's nested runnable. The upstream/
+	// downstream lists then reference body siblings only.
+	Parent string `json:"parent,omitempty"`
 }
 
 // ComponentObj names the component type and carries its params.
@@ -177,8 +182,15 @@ func componentsFromGraph(g *GraphView) (map[string]*Component, error) {
 				params = p
 			}
 		}
+		parent := ""
+		if n.Data != nil {
+			if p, ok := n.Data["parent"].(string); ok {
+				parent = p
+			}
+		}
 		comps[n.ID] = &Component{
-			Obj: ComponentObj{ComponentName: n.Type, Params: params},
+			Obj:    ComponentObj{ComponentName: n.Type, Params: params},
+			Parent: parent,
 		}
 	}
 	for _, e := range g.Edges {
@@ -233,11 +245,15 @@ func defaultLayout(comps map[string]*Component) (*GraphView, error) {
 		l := longest(id)
 		y := layerIndex[l]
 		layerIndex[l]++
+		data := map[string]any{"params": comps[id].Obj.Params}
+		if comps[id].Parent != "" {
+			data["parent"] = comps[id].Parent
+		}
 		nodesOut = append(nodesOut, GraphNode{
 			ID:       id,
 			Type:     comps[id].Obj.ComponentName,
 			Position: GraphPosition{X: float64(l * 200), Y: float64(y * 120)},
-			Data:     map[string]any{"params": comps[id].Obj.Params},
+			Data:     data,
 		})
 	}
 
@@ -269,6 +285,7 @@ func copyComponents(in map[string]*Component) map[string]*Component {
 			},
 			Upstream:   append([]string(nil), c.Upstream...),
 			Downstream: append([]string(nil), c.Downstream...),
+			Parent:     c.Parent,
 		}
 	}
 	return out

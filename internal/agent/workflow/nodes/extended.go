@@ -288,9 +288,9 @@ type dataOpsVar struct {
 }
 
 type dataOpsNode struct {
-	sql        string
-	vars       []dataOpsVar
-	exec       DataOpsFunc
+	sql  string
+	vars []dataOpsVar
+	exec DataOpsFunc
 }
 
 func newDataOps(params map[string]any, deps Deps) (Node, error) {

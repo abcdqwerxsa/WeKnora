@@ -74,6 +74,11 @@ const (
 	ToolWikiFlagIssue     = "wiki_flag_issue"
 	ToolWikiReadIssue     = "wiki_read_issue"
 	ToolWikiUpdateIssue   = "wiki_update_issue"
+	// Workflow tools (opt-in per agent config). Only PUBLISHED workflows are
+	// visible/runnable — publishing is the sharing boundary between the
+	// workflow author and every agent in the workspace.
+	ToolListWorkflows = "list_workflows"
+	ToolRunWorkflow   = "run_workflow"
 )
 
 // AvailableTool defines a simple tool metadata used by settings APIs.
@@ -112,6 +117,8 @@ func AvailableToolDefinitions() []AvailableTool {
 		{Name: ToolWikiDeletePage, Label: "删除Wiki", Description: "删除Wiki页面并自动清理关联死链"},
 		{Name: ToolWikiReadIssue, Label: "查看Wiki问题", Description: "查看特定的Wiki页面问题详情"},
 		{Name: ToolWikiUpdateIssue, Label: "更新Wiki问题状态", Description: "更新特定的Wiki页面问题状态"},
+		{Name: ToolListWorkflows, Label: "查看工作流列表", Description: "列出空间内已发布的工作流（仅已发布）"},
+		{Name: ToolRunWorkflow, Label: "执行工作流", Description: "按 ID 或名称执行已发布的工作流并返回结果"},
 	}
 }
 

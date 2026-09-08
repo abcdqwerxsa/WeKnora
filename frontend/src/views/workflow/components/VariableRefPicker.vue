@@ -26,6 +26,19 @@
             <t-button variant="text" size="small" class="wf-refpicker-item" @click="pick('sys.query')">sys · query</t-button>
             <t-button variant="text" size="small" class="wf-refpicker-item" @click="pick('sys.files')">sys · files</t-button>
           </div>
+          <div v-if="envVarNames.length > 0" class="wf-refpicker-group">
+            <p class="wf-refpicker-node">env</p>
+            <t-button
+              v-for="name in envVarNames"
+              :key="name"
+              variant="text"
+              size="small"
+              class="wf-refpicker-item"
+              @click="pick(`env.${name}`)"
+            >
+              env · {{ name }}
+            </t-button>
+          </div>
         </template>
       </div>
     </template>
@@ -41,7 +54,7 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Edge } from '@vue-flow/core'
 import type { WorkflowNodeType } from '@/api/workflow'
-import { outputParamsOf } from '../nodeMeta'
+import { outputParamsOf, upstreamNodeIds } from '../nodeMeta'
 
 /**
  * Reference picker for `{nodeId@param}` template insertion. Lists only the
@@ -53,12 +66,15 @@ const props = defineProps<{
   currentNodeId: string
   nodes: Array<{ id: string; kind: WorkflowNodeType; params?: Record<string, unknown> }>
   edges: Edge[]
+  /** Workflow variable names offered as env.<name> entries. */
+  envNames?: string[]
 }>()
 
 const emit = defineEmits<{ insert: [ref: string] }>()
 
 const { t } = useI18n()
 const visible = ref(false)
+const envVarNames = computed(() => props.envNames ?? [])
 
 interface RefGroup {
   nodeId: string
@@ -67,22 +83,8 @@ interface RefGroup {
 }
 
 const entries = computed<RefGroup[]>(() => {
-  // Ancestors of the current node: walk upstream from it over the edges.
-  const upstream = new Map<string, string[]>()
-  for (const edge of props.edges) {
-    const list = upstream.get(edge.target) ?? []
-    list.push(edge.source)
-    upstream.set(edge.target, list)
-  }
-  const ancestors = new Set<string>()
-  const queue = [...(upstream.get(props.currentNodeId) ?? [])]
-  while (queue.length > 0) {
-    const id = queue.shift()!
-    if (ancestors.has(id)) continue
-    ancestors.add(id)
-    queue.push(...(upstream.get(id) ?? []))
-  }
-
+  // Ancestor walk shared with the inline autocomplete (nodeMeta).
+  const ancestors = upstreamNodeIds(props.currentNodeId, props.edges)
   const groups: RefGroup[] = []
   for (const node of props.nodes) {
     if (node.id === props.currentNodeId || !ancestors.has(node.id)) continue

@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,7 +25,9 @@ import (
 	apprepo "github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/event"
 	"github.com/Tencent/WeKnora/internal/logger"
+	"github.com/Tencent/WeKnora/internal/mcp"
 	"github.com/Tencent/WeKnora/internal/models/chat"
+	"github.com/Tencent/WeKnora/internal/sandbox"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"github.com/google/uuid"
@@ -58,6 +61,15 @@ var (
 	ErrWorkflowInvalidDSL = errors.New("invalid workflow dsl")
 	// ErrWorkflowTenantRequired: no tenant on the request context.
 	ErrWorkflowTenantRequired = errors.New("workspace context required")
+	// ErrWorkflowMissingInput: a Start-node form field marked required is
+	// absent/blank in the run request (HTTP 400).
+	ErrWorkflowMissingInput = errors.New("workflow run input missing required field")
+	// ErrWorkflowNotDebuggable: an unpublished (draft/archived) workflow may
+	// only be run by its creator or an Admin — the editor debug affordance.
+	ErrWorkflowNotDebuggable = errors.New("unpublished workflow can only be run by its creator or an admin (publish it for general access)")
+	// ErrWorkflowNotPublishable: publish prerequisites failed (wraps the
+	// reason, e.g. DSL does not compile).
+	ErrWorkflowNotPublishable = errors.New("workflow cannot be published")
 )
 
 // workflowDSLShape is the minimal structural view used to validate the DSL
@@ -157,6 +169,21 @@ type workflowService struct {
 	models   interfaces.ModelService
 	kbs      interfaces.KnowledgeBaseService
 	enqueuer interfaces.TaskEnqueuer
+	// webSearch backs the WebSearch node adapter (admin-configured search
+	// providers; nil in Lite mode → node fails with a clear message).
+	webSearch interfaces.WebSearchService
+	// webSearchProviders resolves the tenant-default provider when a node
+	// does not pin one.
+	webSearchProviders interfaces.WebSearchProviderRepository
+	// sandboxes resolves the tenant's sandbox backend for the Code node
+	// (nil in Lite mode → the node fails with a clear message).
+	sandboxes sandbox.TenantSandboxResolver
+	// agents runs one ReAct turn for the Agent node (nil → clear node error).
+	agents interfaces.AgentService
+	// mcpClients + mcpServices back the MCPTool node adapter. mcpClients is
+	// a one-method view of *mcp.MCPManager so tests can fake the client pool.
+	mcpClients  mcpClientProvider
+	mcpServices interfaces.MCPServiceService
 	// redis, when non-nil (full mode), bridges run frames across instances
 	// for SSE. Lite mode gets nil and stays process-local.
 	redis *redis.Client
@@ -172,13 +199,20 @@ type workflowService struct {
 // engine adapters injected into every compiled run (LLMFunc → ModelService
 // GetChatModel, RetrievalFunc → KnowledgeBaseService HybridSearch);
 // enqueuer backs the async run mode (asynq client in full mode, inline
-// sync executor in Lite mode).
+// sync executor in Lite mode); webSearch/webSearchProviders back the
+// WebSearch node (nil is legal — the node then errors at run time).
 func NewWorkflowService(
 	repo interfaces.WorkflowRepository,
 	models interfaces.ModelService,
 	kbs interfaces.KnowledgeBaseService,
 	enqueuer interfaces.TaskEnqueuer,
 	redisClient *redis.Client,
+	webSearch interfaces.WebSearchService,
+	webSearchProviders interfaces.WebSearchProviderRepository,
+	sandboxes sandbox.TenantSandboxResolver,
+	agents interfaces.AgentService,
+	mcpManager *mcp.MCPManager,
+	mcpServices interfaces.MCPServiceService,
 ) interfaces.WorkflowService {
 	// Lite (nil redis): no checkpoint KV — engine treats nil Deps.CheckpointKV
 	// as "no persistence" and every run executes fresh (current behaviour).
@@ -187,14 +221,20 @@ func NewWorkflowService(
 		ckptKV = newRedisCheckpointKV(redisClient)
 	}
 	return &workflowService{
-		repo:     repo,
-		models:   models,
-		kbs:      kbs,
-		enqueuer: enqueuer,
-		redis:    redisClient,
-		ckptKV:   ckptKV,
-		runs:     newWorkflowRunBroker(),
-		cancels:  newWorkflowRunCancels(),
+		repo:               repo,
+		models:             models,
+		kbs:                kbs,
+		enqueuer:           enqueuer,
+		webSearch:          webSearch,
+		webSearchProviders: webSearchProviders,
+		sandboxes:          sandboxes,
+		agents:             agents,
+		mcpClients:         mcpManager,
+		mcpServices:        mcpServices,
+		redis:              redisClient,
+		ckptKV:             ckptKV,
+		runs:               newWorkflowRunBroker(),
+		cancels:            newWorkflowRunCancels(),
 	}
 }
 
@@ -322,6 +362,130 @@ func (s *workflowService) ListWorkflowRuns(ctx context.Context, workflowID strin
 // execution synchronous behind this cap.
 const workflowRunTimeout = 120 * time.Second
 
+// workflowTraceNodeBytes caps one node's serialized outputs inside SSE
+// frames and the persisted trace. Oversized maps are replaced by a
+// truncated marker — the debug panel stays responsive and the run row
+// bounded no matter how large a retrieval or LLM payload is.
+// ponytail: fixed cap, no per-node override; raise via constant if a
+// workflow ever legitimately needs bigger payloads inspected.
+const workflowTraceNodeBytes = 256 * 1024
+
+// capTraceOutputs returns ev's outputs size-capped: maps whose marshalled
+// size exceeds the cap collapse to {"_truncated": true, "bytes": n}.
+func capTraceOutputs(ev wfengine.NodeEvent) wfengine.NodeEvent {
+	if len(ev.Outputs) == 0 {
+		return ev
+	}
+	data, err := json.Marshal(ev.Outputs)
+	if err == nil && len(data) <= workflowTraceNodeBytes {
+		return ev
+	}
+	ev.Outputs = map[string]any{"_truncated": true, "bytes": len(data)}
+	return ev
+}
+
+// validateRunInputs checks the run request's inputs against the workflow's
+// Start-node form: every declared required field must be present and
+// non-blank. Unknown keys pass through untouched (forward compatibility —
+// the engine materialises only declared fields anyway).
+func validateRunInputs(normalized *wfengine.DSL, req *types.RunWorkflowRequest) error {
+	for _, comp := range normalized.Components {
+		if !strings.EqualFold(comp.Obj.ComponentName, nodes.ComponentStart) {
+			continue
+		}
+		fields, err := nodes.StartFieldsOf(comp.Obj.Params)
+		if err != nil {
+			return fmt.Errorf("%w: %v", ErrWorkflowInvalidDSL, err)
+		}
+		for _, f := range fields {
+			if !f.Required {
+				continue
+			}
+			v, ok := req.Inputs[f.Name]
+			blank := !ok || v == nil
+			if !blank {
+				if s, isStr := v.(string); isStr {
+					blank = strings.TrimSpace(s) == ""
+				}
+			}
+			if blank {
+				return fmt.Errorf("%w: %q", ErrWorkflowMissingInput, f.Name)
+			}
+		}
+		break // one Start node per graph (compile enforces a single entry)
+	}
+	return nil
+}
+
+// dslForRun picks the DSL a run executes: published workflows run their
+// frozen snapshot (legacy rows without one fall back to the draft DSL);
+// drafts/archived run the live DSL (creator/admin only, see RunWorkflow).
+func dslForRun(wf *types.Workflow) types.JSON {
+	if wf.Status == types.WorkflowStatusPublished && len(wf.PublishedDSL) > 0 {
+		return wf.PublishedDSL
+	}
+	return wf.DSL
+}
+
+// canDebugUnpublished reports whether the caller may run a draft/archived
+// workflow: the creator or Admin+ (the editor's debug affordance).
+func canDebugUnpublished(ctx context.Context, wf *types.Workflow) bool {
+	if types.TenantRoleFromContext(ctx).HasPermission(types.TenantRoleAdmin) {
+		return true
+	}
+	userID, _ := types.UserIDFromContext(ctx)
+	return userID != "" && userID == wf.CreatorID
+}
+
+// PublishWorkflow freezes the current DSL as the published snapshot and
+// flips the workflow to published. The DSL must normalize (compile-shape
+// check) before it is frozen — publishing a broken graph is rejected.
+func (s *workflowService) PublishWorkflow(ctx context.Context, id string) (*types.Workflow, error) {
+	tenantID, ok := types.TenantIDFromContext(ctx)
+	if !ok || tenantID == 0 {
+		return nil, ErrWorkflowTenantRequired
+	}
+	wf, err := s.repo.GetWorkflowByIDAndTenant(ctx, id, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.normalizeWorkflowDSL(wf); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrWorkflowNotPublishable, err)
+	}
+	wf.PublishedDSL = wf.DSL
+	wf.Status = types.WorkflowStatusPublished
+	wf.Version = wf.Version + 1
+	if err := s.repo.UpdateWorkflow(ctx, wf); err != nil {
+		return nil, err
+	}
+	logger.Infof(ctx, "[workflow:%s] published (version %d)", id, wf.Version)
+	return wf, nil
+}
+
+// SetWorkflowStatus flips draft/archived (and back). Publishing must go
+// through PublishWorkflow (snapshot semantics); passing published here is
+// rejected. Unpublishing keeps the snapshot so a later re-publish is a
+// no-op diff; archived workflows keep their run history.
+func (s *workflowService) SetWorkflowStatus(ctx context.Context, id string, status string) (*types.Workflow, error) {
+	tenantID, ok := types.TenantIDFromContext(ctx)
+	if !ok || tenantID == 0 {
+		return nil, ErrWorkflowTenantRequired
+	}
+	if !types.IsValidWorkflowStatus(status) || status == types.WorkflowStatusPublished {
+		return nil, fmt.Errorf("%w: use the publish endpoint to publish (got %q)", ErrWorkflowInvalidStatus, status)
+	}
+	wf, err := s.repo.GetWorkflowByIDAndTenant(ctx, id, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	wf.Status = status
+	wf.Version = wf.Version + 1
+	if err := s.repo.UpdateWorkflow(ctx, wf); err != nil {
+		return nil, err
+	}
+	return wf, nil
+}
+
 // RunWorkflow executes one run of a workflow in the caller's tenant.
 //
 // Lifecycle: a workflow_runs row is created in "pending" state first so
@@ -342,10 +506,20 @@ func (s *workflowService) RunWorkflow(ctx context.Context, id string, req *types
 	if err != nil {
 		return nil, err
 	}
+	// Run gate (Dify draft/published model): published workflows run their
+	// frozen snapshot for everyone; drafts/archived are creator/admin-only
+	// debugging.
+	if wf.Status != types.WorkflowStatusPublished && !canDebugUnpublished(ctx, wf) {
+		return nil, ErrWorkflowNotDebuggable
+	}
 
-	normalized, err := s.normalizeWorkflowDSL(wf)
+	runDSL := dslForRun(wf)
+	normalized, err := s.normalizeDSLBytes(runDSL)
 	if err != nil {
 		return nil, err
+	}
+	if verr := validateRunInputs(normalized, req); verr != nil {
+		return nil, verr
 	}
 
 	inputDoc, _ := json.Marshal(req)
@@ -367,6 +541,7 @@ func (s *workflowService) RunWorkflow(ctx context.Context, id string, req *types
 			TenantID:   tenantID,
 			Query:      req.Query,
 			Files:      req.Files,
+			Inputs:     req.Inputs,
 		})
 		if merr != nil {
 			s.failWorkflowRun(ctx, run, merr)
@@ -442,17 +617,17 @@ func (s *workflowService) ProcessWorkflowRun(ctx context.Context, t *asynq.Task)
 		s.failWorkflowRun(ctx, run, nerr)
 		return nil
 	}
-	req := &types.RunWorkflowRequest{Query: payload.Query, Files: payload.Files, Async: true}
+	req := &types.RunWorkflowRequest{Query: payload.Query, Files: payload.Files, Inputs: payload.Inputs, Async: true}
 	// Execution errors are already persisted as the run's terminal state.
 	_ = s.executeWorkflowRun(ctx, run, wf, normalized, req)
 	return nil
 }
 
-// normalizeWorkflowDSL unmarshals and normalizes the stored DSL document.
-// Shape errors are ErrWorkflowInvalidDSL (400 semantics, no run row).
-func (s *workflowService) normalizeWorkflowDSL(wf *types.Workflow) (*wfengine.DSL, error) {
+// normalizeDSLBytes unmarshals and normalizes a raw DSL document (the
+// draft or a published snapshot). Shape errors are ErrWorkflowInvalidDSL.
+func (s *workflowService) normalizeDSLBytes(raw types.JSON) (*wfengine.DSL, error) {
 	var dsl wfengine.DSL
-	if err := json.Unmarshal(wf.DSL, &dsl); err != nil {
+	if err := json.Unmarshal(raw, &dsl); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrWorkflowInvalidDSL, err)
 	}
 	normalized, err := wfengine.Normalize(&dsl)
@@ -460,6 +635,38 @@ func (s *workflowService) normalizeWorkflowDSL(wf *types.Workflow) (*wfengine.DS
 		return nil, fmt.Errorf("%w: %v", ErrWorkflowInvalidDSL, err)
 	}
 	return normalized, nil
+}
+
+// normalizeWorkflowDSL unmarshals and normalizes the stored DSL document.
+// Shape errors are ErrWorkflowInvalidDSL (400 semantics, no run row).
+func (s *workflowService) normalizeWorkflowDSL(wf *types.Workflow) (*wfengine.DSL, error) {
+	return s.normalizeDSLBytes(dslForRun(wf))
+}
+
+// answerStreamSource reports the node id whose LLM deltas are the live
+// answer: the terminal Answer node's template must be EXACTLY one
+// {node@param} reference — mixed templates cannot stream coherently
+// (literals and other refs render only at completion).
+var answerSingleRef = regexp.MustCompile(`^\{([a-zA-Z0-9_-]+)@[a-zA-Z0-9_.-]+\}$`)
+
+func answerStreamSource(normalized *wfengine.DSL) string {
+	for _, comp := range normalized.Components {
+		if len(comp.Downstream) != 0 || !strings.EqualFold(comp.Obj.ComponentName, nodes.ComponentAnswer) {
+			continue
+		}
+		tmpl, _ := comp.Obj.Params["template"].(string)
+		m := answerSingleRef.FindStringSubmatch(strings.TrimSpace(tmpl))
+		if m == nil {
+			return ""
+		}
+		// Only an LLM node streams; anything else (retrieval etc.) has no
+		// deltas to forward.
+		if src, ok := normalized.Components[m[1]]; ok && strings.EqualFold(src.Obj.ComponentName, nodes.ComponentLLM) {
+			return m[1]
+		}
+		return ""
+	}
+	return ""
 }
 
 // executeWorkflowRun drives a freshly created (pending) run row to a
@@ -480,7 +687,63 @@ func (s *workflowService) executeWorkflowRun(
 		return err
 	}
 
+	// Trace accumulator: one entry per terminal node frame, execution
+	// order. Persisted on the run row at both terminal paths so the
+	// run-detail panel can replay any attempt (replayed nodes included —
+	// the engine emits Replayed frames for checkpoint resume).
+	trace := make([]types.WorkflowRunTraceEntry, 0, 8)
+	traceMu := sync.Mutex{}
+	appendTrace := func(entry types.WorkflowRunTraceEntry) {
+		traceMu.Lock()
+		defer traceMu.Unlock()
+		trace = append(trace, entry)
+	}
+	traceJSON := func() types.JSON {
+		traceMu.Lock()
+		defer traceMu.Unlock()
+		if len(trace) == 0 {
+			return nil
+		}
+		data, err := json.Marshal(trace)
+		if err != nil {
+			return nil
+		}
+		return types.JSON(data)
+	}
+	// nodeKind resolves a node id to its component_name for trace entries;
+	// unknown ids (should not happen) degrade to "".
+	nodeKind := func(nodeID string) string {
+		if comp, ok := normalized.Components[nodeID]; ok {
+			return comp.Obj.ComponentName
+		}
+		return ""
+	}
+
+	// answerSourceID: when the terminal node is an Answer whose template is
+	// exactly one {node@param} ref, that node's LLM deltas are the live
+	// answer stream (Dify-style pass-through); empty = no answer streaming.
+	answerSourceID := answerStreamSource(normalized)
+
 	publishNode := func(ev wfengine.NodeEvent) {
+		ev = capTraceOutputs(ev)
+		if ev.Phase == wfengine.PhaseDelta {
+			// Best-effort live deltas: no logging (spam), no trace (terminal
+			// phases carry the full content), no event-bus mirror.
+			frame := types.WorkflowRunEvent{
+				WorkflowID: wf.ID,
+				RunID:      run.ID,
+				Kind:       "delta",
+				NodeID:     ev.NodeID,
+				Phase:      string(ev.Phase),
+				Content:    ev.Content,
+			}
+			if ev.NodeID == answerSourceID {
+				frame.Stream = "answer"
+			}
+			s.runs.publish(frame)
+			s.publishFrameRedis(ctx, frame)
+			return
+		}
 		logger.Infof(ctx, "[workflow:%s run:%s] node %s %s (%dms)",
 			wf.ID, run.ID, ev.NodeID, ev.Phase, ev.DurationMS)
 		frame := types.WorkflowRunEvent{
@@ -490,6 +753,8 @@ func (s *workflowService) executeWorkflowRun(
 			NodeID:     ev.NodeID,
 			Phase:      string(ev.Phase),
 			DurationMS: ev.DurationMS,
+			Outputs:    ev.Outputs,
+			Replayed:   ev.Replayed,
 		}
 		if ev.Err != nil {
 			frame.Err = ev.Err.Error()
@@ -501,13 +766,30 @@ func (s *workflowService) executeWorkflowRun(
 			SessionID: run.ID,
 			Data:      frame,
 		})
+		// Terminal node phases land in the persisted trace.
+		if ev.Phase == wfengine.PhaseFinished || ev.Phase == wfengine.PhaseFailed {
+			appendTrace(types.WorkflowRunTraceEntry{
+				NodeID:     ev.NodeID,
+				Kind:       nodeKind(ev.NodeID),
+				Phase:      string(ev.Phase),
+				DurationMS: ev.DurationMS,
+				Outputs:    ev.Outputs,
+				Err:        frame.Err,
+				Replayed:   ev.Replayed,
+			})
+		}
 	}
 
 	compiled, cerr := wfengine.Compile(normalized, wfengine.Deps{
 		LLMFunc:       s.runLLM,
+		LLMStreamFunc: s.runLLMStream,
 		RetrievalFunc: s.runRetrieval,
 		HTTPFunc:      s.runHTTP,
 		DataOpsFunc:   s.runDataOps,
+		WebSearchFunc: s.runWebSearch,
+		CodeFunc:      s.runCode,
+		AgentFunc:     s.runAgent,
+		MCPFunc:       s.runMCPTool,
 		OnNodeEvent:   publishNode,
 		// Checkpoint persistence (full mode only): eino persists completed-
 		// node state per run, and the engine keeps a CanvasState side-car —
@@ -517,7 +799,7 @@ func (s *workflowService) executeWorkflowRun(
 		CheckpointTTL: workflowCheckpointTTL,
 	})
 	if cerr != nil {
-		s.failWorkflowRun(ctx, run, cerr)
+		s.failWorkflowRunWithTrace(ctx, run, cerr, traceJSON)
 		return cerr
 	}
 
@@ -536,9 +818,10 @@ func (s *workflowService) executeWorkflowRun(
 		// re-executes with the same id and completed nodes are replayed, not
 		// re-invoked. Lite mode (nil KV) degrades to fresh runs.
 		CheckpointID: run.ID,
+		Inputs:       req.Inputs,
 	})
 	if rerr != nil {
-		s.failWorkflowRun(ctx, run, rerr)
+		s.failWorkflowRunWithTrace(ctx, run, rerr, traceJSON)
 		return rerr
 	}
 
@@ -549,7 +832,7 @@ func (s *workflowService) executeWorkflowRun(
 	}
 	outJSON, merr := json.Marshal(outDoc)
 	if merr != nil {
-		s.failWorkflowRun(ctx, run, merr)
+		s.failWorkflowRunWithTrace(ctx, run, merr, traceJSON)
 		return merr
 	}
 	if s.runAlreadyCancelled(ctx, run) {
@@ -560,6 +843,7 @@ func (s *workflowService) executeWorkflowRun(
 	}
 	run.Status = types.WorkflowRunStatusSucceeded
 	run.Output = types.JSON(outJSON)
+	run.Trace = traceJSON()
 	if uerr := s.repo.UpdateWorkflowRun(ctx, run); uerr != nil {
 		logger.Errorf(ctx, "workflow run %s terminal update failed: %v", run.ID, uerr)
 		return uerr
@@ -574,6 +858,13 @@ func (s *workflowService) executeWorkflowRun(
 // racing the failure) is left alone — cancelled is also terminal and the
 // cancel path already closed SSE subscribers.
 func (s *workflowService) failWorkflowRun(ctx context.Context, run *types.WorkflowRun, cause error) {
+	s.failWorkflowRunWithTrace(ctx, run, cause, nil)
+}
+
+// failWorkflowRunWithTrace is failWorkflowRun with the run's accumulated
+// node trace (nil traceFn for failures before any node executed — enqueue,
+// compile — where there is nothing to record).
+func (s *workflowService) failWorkflowRunWithTrace(ctx context.Context, run *types.WorkflowRun, cause error, traceJSON func() types.JSON) {
 	if s.runAlreadyCancelled(ctx, run) {
 		logger.Infof(ctx, "[workflow:%s] run %s failure suppressed: row already cancelled (%v)",
 			run.WorkflowID, run.ID, cause)
@@ -581,6 +872,9 @@ func (s *workflowService) failWorkflowRun(ctx context.Context, run *types.Workfl
 	}
 	run.Status = types.WorkflowRunStatusFailed
 	run.Error = cause.Error()
+	if traceJSON != nil {
+		run.Trace = traceJSON()
+	}
 	if err := s.repo.UpdateWorkflowRun(ctx, run); err != nil {
 		logger.Errorf(ctx, "workflow run %s failure update failed: %v", run.ID, err)
 	}
@@ -750,6 +1044,15 @@ func (s *workflowService) ResumeWorkflowRun(ctx context.Context, workflowID, run
 	if run.Status != types.WorkflowRunStatusFailed {
 		return nil, fmt.Errorf("%w (status=%s)", ErrWorkflowRunNotResumable, run.Status)
 	}
+	// Same run gate as fresh runs: unpublished workflows resume only for
+	// the creator/admin (the worker executes without a user context).
+	wf, err := s.repo.GetWorkflowByIDAndTenant(ctx, workflowID, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if wf.Status != types.WorkflowStatusPublished && !canDebugUnpublished(ctx, wf) {
+		return nil, ErrWorkflowNotDebuggable
+	}
 
 	// Original inputs: the run's Input document is the marshalled
 	// RunWorkflowRequest from the first attempt.
@@ -762,10 +1065,6 @@ func (s *workflowService) ResumeWorkflowRun(ctx context.Context, workflowID, run
 
 	// Fail fast on a workflow whose DSL no longer compiles BEFORE handing
 	// the row to the queue (400 semantics, row untouched).
-	wf, err := s.repo.GetWorkflowByIDAndTenant(ctx, workflowID, tenantID)
-	if err != nil {
-		return nil, err
-	}
 	if _, nerr := s.normalizeWorkflowDSL(wf); nerr != nil {
 		return nil, nerr
 	}
@@ -776,6 +1075,7 @@ func (s *workflowService) ResumeWorkflowRun(ctx context.Context, workflowID, run
 		TenantID:   tenantID,
 		Query:      orig.Query,
 		Files:      orig.Files,
+		Inputs:     orig.Inputs,
 		Resume:     true,
 	})
 	if merr != nil {
@@ -845,7 +1145,15 @@ func (s *workflowService) SubscribeWorkflowRunEvents(runID string) (<-chan types
 	}
 
 	deliver := func(frame types.WorkflowRunEvent) {
+		// Dedup key: kind|node|phase|duration, plus content for delta frames —
+		// sequential deltas from one node share every other field, and the
+		// local+redis echo carries identical content. ponytail: two consecutive
+		// IDENTICAL delta chunks from one node would collide (a repeated token
+		// dropped); add per-run sequence numbers if that ever matters.
 		key := frame.Kind + "|" + frame.NodeID + "|" + frame.Phase + "|" + strconv.FormatInt(frame.DurationMS, 10)
+		if frame.Kind == "delta" {
+			key += "|" + frame.Content
+		}
 		mu.Lock()
 		if _, dup := seen[key]; dup {
 			mu.Unlock()
@@ -890,6 +1198,356 @@ func (s *workflowService) SubscribeWorkflowRunEvents(runID string) (<-chan types
 		closeOut()
 	}
 	return out, stop
+}
+
+// runWebSearch adapts the engine's WebSearchFunc onto the platform search
+// service. Provider resolution: the node's provider_id param wins; empty
+// falls back to the tenant's default provider. No provider configured →
+// loud error naming the fix (configure one in settings).
+func (s *workflowService) runWebSearch(ctx context.Context, req nodes.WebSearchRequest) ([]nodes.WebSearchResultItem, error) {
+	if s.webSearch == nil {
+		return nil, errors.New("workflow WebSearch: search service unavailable")
+	}
+	providerID := strings.TrimSpace(req.ProviderID)
+	if providerID == "" {
+		if s.webSearchProviders == nil {
+			return nil, errors.New("workflow WebSearch: no provider configured for this node and no default provider lookup available")
+		}
+		tenantID, ok := types.TenantIDFromContext(ctx)
+		if !ok || tenantID == 0 {
+			return nil, ErrWorkflowTenantRequired
+		}
+		def, err := s.webSearchProviders.GetDefault(ctx, tenantID)
+		if err != nil {
+			return nil, fmt.Errorf("workflow WebSearch: default provider lookup failed: %w", err)
+		}
+		if def == nil {
+			return nil, errors.New("workflow WebSearch: no search provider configured (set one as default in settings or pin provider_id on the node)")
+		}
+		providerID = def.ID
+	}
+	config := types.EffectiveWebSearchConfig(nil)
+	if req.MaxResults > 0 {
+		config.MaxResults = req.MaxResults
+	}
+	results, err := s.webSearch.Search(ctx, providerID, config, req.Query)
+	if err != nil {
+		return nil, fmt.Errorf("workflow WebSearch: search failed: %w", err)
+	}
+	items := make([]nodes.WebSearchResultItem, 0, len(results))
+	for _, r := range results {
+		if r == nil {
+			continue
+		}
+		items = append(items, nodes.WebSearchResultItem{Title: r.Title, URL: r.URL, Snippet: r.Snippet})
+	}
+	return items, nil
+}
+
+// codeInputEnvVar carries the rendered variables object into the sandbox.
+// Env, not stdin: stdin passes the injection validator and arbitrary user
+// variable values could trip it on false positives.
+const codeInputEnvVar = "WEKNORA_WORKFLOW_INPUT"
+
+// runCode adapts the engine's CodeFunc onto the tenant's sandbox backend.
+// Empty SessionID selects the ephemeral one-shot sandbox (allocated for this
+// script, torn down right after), so workflow Code nodes never touch the
+// session-persistent sandboxes skill runs use. The script must print a JSON
+// object; every key becomes a node output.
+func (s *workflowService) runCode(ctx context.Context, req nodes.CodeRequest) (map[string]any, error) {
+	if s.sandboxes == nil {
+		return nil, errors.New("workflow Code: no sandbox backend configured for workflows")
+	}
+	tenantID, ok := types.TenantIDFromContext(ctx)
+	if !ok || tenantID == 0 {
+		return nil, ErrWorkflowTenantRequired
+	}
+	manager, err := s.sandboxes.Resolve(ctx, tenantID, "")
+	if err != nil {
+		return nil, fmt.Errorf("workflow Code: sandbox resolve failed: %w", err)
+	}
+	ext := ".py"
+	if req.Language == "node" {
+		ext = ".js"
+	}
+	timeout := req.TimeoutSeconds
+	if timeout <= 0 || timeout > 120 {
+		timeout = 120 // bounded by the run cap anyway
+	}
+	result, err := manager.Execute(ctx, &sandbox.ExecuteConfig{
+		Script:        "workflow_code" + ext, // basename → upload name + interpreter
+		ScriptContent: req.Code,
+		// SessionID empty = ephemeral sandbox, created and disposed per run.
+		Env:     map[string]string{codeInputEnvVar: req.InputJSON},
+		Timeout: time.Duration(timeout) * time.Second,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("workflow Code: execution failed: %w", err)
+	}
+	if !result.IsSuccess() {
+		return nil, fmt.Errorf("workflow Code: script failed (exit %d): %s", result.ExitCode, tail(result.Stderr, 400))
+	}
+	out := lastJSONObject(result.Stdout)
+	if out == nil {
+		return nil, fmt.Errorf("workflow Code: script printed no JSON object (stdout: %s)", tail(result.Stdout, 200))
+	}
+	return out, nil
+}
+
+// lastJSONObject returns the final complete top-level {...} object in s
+// (quote- and escape-aware brace matching), or nil. Scripts may print
+// progress lines — and nested objects — before the result object.
+func lastJSONObject(s string) map[string]any {
+	var best string
+	depth := 0
+	inString, escaped := false, false
+	start := -1
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if inString {
+			if escaped {
+				escaped = false
+			} else if c == '\\' {
+				escaped = true
+			} else if c == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch c {
+		case '"':
+			inString = true
+		case '{':
+			if depth == 0 {
+				start = i
+			}
+			depth++
+		case '}':
+			if depth > 0 {
+				depth--
+				if depth == 0 && start >= 0 {
+					best = s[start : i+1]
+				}
+			}
+		}
+	}
+	if best == "" {
+		return nil
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(best), &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+// tail returns the last n bytes of s (for bounded error messages).
+func tail(s string, n int) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= n {
+		return s
+	}
+	return "…" + s[len(s)-n:]
+}
+
+// runAgent adapts the engine's AgentFunc onto the platform ReAct engine via
+// the ready-made programmatic entry (AgentService.CreateAgentEngine — same
+// surface tenant_skill_install.go uses outside the chat path). One stateless
+// turn: synthetic session/message ids, no history, no session or message
+// persistence; the engine's event bus is a throwaway with no subscribers.
+func (s *workflowService) runAgent(ctx context.Context, req nodes.AgentRequest) (string, error) {
+	if s.agents == nil {
+		return "", errors.New("workflow Agent: agent runtime unavailable")
+	}
+	if s.models == nil {
+		return "", errors.New("workflow Agent: model service unavailable")
+	}
+	tenantID, ok := types.TenantIDFromContext(ctx)
+	if !ok || tenantID == 0 {
+		return "", ErrWorkflowTenantRequired
+	}
+	modelID := strings.TrimSpace(req.Model)
+	if modelID == "" {
+		fallback, ferr := s.defaultChatModelID(ctx)
+		if ferr != nil {
+			return "", ferr
+		}
+		modelID = fallback
+	}
+	chatModel, err := s.models.GetChatModel(ctx, modelID)
+	if err != nil {
+		return "", fmt.Errorf("workflow Agent: model %q unavailable: %w", modelID, err)
+	}
+
+	cfg := &types.AgentConfig{
+		MaxIterations: 5,
+		SystemPrompt:  req.SystemPrompt,
+		Temperature:   req.Temperature,
+	}
+	if len(req.KBIDs) > 0 {
+		cfg.AllowedTools = []string{"knowledge_search"}
+		for _, kbID := range req.KBIDs {
+			cfg.SearchTargets = append(cfg.SearchTargets, &types.SearchTarget{
+				Type:            types.SearchTargetTypeKnowledgeBase,
+				KnowledgeBaseID: kbID,
+				TenantID:        tenantID,
+			})
+		}
+	}
+	// A throwaway event bus keeps engine-internal streaming a no-op.
+	engine, err := s.agents.CreateAgentEngine(ctx, cfg, chatModel, nil, event.NewEventBus(), "workflow-agent-node", "")
+	if err != nil {
+		return "", fmt.Errorf("workflow Agent: engine setup failed: %w", err)
+	}
+	if engine == nil {
+		return "", errors.New("workflow Agent: engine setup returned no engine")
+	}
+	// llmContext nil = fresh single turn; synthetic ids are logging metadata only.
+	state, err := engine.Execute(ctx, "workflow-agent-node", "workflow-agent-node", req.Prompt, nil)
+	if err != nil {
+		return "", fmt.Errorf("workflow Agent: turn failed: %w", err)
+	}
+	if state == nil || strings.TrimSpace(state.FinalAnswer) == "" {
+		return "", errors.New("workflow Agent: turn produced no final answer")
+	}
+	return state.FinalAnswer, nil
+}
+
+// runMCPTool adapts the engine's MCPFunc onto the tenant MCP manager.
+// Interactive OAuth services are rejected loudly (a workflow node has no
+// consent UI); none/api_key/bearer auth call synchronously.
+func (s *workflowService) runMCPTool(ctx context.Context, req nodes.MCPToolRequest) (any, string, error) {
+	if s.mcpClients == nil || s.mcpServices == nil {
+		return nil, "", errors.New("workflow MCPTool: MCP runtime unavailable")
+	}
+	tenantID, ok := types.TenantIDFromContext(ctx)
+	if !ok || tenantID == 0 {
+		return nil, "", ErrWorkflowTenantRequired
+	}
+	services, err := s.mcpServices.ListMCPServicesByIDs(ctx, tenantID, []string{req.ServiceID})
+	if err != nil {
+		return nil, "", fmt.Errorf("workflow MCPTool: service lookup failed: %w", err)
+	}
+	var service *types.MCPService
+	for _, svc := range services {
+		if svc != nil && svc.ID == req.ServiceID {
+			service = svc
+			break
+		}
+	}
+	if service == nil {
+		return nil, "", fmt.Errorf("workflow MCPTool: MCP service %q not found in this workspace", req.ServiceID)
+	}
+	if !service.Enabled {
+		return nil, "", fmt.Errorf("workflow MCPTool: MCP service %q is disabled", service.Name)
+	}
+	if service.AuthConfig.IsOAuth() {
+		return nil, "", fmt.Errorf("workflow MCPTool: service %q uses OAuth and needs interactive authorization — workflow nodes only support none/api_key/bearer auth", service.Name)
+	}
+
+	args := map[string]any{}
+	if trimmed := strings.TrimSpace(req.ArgsJSON); trimmed != "" && trimmed != "{}" {
+		if err := json.Unmarshal([]byte(trimmed), &args); err != nil {
+			return nil, "", fmt.Errorf("workflow MCPTool: args must render to a JSON object: %w", err)
+		}
+	}
+	if req.TimeoutSeconds > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(req.TimeoutSeconds)*time.Second)
+		defer cancel()
+	}
+	client, err := s.mcpClients.GetOrCreateClient(ctx, service)
+	if err != nil {
+		return nil, "", fmt.Errorf("workflow MCPTool: connect to %q failed: %w", service.Name, err)
+	}
+	result, err := client.CallTool(ctx, req.Tool, args)
+	if err != nil {
+		return nil, "", fmt.Errorf("workflow MCPTool: call %q failed: %w", req.Tool, err)
+	}
+	if result.IsError {
+		return nil, "", fmt.Errorf("workflow MCPTool: tool %q returned an error: %s", req.Tool, mcpContentText(result.Content))
+	}
+	raw := mcpContentRaw(result.Content)
+	return raw, mcpContentText(result.Content), nil
+}
+
+// mcpContentText renders the textual parts of an MCP tool result.
+func mcpContentText(items []mcp.ContentItem) string {
+	var b strings.Builder
+	for _, item := range items {
+		if item.Text != "" {
+			if b.Len() > 0 {
+				b.WriteByte('\n')
+			}
+			b.WriteString(item.Text)
+		}
+	}
+	return b.String()
+}
+
+// mcpContentRaw maps content items to plain values for {node@result} refs.
+func mcpContentRaw(items []mcp.ContentItem) any {
+	texts := make([]any, 0, len(items))
+	for _, item := range items {
+		if item.Text != "" {
+			texts = append(texts, item.Text)
+		}
+	}
+	if len(texts) == 1 {
+		return texts[0]
+	}
+	return texts
+}
+
+// mcpClientProvider is the one-method slice of *mcp.MCPManager the
+// MCPTool adapter needs (test seam; production passes the manager).
+type mcpClientProvider interface {
+	GetOrCreateClient(ctx context.Context, service *types.MCPService) (mcp.MCPClient, error)
+}
+
+// runLLMStream is the streaming sibling of runLLM: identical resolution
+// and message assembly, but consumes ChatStream and forwards each chunk to
+// onDelta while accumulating the full text. Errors mid-stream fail the call
+// (partial content is discarded — the run's error path takes over).
+func (s *workflowService) runLLMStream(ctx context.Context, req nodes.LLMRequest, onDelta func(string)) (string, error) {
+	modelID := strings.TrimSpace(req.Model)
+	if modelID == "" {
+		fallback, ferr := s.defaultChatModelID(ctx)
+		if ferr != nil {
+			return "", ferr
+		}
+		modelID = fallback
+	}
+	model, err := s.models.GetChatModel(ctx, modelID)
+	if err != nil {
+		return "", fmt.Errorf("workflow LLM model %q unavailable: %w", modelID, err)
+	}
+	msgs := make([]chat.Message, 0, 2)
+	if req.SystemPrompt != "" {
+		msgs = append(msgs, chat.Message{Role: "system", Content: req.SystemPrompt})
+	}
+	msgs = append(msgs, chat.Message{Role: "user", Content: req.Prompt})
+	opts := &chat.ChatOptions{Temperature: req.Temperature}
+	if req.MaxTokens > 0 {
+		opts.MaxCompletionTokens = req.MaxTokens
+	}
+	ch, err := model.ChatStream(ctx, msgs, opts)
+	if err != nil {
+		return "", fmt.Errorf("workflow LLM stream start failed: %w", err)
+	}
+	var b strings.Builder
+	for resp := range ch {
+		if resp.Content != "" {
+			b.WriteString(resp.Content)
+			if onDelta != nil {
+				onDelta(resp.Content)
+			}
+		}
+	}
+	if b.Len() == 0 {
+		return "", errors.New("workflow LLM stream produced no content")
+	}
+	return b.String(), nil
 }
 
 // runLLM adapts the engine's LLMFunc onto the platform ModelService.

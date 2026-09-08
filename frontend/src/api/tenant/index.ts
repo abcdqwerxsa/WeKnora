@@ -52,6 +52,8 @@ export interface APIPrincipalTestToken {
 //  - 'retrieve': read/search knowledge-base data within scope
 //  - 'chat': run the conversation flow (sessions + agent listing + self identity)
 //  - 'read_agents': list/read agents without chat or authoring
+//  - 'read_workflows': read workflow runs/history; cannot execute or modify definitions
+//  - 'run_workflows': execute published workflows (incl. cancel/resume); cannot read or modify definitions
 //  - 'ingest': write content into allowed knowledge bases (docs/chunks/FAQ/tags/wiki)
 //  - 'manage_kbs': manage the KB lifecycle (create/copy/duplicate/update/delete + config)
 //  - 'manage_agents': create/update/delete/copy agents
@@ -70,6 +72,8 @@ export type TenantAPIKeyCapability =
   | 'retrieve'
   | 'chat'
   | 'read_agents'
+  | 'read_workflows'
+  | 'run_workflows'
   | 'ingest'
   | 'manage_kbs'
   | 'manage_agents'

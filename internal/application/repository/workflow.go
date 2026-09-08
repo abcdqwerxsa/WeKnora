@@ -70,7 +70,7 @@ func (r *workflowRepository) ListWorkflowsByTenantID(ctx context.Context, tenant
 func (r *workflowRepository) UpdateWorkflow(ctx context.Context, workflow *types.Workflow) error {
 	return r.db.WithContext(ctx).Model(workflow).
 		Where("id = ? AND tenant_id = ?", workflow.ID, workflow.TenantID).
-		Select("name", "description", "dsl", "status", "version", "updated_at").
+		Select("name", "description", "dsl", "published_dsl", "status", "version", "updated_at").
 		Updates(workflow).Error
 }
 
@@ -95,7 +95,9 @@ func (r *workflowRepository) CreateWorkflowRun(ctx context.Context, run *types.W
 
 // UpdateWorkflowRun saves the terminal (or intermediate) state of a run row.
 // The run row is always created inside the caller's tenant by the service
-// layer, so the primary-key save cannot escape tenant scope.
+// layer, so the primary-key save cannot escape tenant scope. Trace is
+// written on every call (nil = empty trace; cancelled-before-start paths
+// legitimately have none).
 func (r *workflowRepository) UpdateWorkflowRun(ctx context.Context, run *types.WorkflowRun) error {
 	return r.db.WithContext(ctx).Model(&types.WorkflowRun{}).
 		Where("id = ? AND tenant_id = ?", run.ID, run.TenantID).
@@ -103,6 +105,7 @@ func (r *workflowRepository) UpdateWorkflowRun(ctx context.Context, run *types.W
 			"status": run.Status,
 			"output": run.Output,
 			"error":  run.Error,
+			"trace":  run.Trace,
 		}).Error
 }
 
@@ -122,10 +125,13 @@ func (r *workflowRepository) GetWorkflowRunByIDAndTenant(ctx context.Context, ru
 }
 
 // ListWorkflowRunsByTenantAndWorkflow returns the run history of one
-// workflow, newest first.
+// workflow, newest first. The trace column (per-node payloads, potentially
+// large) is deliberately excluded — history rows carry status/summary only;
+// the run-detail endpoint fetches the full row.
 func (r *workflowRepository) ListWorkflowRunsByTenantAndWorkflow(ctx context.Context, tenantID uint64, workflowID string) ([]*types.WorkflowRun, error) {
 	var runs []*types.WorkflowRun
 	if err := r.db.WithContext(ctx).
+		Select("id", "tenant_id", "workflow_id", "status", "input", "output", "error", "created_at", "updated_at", "deleted_at").
 		Where("tenant_id = ? AND workflow_id = ?", tenantID, workflowID).
 		Order("created_at DESC").
 		Find(&runs).Error; err != nil {

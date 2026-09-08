@@ -51,6 +51,9 @@ export const TOOL_CAPABILITY_REQUIREMENTS: Record<string, ToolRequirement> = {
   // we add a dedicated `requiresFaqKb` i18n key we can include `faq` here.
   knowledge_search:      { anyOf: ['vector', 'keyword'], consumesFiles: true },
   grep_chunks:           { anyOf: ['vector', 'keyword'], consumesFiles: true },
+  // Workflow tools are KB-independent: they operate on published workflows.
+  list_workflows:        {},
+  run_workflow:          {},
   list_knowledge_chunks: { anyOf: ['vector', 'keyword'], consumesFiles: true },
   query_knowledge_graph: { anyOf: ['vector', 'keyword'], consumesFiles: true },
   get_document_info:     { anyOf: ['vector', 'keyword'], consumesFiles: true },

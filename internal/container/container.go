@@ -359,6 +359,8 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewDataSourceService))
 	must(container.Invoke(startDataSourceScheduler))
 	logger.Debugf(ctx, "[Container] Data source sync framework registered")
+	must(container.Invoke(startWorkflowScheduler))
+	logger.Debugf(ctx, "[Container] Workflow cron scheduler registered")
 	must(container.Invoke(startAuditLogRetention))
 	logger.Debugf(ctx, "[Container] Audit log retention runner registered")
 	must(container.Provide(service.NewHousekeepingService))
@@ -429,6 +431,10 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(handler.NewStorageBackendHandler))
 	must(container.Provide(handler.NewCustomAgentHandler))
 	must(container.Provide(handler.NewWorkflowHandler))
+	must(container.Provide(handler.NewWorkflowScheduleHandler))
+	must(container.Provide(repository.NewWorkflowScheduleRepository))
+	must(container.Provide(service.NewWorkflowScheduler))
+	must(container.Provide(service.NewWorkflowScheduleService))
 	must(container.Provide(handler.NewUserResourceFavoriteHandler))
 	must(container.Provide(service.NewSkillService))
 	must(container.Provide(func(s *service.TenantSkillService) *handler.SkillHandler {
@@ -1707,6 +1713,19 @@ func initConnectorRegistry() (*datasource.ConnectorRegistry, error) {
 		return nil, errs
 	}
 	return registry, nil
+}
+
+// startWorkflowScheduler starts the workflow cron scheduler and registers
+// cleanup. A start failure only logs: schedules re-register on the next
+// process start (Start loads all enabled rows).
+func startWorkflowScheduler(scheduler interfaces.WorkflowScheduler, cleaner interfaces.ResourceCleaner) {
+	if err := scheduler.Start(context.Background()); err != nil {
+		logger.Warnf(context.Background(), "[Container] workflow scheduler start failed: %v", err)
+	}
+	cleaner.RegisterWithName("WorkflowScheduler", func() error {
+		scheduler.Stop()
+		return nil
+	})
 }
 
 // startDataSourceScheduler starts the data source cron scheduler and registers cleanup.

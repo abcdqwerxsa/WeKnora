@@ -21,6 +21,7 @@ var versionedSQLiteTables = []string{
 	"knowledge_tag_relations",
 	"workflows",
 	"workflow_runs",
+	"workflow_schedules",
 }
 
 // versionedSQLiteColumns maps each existing table to the columns that the
@@ -33,9 +34,11 @@ var versionedSQLiteColumns = map[string][]string{
 	"tenant_invitations": {"token", "accepted_count"},        // 000054
 	"embed_channels":     {"allow_memory"},                   // 000060
 	"mcp_oauth_tokens":   {"principal_type", "principal_id"}, // 000064
+	"workflow_runs":      {"trace"},                          // 000092 / sqlite 000014
+	"workflows":          {"published_dsl"},                  // 000093 / sqlite 000015
 }
 
-const expectedSQLiteMigrationVersion = 13
+const expectedSQLiteMigrationVersion = 16
 
 func TestSQLiteMigrationsCreateVersionedSchema(t *testing.T) {
 	repoRoot := sqliteRepoRoot(t)

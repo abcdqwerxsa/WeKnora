@@ -9,6 +9,27 @@
         <span class="wf-node-kind">{{ title }}</span>
         <span class="wf-node-subtitle">{{ subtitle || desc }}</span>
       </div>
+      <t-popup
+        v-if="outputs"
+        trigger="click"
+        placement="right-top"
+        :overlay-style="{ maxWidth: '420px' }"
+      >
+        <span
+          class="wf-node-output-badge"
+          :class="outputFailed ? 'wf-node-output-badge--failed' : ''"
+          :title="$t('workflow.editor.nodeOutputs')"
+          @click.stop
+        >
+          <t-icon :name="outputFailed ? 'error-circle' : 'browse'" />
+        </span>
+        <template #content>
+          <div class="wf-node-output-pop">
+            <p class="wf-node-output-title">{{ title }} · {{ nodeId }}</p>
+            <pre class="wf-node-output-json">{{ outputsJSON }}</pre>
+          </div>
+        </template>
+      </t-popup>
     </div>
     <Handle v-if="hasSourceHandle" type="source" :position="Position.Right" />
   </div>
@@ -27,6 +48,10 @@ const props = defineProps<{
   subtitle?: string
   /** Live run progress from the SSE stream; undefined when idle. */
   runPhase?: 'running' | 'done' | 'failed'
+  /** Last-run outputs (debug payload); presence renders the inspect badge. */
+  outputs?: Record<string, unknown>
+  /** Node id shown in the outputs popover header. */
+  nodeId?: string
 }>()
 
 const { t } = useI18n()
@@ -37,6 +62,8 @@ const badgeColor = computed(() => NODE_COLORS[props.kind] ?? '#9aa4b2')
 const iconName = computed(() => NODE_ICONS[props.kind] ?? 'app')
 const title = computed(() => t(`workflow.nodes.${props.kind}`))
 const desc = computed(() => t(`workflow.nodeDesc.${props.kind}`))
+const outputsJSON = computed(() => JSON.stringify(props.outputs ?? {}, null, 2))
+const outputFailed = computed(() => props.runPhase === 'failed')
 </script>
 
 <style scoped>
@@ -121,5 +148,46 @@ const desc = computed(() => t(`workflow.nodeDesc.${props.kind}`))
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Last-run outputs inspect badge (debug payload from the run panel). */
+.wf-node-output-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  color: var(--td-success-color);
+  background: var(--td-success-color-1);
+  cursor: pointer;
+  flex: none;
+  font-size: 14px;
+}
+
+.wf-node-output-badge--failed {
+  color: var(--td-error-color);
+  background: var(--td-error-color-1);
+}
+
+.wf-node-output-pop {
+  max-width: 400px;
+}
+
+.wf-node-output-title {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--td-text-color-primary);
+}
+
+.wf-node-output-json {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 </style>

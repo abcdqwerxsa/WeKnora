@@ -3,8 +3,10 @@ package workflow
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/Tencent/WeKnora/internal/agent/workflow/nodes"
@@ -143,7 +145,7 @@ func TestCompileRunSwitchBothBranches(t *testing.T) {
 	if len(prompts) != 1 || prompts[0] != "A:tech" {
 		t.Errorf("tech run prompts = %v, want [A:tech]", prompts)
 	}
-	if !containsNode(res.Path, "llm_a") || containsNode(res.Path, "llm_b") {
+	if !slices.Contains(res.Path, "llm_a") || slices.Contains(res.Path, "llm_b") {
 		t.Errorf("tech run path = %v, must include llm_a only", res.Path)
 	}
 
@@ -207,11 +209,17 @@ func TestCompileTopologyErrors(t *testing.T) {
 		}
 	})
 	t.Run("two terminals", func(t *testing.T) {
-		_, err := Compile(mk(func(c map[string]*Component) {
+		// RELAXED: parallel branches need not converge — two terminals are
+		// legal; every executed branch records outputs. The run result comes
+		// from the CanvasState, not the (merged-empty) graph output.
+		wf, err := Compile(mk(func(c map[string]*Component) {
 			c["llm"].Downstream = nil // ans and retr both terminal
 		}), linearDeps(&eventLog{}))
-		if err == nil || !strings.Contains(err.Error(), "terminal") {
-			t.Errorf("err = %v, want terminal error", err)
+		if err != nil {
+			t.Fatalf("multi-terminal must compile: %v", err)
+		}
+		if _, err := wf.Run(context.Background(), "q", nil); err != nil {
+			t.Errorf("multi-terminal run: %v", err)
 		}
 	})
 	t.Run("unknown downstream", func(t *testing.T) {
@@ -259,11 +267,191 @@ func TestRunTemplateFailureNamesRef(t *testing.T) {
 	}
 }
 
-func containsNode(list []string, id string) bool {
-	for _, v := range list {
-		if v == id {
-			return true
-		}
+// ---- Phase 5: node error policy (continue / route_to / retry) -------------
+
+// errDeps returns Deps whose LLM always fails (error-policy tests).
+func errDeps(log *eventLog, calls *int32) Deps {
+	return Deps{
+		LLMFunc: func(_ context.Context, _ nodes.LLMRequest) (string, error) {
+			if calls != nil {
+				atomic.AddInt32(calls, 1)
+			}
+			return "", fmt.Errorf("llm exploded")
+		},
+		OnNodeEvent: log.record,
 	}
-	return false
+}
+
+func TestErrorPolicyContinueRecordsDefaults(t *testing.T) {
+	log := &eventLog{}
+	dsl := &DSL{Version: 1, Components: map[string]*Component{
+		"start": {Obj: ComponentObj{ComponentName: "Start", Params: map[string]any{}}, Downstream: []string{"llm"}},
+		"llm": {Obj: ComponentObj{ComponentName: "LLM", Params: map[string]any{
+			"prompt": "{start@query}", "model": "m",
+			"on_error": map[string]any{
+				"action":          "continue",
+				"default_outputs": map[string]any{"content": "fallback text"},
+			},
+		}}, Downstream: []string{"ans"}},
+		"ans": {Obj: ComponentObj{ComponentName: "Answer", Params: map[string]any{"template": "{llm@content}"}}, Downstream: nil},
+	}}
+	wf, err := Compile(dsl, errDeps(log, nil))
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	res, rerr := wf.Run(context.Background(), "q", nil)
+	if rerr != nil {
+		t.Fatalf("continue policy must not fail the run: %v", rerr)
+	}
+	if res.Answer != "fallback text" {
+		t.Errorf("answer=%q want fallback text", res.Answer)
+	}
+	// The node still shows as finished (with _error recorded).
+	if v, ok := res.Outputs.Outputs["llm"]["_error"]; !ok || v == "" {
+		t.Errorf("llm outputs must record _error, got %v", res.Outputs.Outputs["llm"])
+	}
+}
+
+func TestErrorPolicyRouteToBranchesOnFailure(t *testing.T) {
+	log := &eventLog{}
+	dsl := &DSL{Version: 1, Components: map[string]*Component{
+		"start": {Obj: ComponentObj{ComponentName: "Start", Params: map[string]any{}}, Downstream: []string{"llm"}},
+		"llm": {Obj: ComponentObj{ComponentName: "LLM", Params: map[string]any{
+			"prompt": "{start@query}", "model": "m",
+			"on_error": map[string]any{
+				"action":   "route_to",
+				"route_to": "fixer",
+			},
+		}}, Upstream: []string{"start"}, Downstream: []string{"ans", "fixer"}},
+		// Both branch arms converge on the single terminal.
+		"ans":   {Obj: ComponentObj{ComponentName: "Template", Params: map[string]any{"template": "never reached"}}, Upstream: []string{"llm"}, Downstream: []string{"end"}},
+		"fixer": {Obj: ComponentObj{ComponentName: "Template", Params: map[string]any{"template": "handled"}}, Upstream: []string{"llm"}, Downstream: []string{"end"}},
+		"end":   {Obj: ComponentObj{ComponentName: "Answer", Params: map[string]any{"template": "{fixer@text}"}}, Upstream: []string{"ans", "fixer"}},
+	}}
+	wf, err := Compile(dsl, errDeps(log, nil))
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	res, rerr := wf.Run(context.Background(), "q", nil)
+	if rerr != nil {
+		t.Fatalf("route_to must not fail the run: %v", rerr)
+	}
+	if res.Answer != "handled" {
+		t.Errorf("answer=%q want the error-branch handler output", res.Answer)
+	}
+}
+
+func TestErrorPolicyRouteToRequiresSingleDownstream(t *testing.T) {
+	dsl := &DSL{Version: 1, Components: map[string]*Component{
+		"start": {Obj: ComponentObj{ComponentName: "Start", Params: map[string]any{}}, Downstream: []string{"llm"}},
+		"llm": {Obj: ComponentObj{ComponentName: "LLM", Params: map[string]any{
+			"prompt": "p", "model": "m",
+			"on_error": map[string]any{"action": "route_to", "route_to": "h"},
+		}}, Downstream: []string{"a", "b"}},
+		"a": {Obj: ComponentObj{ComponentName: "Answer", Params: map[string]any{"template": "a"}}, Downstream: nil},
+		"b": {Obj: ComponentObj{ComponentName: "Answer", Params: map[string]any{"template": "b"}}, Downstream: nil},
+		"h": {Obj: ComponentObj{ComponentName: "Answer", Params: map[string]any{"template": "h"}}, Downstream: nil},
+	}}
+	// Multi-terminal is also invalid here; either way compilation must fail
+	// with the route_to constraint, not mis-route at run time.
+	if _, err := Compile(dsl, Deps{}); err == nil {
+		t.Error("route_to with fan-out downstream must fail compilation")
+	}
+}
+
+func TestNodeRetryRetriesFailedInvokes(t *testing.T) {
+	log := &eventLog{}
+	var calls int32
+	dsl := &DSL{Version: 1, Components: map[string]*Component{
+		"start": {Obj: ComponentObj{ComponentName: "Start", Params: map[string]any{}}, Downstream: []string{"llm"}},
+		"llm": {Obj: ComponentObj{ComponentName: "LLM", Params: map[string]any{
+			"prompt": "{start@query}", "model": "m",
+			"retry": map[string]any{"count": 2, "delay_ms": 1},
+		}}, Downstream: []string{"ans"}},
+		"ans": {Obj: ComponentObj{ComponentName: "Answer", Params: map[string]any{"template": "{llm@content}"}}, Downstream: nil},
+	}}
+	wf, err := Compile(dsl, errDeps(log, &calls))
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	if _, rerr := wf.Run(context.Background(), "q", nil); rerr == nil {
+		t.Fatal("exhausted retries must still fail the run")
+	}
+	if calls != 3 { // 1 initial + 2 retries
+		t.Errorf("invoke calls=%d want 3", calls)
+	}
+}
+
+// ---- multi-terminal / parallel relaxation ----------------------------------
+
+func TestCompileRunParallelFanOutMultiTerminal(t *testing.T) {
+	// start fans out to two LLM branches that NEVER converge; both are
+	// terminals. Every branch must execute and record its outputs.
+	log := &eventLog{}
+	dsl := &DSL{
+		Version: 1, Components: map[string]*Component{
+			"start": {Obj: ComponentObj{ComponentName: "Start"}, Downstream: []string{"llm_a", "llm_b"}},
+			"llm_a": {Obj: ComponentObj{ComponentName: "LLM", Params: map[string]any{"prompt": "A:{sys.query}"}}, Upstream: []string{"start"}},
+			"llm_b": {Obj: ComponentObj{ComponentName: "LLM", Params: map[string]any{"prompt": "B:{sys.query}"}}, Upstream: []string{"start"}},
+		},
+	}
+	deps := linearDeps(log)
+	wf, err := Compile(dsl, deps)
+	if err != nil {
+		t.Fatalf("Compile (multi-terminal): %v", err)
+	}
+	res, err := wf.Run(context.Background(), "q", nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	// Both branches executed and recorded outputs.
+	if _, ok := res.Outputs.Outputs["llm_a"]["content"]; !ok {
+		t.Errorf("llm_a outputs missing: %+v", res.Outputs.Outputs["llm_a"])
+	}
+	if _, ok := res.Outputs.Outputs["llm_b"]["content"]; !ok {
+		t.Errorf("llm_b outputs missing: %+v", res.Outputs.Outputs["llm_b"])
+	}
+	// Path contains start + both branches (order is completion order).
+	if len(res.Path) != 3 {
+		t.Errorf("Path = %v, want 3 nodes", res.Path)
+	}
+	// No Answer node ran → empty answer, run still succeeds.
+	if res.Answer != "" {
+		t.Errorf("Answer = %q, want empty", res.Answer)
+	}
+}
+
+func TestCompileRunParallelMultipleAnswerTerminals(t *testing.T) {
+	// Two Answer terminals in parallel: the first to complete in path order
+	// wins the run's Answer (documented nondeterminism).
+	dsl := &DSL{
+		Version: 1, Components: map[string]*Component{
+			"start": {Obj: ComponentObj{ComponentName: "Start"}, Downstream: []string{"ans_a", "ans_b"}},
+			"ans_a": {Obj: ComponentObj{ComponentName: "Answer", Params: map[string]any{"template": "from a"}}, Upstream: []string{"start"}},
+			"ans_b": {Obj: ComponentObj{ComponentName: "Answer", Params: map[string]any{"template": "from b"}}, Upstream: []string{"start"}},
+		},
+	}
+	wf, err := Compile(dsl, linearDeps(&eventLog{}))
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	res, err := wf.Run(context.Background(), "q", nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != "from a" && res.Answer != "from b" {
+		t.Errorf("Answer = %q, want one of the branches", res.Answer)
+	}
+}
+
+func TestCompileStillRejectsZeroTerminals(t *testing.T) {
+	// A pure cycle has no terminal — still rejected.
+	dsl := &DSL{Version: 1, Components: map[string]*Component{
+		"start": {Obj: ComponentObj{ComponentName: "Start"}, Downstream: []string{"a"}},
+		"a":     {Obj: ComponentObj{ComponentName: "LLM", Params: map[string]any{"prompt": "x"}}, Upstream: []string{"start", "b"}, Downstream: []string{"b"}},
+		"b":     {Obj: ComponentObj{ComponentName: "Answer", Params: map[string]any{"template": "y"}}, Upstream: []string{"a"}, Downstream: []string{"a"}},
+	}}
+	if _, err := Compile(dsl, Deps{}); err == nil {
+		t.Error("cycle without terminal must fail compilation")
+	}
 }

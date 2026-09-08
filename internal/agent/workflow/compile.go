@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,6 +18,10 @@ const (
 	PhaseStarted  NodePhase = "started"
 	PhaseFinished NodePhase = "finished"
 	PhaseFailed   NodePhase = "failed"
+	// PhaseDelta marks an incremental content chunk streamed while a node
+	// runs (LLM token deltas). Not persisted in the run trace — terminal
+	// phases carry the full content.
+	PhaseDelta NodePhase = "delta"
 )
 
 // NodeEvent is emitted (via Deps.OnNodeEvent) around every node execution.
@@ -27,16 +32,33 @@ type NodeEvent struct {
 	Phase      NodePhase `json:"phase"`
 	Err        error     `json:"-"`
 	DurationMS int64     `json:"duration_ms"`
+	// Outputs is the node's recorded output map on PhaseFinished frames
+	// (nil otherwise). Populated from the CanvasState AFTER recording, so
+	// subscribers see exactly what downstream templates will reference.
+	Outputs map[string]any `json:"outputs,omitempty"`
+	// Replayed marks a finished frame whose outputs came from checkpoint
+	// replay (resume) instead of a fresh Invoke — DurationMS is 0.
+	Replayed bool `json:"replayed,omitempty"`
+	// Content is the incremental text chunk on PhaseDelta frames.
+	Content string `json:"content,omitempty"`
 }
 
 // Deps are the injected capabilities and callbacks the compiled graph uses.
 // LLMFunc / RetrievalFunc may be nil when no node needs them; a node that
 // does need a nil dependency fails at Invoke time with a clear error.
 type Deps struct {
-	LLMFunc       nodes.LLMFunc
+	LLMFunc nodes.LLMFunc
+	// LLMStreamFunc (optional) streams LLM tokens: each chunk is delivered
+	// to Deps.OnNodeEvent as a PhaseDelta frame while the final full text
+	// still returns as the node's output. Nil = LLMFunc (no deltas).
+	LLMStreamFunc nodes.LLMStreamFunc
 	RetrievalFunc nodes.RetrievalFunc
 	HTTPFunc      nodes.HTTPFunc
 	DataOpsFunc   nodes.DataOpsFunc
+	WebSearchFunc nodes.WebSearchFunc
+	CodeFunc      nodes.CodeFunc
+	AgentFunc     nodes.AgentFunc
+	MCPFunc       nodes.MCPFunc
 	OnNodeEvent   func(NodeEvent)
 
 	// CheckpointKV (optional) enables eino checkpoint persistence through
@@ -68,9 +90,10 @@ type Workflow struct {
 // runRequest is the per-run payload carried on the context so eino's
 // GenLocalState closure (created once at compile time) can seed the state.
 type runRequest struct {
-	query string
-	files []string
-	state *CanvasState
+	query  string
+	files  []string
+	inputs map[string]any
+	state  *CanvasState
 	// resume, when non-nil, seeds the fresh CanvasState from a checkpoint
 	// side-car (outputs/path of previously completed nodes). Sys/Env come
 	// from the ORIGINAL run via the snapshot, so {sys.query} keeps its
@@ -86,12 +109,14 @@ type runCtxKey struct{}
 
 // Compile normalizes and validates the DSL, then builds an eino graph.
 //
-// MVP topology constraints (surfaced as errors here):
+// Topology contract:
 //   - exactly one entry node (no upstream, not targeted by any edge) — eino
 //     feeds the graph input to a single start;
-//   - exactly one terminal node (no downstream) — the graph output type is
-//     a single map, so multiple ends would need merge semantics this engine
-//     does not define yet.
+//   - one or more terminal nodes (no downstream) — every terminal wires to
+//     END; parallel branches need not converge (the run result is assembled
+//     from the CanvasState, not the graph output, so the LAST writer to END
+//     is irrelevant). The Path/outputs of every executed node are recorded
+//     regardless of which terminal finishes first.
 //
 // Cycles are rejected by eino at compile time and passed through wrapped.
 func Compile(dsl *DSL, deps Deps) (*Workflow, error) {
@@ -100,13 +125,75 @@ func Compile(dsl *DSL, deps Deps) (*Workflow, error) {
 		return nil, err
 	}
 
+	// Partition loop bodies by parent-tree SUBTREE: a component with Parent
+	// set belongs to the body of the FIRST Iteration ancestor up its Parent
+	// chain (so a nested iteration's members travel into the enclosing body
+	// and partition recursively when that body compiles). Members leave the
+	// outer topology; only the membership pointer to the DIRECT owner is
+	// stripped before the recursive compile.
+	outer := map[string]*Component{}
+	bodies := map[string]map[string]*Component{}
+	topAncestor := func(id string) string {
+		for {
+			comp := norm.Components[id]
+			if comp == nil || comp.Parent == "" {
+				return id
+			}
+			id = comp.Parent
+		}
+	}
+	for id, comp := range norm.Components {
+		if comp == nil {
+			continue
+		}
+		if comp.Parent == "" {
+			outer[id] = comp
+			continue
+		}
+		root := topAncestor(id)
+		if bodies[root] == nil {
+			bodies[root] = map[string]*Component{}
+		}
+		bodies[root][id] = comp
+	}
+	// Every parent pointer must name an Iteration component (anywhere).
+	for id, comp := range norm.Components {
+		if comp == nil || comp.Parent == "" {
+			continue
+		}
+		owner := norm.Components[comp.Parent]
+		if owner == nil || !isIteration(owner.Obj.ComponentName) {
+			return nil, fmt.Errorf("workflow: loop body member %q references parent %q which is not an Iteration node", id, comp.Parent)
+		}
+	}
+	// Recursively compile each body into its own runnable (an eino graph
+	// cannot contain the loop edge, so iteration = nested runnable invoked
+	// once per item). Bodies validate independently: exactly one entry.
+	compiledBodies := make(map[string]*Workflow, len(bodies))
+	for parentID, body := range bodies {
+		own := make(map[string]*Component, len(body))
+		for id, comp := range body {
+			cp := *comp
+			if cp.Parent == parentID {
+				cp.Parent = "" // direct member: this level's outer node
+			}
+			own[id] = &cp
+		}
+		bodyWF, err := Compile(&DSL{Version: DSLVersion, Components: own}, deps)
+		if err != nil {
+			return nil, fmt.Errorf("workflow: iteration %q body: %w", parentID, err)
+		}
+		compiledBodies[parentID] = bodyWF
+	}
+	norm.Components = outer
+
 	entries := entryIDs(norm.Components)
 	if len(entries) != 1 {
 		return nil, fmt.Errorf("workflow: compile requires exactly one entry node, found %d (%v)", len(entries), entries)
 	}
 	terminals := terminalIDs(norm.Components)
-	if len(terminals) != 1 {
-		return nil, fmt.Errorf("workflow: compile requires exactly one terminal node, found %d (%v) — MVP graphs must converge on a single end node", len(terminals), terminals)
+	if len(terminals) == 0 {
+		return nil, fmt.Errorf("workflow: compile requires at least one terminal node (a node without downstream)")
 	}
 
 	g := compose.NewGraph[map[string]any, map[string]any](
@@ -137,16 +224,40 @@ func Compile(dsl *DSL, deps Deps) (*Workflow, error) {
 
 	// nodes
 	for id, comp := range norm.Components {
-		node, err := nodes.New(comp.Obj.ComponentName, comp.Obj.Params, nodes.Deps{
+		nd := nodes.Deps{
 			LLMFunc:       deps.LLMFunc,
+			LLMStreamFunc: deps.LLMStreamFunc,
 			RetrievalFunc: deps.RetrievalFunc,
 			HTTPFunc:      deps.HTTPFunc,
 			DataOpsFunc:   deps.DataOpsFunc,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("workflow: node %q: %w", id, err)
+			WebSearchFunc: deps.WebSearchFunc,
+			CodeFunc:      deps.CodeFunc,
+			AgentFunc:     deps.AgentFunc,
+			MCPFunc:       deps.MCPFunc,
 		}
-		fn := nodeClosure(id, node, deps)
+		if deps.OnNodeEvent != nil {
+			// Bind this node's delta sink before construction so the LLM
+			// stream path can emit PhaseDelta frames tagged with the node id.
+			sink, nodeID := deps.OnNodeEvent, id
+			nd.OnDelta = func(delta string) { sink(NodeEvent{NodeID: nodeID, Phase: PhaseDelta, Content: delta}) }
+		}
+		var node nodes.Node
+		if isIteration(comp.Obj.ComponentName) {
+			body := compiledBodies[id]
+			if body == nil {
+				return nil, fmt.Errorf("workflow: node %q: Iteration has no loop body (mark body nodes with parent=%q)", id, id)
+			}
+			node, err = newIterationNode(id, comp.Obj.Params, body)
+			if err != nil {
+				return nil, fmt.Errorf("workflow: node %q: %w", id, err)
+			}
+		} else {
+			node, err = nodes.New(comp.Obj.ComponentName, comp.Obj.Params, nd)
+			if err != nil {
+				return nil, fmt.Errorf("workflow: node %q: %w", id, err)
+			}
+		}
+		fn := nodeClosure(id, node, deps, nodeErrorPolicy(comp.Obj.Params))
 		err = g.AddLambdaNode(graphKey(id), compose.InvokableLambda(fn), compose.WithStatePreHandler(
 			func(ctx context.Context, in map[string]any, st *CanvasState) (map[string]any, error) {
 				// Clone before writing: parallel branches may receive the
@@ -165,9 +276,17 @@ func Compile(dsl *DSL, deps Deps) (*Workflow, error) {
 
 	// edges / branches
 	for id, comp := range norm.Components {
+		policy := nodeErrorPolicy(comp.Obj.Params)
 		targets, err := nodes.RouteTargets(comp.Obj.ComponentName, comp.Obj.Params)
 		if err != nil {
 			return nil, fmt.Errorf("workflow: node %q: %w", id, err)
+		}
+		// on_error.route_to joins (or becomes) the branch target set.
+		if policy.routeTo != "" {
+			if _, ok := norm.Components[policy.routeTo]; !ok {
+				return nil, fmt.Errorf("workflow: node %q on_error.route_to targets unknown node %q", id, policy.routeTo)
+			}
+			targets = append(targets, policy.routeTo)
 		}
 		if len(targets) > 0 {
 			endNodes := make(map[string]bool, len(targets))
@@ -177,10 +296,38 @@ func Compile(dsl *DSL, deps Deps) (*Workflow, error) {
 				}
 				endNodes[graphKey(t)] = true
 			}
+			// Plain nodes with an error branch: success keeps the single
+			// NORMAL downstream (route_to target excluded — it is listed in
+			// Downstream for topology detection, mirroring the Switch
+			// convention); a multi-downstream success fan-out cannot be
+			// expressed through one branch — fail compilation with a clear
+			// message instead of silently mis-routing.
+			routingByParams := nodes.IsRoutingComponent(comp.Obj.ComponentName)
+			if !routingByParams {
+				normal := make([]string, 0, len(comp.Downstream))
+				for _, d := range comp.Downstream {
+					if d != policy.routeTo {
+						normal = append(normal, d)
+					}
+				}
+				if len(normal) != 1 {
+					return nil, fmt.Errorf("workflow: node %q uses on_error.route_to and must keep exactly one normal downstream (found %d)", id, len(normal))
+				}
+				endNodes[graphKey(normal[0])] = true
+			}
 			cond := func(ctx context.Context, in map[string]any) (string, error) {
 				route, _ := in[nodes.RouteOutputKey].(string)
 				if route == "" {
-					return "", fmt.Errorf("workflow: branch after %q: empty route (no case matched and no default set)", id)
+					if routingByParams {
+						return "", fmt.Errorf("workflow: branch after %q: empty route (no case matched and no default set)", id)
+					}
+					// Plain node success path: its single normal downstream.
+					for _, d := range comp.Downstream {
+						if d != policy.routeTo {
+							return graphKey(d), nil
+						}
+					}
+					return "", fmt.Errorf("workflow: branch after %q: no normal downstream", id)
 				}
 				// route holds a DSL node id; endNodes are keyed by graph key.
 				return graphKey(route), nil
@@ -200,13 +347,14 @@ func Compile(dsl *DSL, deps Deps) (*Workflow, error) {
 		}
 	}
 
-	// Wire the single entry to START and the single terminal to END.
-	// (entries/terminals were validated to be exactly one each above.)
+	// Wire the single entry to START and every terminal to END.
 	if err := g.AddEdge(compose.START, graphKey(entries[0])); err != nil {
 		return nil, fmt.Errorf("workflow: wire start: %w", err)
 	}
-	if err := g.AddEdge(graphKey(terminals[0]), compose.END); err != nil {
-		return nil, fmt.Errorf("workflow: wire end: %w", err)
+	for _, term := range terminals {
+		if err := g.AddEdge(graphKey(term), compose.END); err != nil {
+			return nil, fmt.Errorf("workflow: wire end %q: %w", term, err)
+		}
 	}
 
 	compileOpts := []compose.GraphCompileOption{}
@@ -240,6 +388,10 @@ func Compile(dsl *DSL, deps Deps) (*Workflow, error) {
 // A missing side-car (fresh id) degrades to a normal run.
 type RunOptions struct {
 	CheckpointID string
+	// Inputs carries the Start-node form values (keyed by declared field
+	// name). Materialised into the Start node's outputs; nil = query-only
+	// runs (the pre-form DSL behaviour).
+	Inputs map[string]any
 }
 
 // Run executes the workflow once. query/files are exposed to templates as
@@ -251,7 +403,7 @@ func (w *Workflow) Run(ctx context.Context, query string, files []string) (*RunR
 // RunWithOptions executes the workflow with per-run options. See
 // RunOptions for the checkpoint semantics.
 func (w *Workflow) RunWithOptions(ctx context.Context, query string, files []string, opts RunOptions) (*RunResult, error) {
-	req := &runRequest{query: query, files: files}
+	req := &runRequest{query: query, files: files, inputs: opts.Inputs}
 
 	ckptEnabled := opts.CheckpointID != "" && w.deps.CheckpointKV != nil
 	var invokeOpts []compose.Option
@@ -278,7 +430,11 @@ func (w *Workflow) RunWithOptions(ctx context.Context, query string, files []str
 			}
 		}
 	}
-	_, invokeErr := w.runnable.Invoke(ctx, map[string]any{"query": query, "files": files}, invokeOpts...)
+	startInput := map[string]any{"query": query, "files": files}
+	if opts.Inputs != nil {
+		startInput["inputs"] = opts.Inputs
+	}
+	_, invokeErr := w.runnable.Invoke(ctx, startInput, invokeOpts...)
 
 	// Persist the terminal CanvasState side-car for failed/interrupted
 	// runs (that is exactly what makes the NEXT RunWithOptions resumable).
@@ -311,7 +467,7 @@ func (w *Workflow) RunWithOptions(ctx context.Context, query string, files []str
 	}
 	for _, id := range res.Path {
 		if comp, ok := w.dsl.Components[id]; ok &&
-			equalFold(comp.Obj.ComponentName, "Answer") {
+			strings.EqualFold(comp.Obj.ComponentName, "Answer") {
 			if v, ok := state.GetOutput(id, "answer"); ok {
 				if s, ok := v.(string); ok {
 					res.Answer = s
@@ -327,10 +483,84 @@ func (w *Workflow) RunWithOptions(ctx context.Context, query string, files []str
 // "#ctx" cannot collide with eino's raw checkpoint ids (run UUIDs).
 func ctxStateKey(checkpointID string) string { return checkpointID + "#ctx" }
 
+// errorPolicy is the compiled per-node error-handling configuration
+// (params.on_error). The zero value keeps fail-fast semantics.
+type errorPolicy struct {
+	// action: "fail" (default) | "continue" | "route_to".
+	action string
+	// defaultOutputs are recorded as the node's outputs when action is
+	// "continue" (and the RouteOutputKey when "route_to" targets a node).
+	defaultOutputs map[string]any
+	// routeTo is the downstream node id for action "route_to".
+	routeTo string
+	// retries: how many times a failed Invoke is retried (0 = none).
+	retries int
+	// retryDelayMS between retries.
+	retryDelayMS int
+}
+
+// numAny coerces JSON float64 / Go int / int64 / string numerics.
+func numAny(v any) (float64, bool) {
+	switch t := v.(type) {
+	case float64:
+		return t, true
+	case int:
+		return float64(t), true
+	case int64:
+		return float64(t), true
+	case string:
+		if f, err := strconv.ParseFloat(t, 64); err == nil {
+			return f, true
+		}
+	}
+	return 0, false
+}
+
+// nodeErrorPolicy parses params.on_error + params.retry.
+// ponytail: one flat policy shape; no per-condition error branches — a
+// failing Switch condition can be modelled with the continue default.
+func nodeErrorPolicy(params map[string]any) errorPolicy {
+	p := errorPolicy{}
+	if raw, ok := params["retry"].(map[string]any); ok {
+		if v, ok := raw["count"]; ok {
+			if f, ok := numAny(v); ok && f > 0 && f <= 5 {
+				p.retries = int(f)
+			}
+		}
+		if v, ok := raw["delay_ms"]; ok {
+			if f, ok := numAny(v); ok && f > 0 && f <= 60000 {
+				p.retryDelayMS = int(f)
+			}
+		}
+	}
+	onErr, ok := params["on_error"].(map[string]any)
+	if !ok {
+		return p
+	}
+	switch action, _ := onErr["action"].(string); action {
+	case "continue", "route_to":
+		p.action = action
+	case "", "fail":
+		// keep fail-fast
+	default:
+		// Unknown actions degrade to fail-fast: never guess a fallback.
+	}
+	if outs, ok := onErr["default_outputs"].(map[string]any); ok {
+		p.defaultOutputs = outs
+	}
+	if target, _ := onErr["route_to"].(string); target != "" {
+		p.routeTo = target
+	}
+	if p.action == "route_to" && p.routeTo == "" {
+		p.action = "" // route_to without a target is meaningless → fail
+	}
+	return p
+}
+
 // nodeClosure wraps a Node with path tracking, output recording, event
-// emission, panic recovery and timing. It is the single place node
-// lifecycle semantics live.
-func nodeClosure(id string, node nodes.Node, deps Deps) func(ctx context.Context, in map[string]any) (map[string]any, error) {
+// emission, panic recovery, retry and error-policy handling, and timing. It
+// is the single place node lifecycle semantics live.
+func nodeClosure(id string, node nodes.Node, deps Deps, policy errorPolicy) func(ctx context.Context, in map[string]any) (map[string]any, error) {
 	emit := func(ev NodeEvent) {
 		if deps.OnNodeEvent != nil {
 			deps.OnNodeEvent(ev)
@@ -341,10 +571,12 @@ func nodeClosure(id string, node nodes.Node, deps Deps) func(ctx context.Context
 		// the restored state completed in a previous attempt — replay its
 		// recorded outputs onto the graph edge instead of re-invoking it.
 		// (Nodes with no recorded outputs — interrupted mid-flight — re-run
-		// normally.) No lifecycle events are emitted for skipped nodes.
+		// normally.) Replay emits a finished frame (Replayed=true) so trace
+		// accumulators and SSE subscribers see a complete run picture.
 		if req, _ := ctx.Value(runCtxKey{}).(*runRequest); req != nil && req.resume != nil {
 			if cached := req.resume.OutputsOf(id); len(cached) > 0 {
-				return cached, nil
+				emit(NodeEvent{NodeID: id, Phase: PhaseFinished, Outputs: cached, Replayed: true})
+				return edgeView(cached), nil
 			}
 		}
 
@@ -375,10 +607,52 @@ func nodeClosure(id string, node nodes.Node, deps Deps) func(ctx context.Context
 					err = fmt.Errorf("workflow: node %q panicked: %v", id, r)
 				}
 			}()
-			return node.Invoke(ctx, in)
+			for attempt := 0; ; attempt++ {
+				out, err = node.Invoke(ctx, in)
+				if err == nil || attempt >= policy.retries || ctx.Err() != nil {
+					return
+				}
+				// Retryable failure (context still alive): bounded backoff.
+				emit(NodeEvent{NodeID: id, Phase: PhaseFailed, Err: err, DurationMS: msSince(start)})
+				if policy.retryDelayMS > 0 {
+					select {
+					case <-ctx.Done():
+						return nil, ctx.Err()
+					case <-time.After(time.Duration(policy.retryDelayMS) * time.Millisecond):
+					}
+				}
+				emit(NodeEvent{NodeID: id, Phase: PhaseStarted})
+			}
 		}()
 		if err != nil {
 			wrapped := fmt.Errorf("workflow: node %q: %w", id, err)
+			// Error policy: continue / route_to record the configured defaults
+			// instead of failing the run (Phase 5, Dify error-branch parity).
+			if policy.action == "continue" {
+				fallback := make(map[string]any, len(policy.defaultOutputs)+1)
+				for k, v := range policy.defaultOutputs {
+					fallback[k] = v
+				}
+				fallback["_error"] = wrapped.Error()
+				for k, v := range fallback {
+					cs.SetOutput(id, k, v)
+				}
+				emit(NodeEvent{NodeID: id, Phase: PhaseFinished, DurationMS: msSince(start), Outputs: cs.OutputsOf(id)})
+				return edgeView(fallback), nil
+			}
+			if policy.action == "route_to" {
+				fallback := map[string]any{nodes.RouteOutputKey: policy.routeTo, "_error": wrapped.Error()}
+				for k, v := range policy.defaultOutputs {
+					fallback[k] = v
+				}
+				for k, v := range fallback {
+					if k != nodes.RouteOutputKey {
+						cs.SetOutput(id, k, v)
+					}
+				}
+				emit(NodeEvent{NodeID: id, Phase: PhaseFinished, DurationMS: msSince(start), Outputs: cs.OutputsOf(id)})
+				return edgeView(fallback), nil
+			}
 			finish(wrapped)
 			return nil, wrapped
 		}
@@ -392,9 +666,23 @@ func nodeClosure(id string, node nodes.Node, deps Deps) func(ctx context.Context
 		if req, _ := ctx.Value(runCtxKey{}).(*runRequest); req != nil && req.persistCheckpoint != nil {
 			req.persistCheckpoint()
 		}
-		emit(NodeEvent{NodeID: id, Phase: PhaseFinished, DurationMS: msSince(start)})
-		return out, nil
+		emit(NodeEvent{NodeID: id, Phase: PhaseFinished, DurationMS: msSince(start), Outputs: cs.OutputsOf(id)})
+		return edgeView(out), nil
 	}
+}
+
+// edgeView projects a node's outputs onto what the graph edges carry: the
+// routing key only. All data flows through the CanvasState (nodes read
+// upstream values exclusively via StateFromInputs), so stripping the rest
+// makes every edge payload key-disjoint — eino merges multi-writer channels
+// (parallel fan-out, multiple terminals) by map key and rejects duplicates
+// (two LLM branches would both carry "content"). Branch conds still find
+// RouteOutputKey because routing nodes are single writers to their branch.
+func edgeView(out map[string]any) map[string]any {
+	if route, ok := out[nodes.RouteOutputKey].(string); ok && route != "" {
+		return map[string]any{nodes.RouteOutputKey: route}
+	}
+	return map[string]any{}
 }
 
 // graphKey maps a DSL node id onto an eino graph node key. eino reserves
@@ -429,7 +717,5 @@ func terminalIDs(comps map[string]*Component) []string {
 	}
 	return out
 }
-
-func equalFold(a, b string) bool { return strings.EqualFold(a, b) }
 
 func msSince(start time.Time) int64 { return time.Since(start).Milliseconds() }

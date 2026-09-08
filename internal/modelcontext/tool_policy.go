@@ -102,6 +102,10 @@ var toolHandlePolicies = map[string]toolHandlePolicy{
 	"web_search": {
 		sourceOutput: true,
 	},
+	// Workflow tools: outputs carry no durable KB/knowledge IDs — the
+	// workflow answer is rendered text; run ids are ephemeral handles.
+	"list_workflows": {},
+	"run_workflow":   {},
 	"wiki_read_page": {
 		sourceOutput: true,
 	},

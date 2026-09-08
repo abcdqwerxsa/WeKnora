@@ -64,6 +64,8 @@ const toolDisplayNameKeys: Record<string, string> = {
     query_knowledge_graph: 'tools.queryKnowledgeGraph',
     think: 'tools.think',
     todo_write: 'tools.todoWrite',
+    list_workflows: 'tools.listWorkflows',
+    run_workflow: 'tools.runWorkflow',
 };
 
 // Get tool display name (user-friendly, localized)

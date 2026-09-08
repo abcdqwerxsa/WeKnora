@@ -104,18 +104,24 @@ func TestRunWithOptions_CheckpointResume(t *testing.T) {
 	require.NoError(t, rerr)
 
 	// The hanging node re-executed (its first attempt never completed); the
-	// start node did NOT (no second finished event for it).
+	// start node did NOT: its resume appearance is a checkpoint REPLAY —
+	// one finished frame total with Replayed=true, never a fresh execute.
 	require.EqualValues(t, 2, atomic.LoadInt64(calls), "hanging node re-runs on resume")
 
 	mu.Lock()
-	startFinished := 0
+	startFinished, startReplayed := 0, 0
 	for _, ev := range events {
 		if ev.NodeID == "start" && ev.Phase == PhaseFinished {
-			startFinished++
+			if ev.Replayed {
+				startReplayed++
+			} else {
+				startFinished++
+			}
 		}
 	}
 	mu.Unlock()
 	assert.Equal(t, 1, startFinished, "completed node must not re-execute on resume")
+	assert.Equal(t, 1, startReplayed, "resume re-appearance is a Replayed frame")
 
 	// Template refs resolve across the resume boundary: {start@query} comes
 	// from the restored CanvasState, {llm@content} from the re-run node.

@@ -1,4 +1,6 @@
 import { get, post, put, del } from '@/utils/request'
+import { WORKFLOW_NODE_TYPES } from './workflowContract'
+import type { WorkflowNodeType, WorkflowStatus } from './workflowContract'
 
 /**
  * Workflow orchestration client.
@@ -15,41 +17,16 @@ import { get, post, put, del } from '@/utils/request'
  * `top_k`) — the engine reads them by literal key and fails on missing
  * required ones. Typed interfaces below document that contract; the DSL
  * itself keeps `params` as a loose record because not every field is set.
+ *
+ * The pure type/constant contract (WorkflowNodeType, WORKFLOW_NODE_TYPES,
+ * ...) lives in ./workflowContract (zero imports); this module re-exports
+ * it so existing importers keep working.
  */
-export type WorkflowNodeType =
-  | 'Start'
-  | 'LLM'
-  | 'Retrieval'
-  | 'Switch'
-  | 'Answer'
-  | 'Template'
-  | 'VariableAggregator'
-  | 'HTTP'
-  | 'DataOps'
-
-export type WorkflowStatus = 'draft' | 'published' | 'archived'
-
-export const WORKFLOW_NODE_TYPES: WorkflowNodeType[] = [
-  'Start',
-  'LLM',
-  'Retrieval',
-  'Switch',
-  'Answer',
-  'Template',
-  'VariableAggregator',
-  'HTTP',
-  'DataOps',
-]
-
-/** Engine output keys per node kind (source of {nodeId@param} references). */
-export const NODE_OUTPUT_PARAMS: Partial<Record<WorkflowNodeType, string[]>> = {
-  Start: ['query'],
-  LLM: ['content'],
-  Retrieval: ['chunks', 'doc_aggs'],
-  Template: ['text'],
-  HTTP: ['status_code', 'body', 'headers'],
-  DataOps: ['columns', 'rows', 'row_count'],
-}
+export type {
+  WorkflowNodeType,
+  WorkflowStatus,
+} from './workflowContract'
+export { WORKFLOW_NODE_TYPES, NODE_OUTPUT_PARAMS } from './workflowContract'
 
 // ---- Typed param shapes (per-node property forms) --------------------
 
@@ -59,6 +36,49 @@ export interface TemplateOp {
   to?: string
   pattern?: string
   group?: number
+}
+
+/** One comparison inside a Switch case group. */
+export interface SwitchCondition {
+  /** Left operand template, e.g. "{llm@content}". */
+  ref: string
+  /** Operator id (eq/ne/contains/not_contains/starts_with/ends_with/empty/not_empty/gt/gte/lt/lte/regex/in/not_in). */
+  op: string
+  /** Right operand literal/template; ignored by empty/not_empty. */
+  value: string
+}
+
+/** One Switch routing rule: condition group + target node. */
+export interface SwitchCaseGroup {
+  conditions: SwitchCondition[]
+  logic: 'and' | 'or'
+  to: string
+}
+
+/** One classifier class: the LLM picks a class, the branch routes to To. */
+export interface ClassifierClass {
+  name: string
+  description?: string
+  to: string
+}
+
+/** One structured parameter the ParameterExtractor LLM must extract. */
+export interface ExtractorParam {
+  name: string
+  description?: string
+  type: 'string' | 'number' | 'boolean'
+  required?: boolean
+}
+
+/** Start-node input form field declaration. */
+export interface StartField {
+  name: string
+  label?: string
+  type: 'text' | 'paragraph' | 'number' | 'select'
+  required?: boolean
+  default?: string
+  /** select choices */
+  options?: string[]
 }
 
 export interface VariableRef {
@@ -92,6 +112,8 @@ export interface WFComponent {
   }
   upstream: string[]
   downstream: string[]
+  /** Iteration body membership: this component belongs to the loop body of the Iteration node with this id. */
+  parent?: string
 }
 
 export interface WorkflowDSL {
@@ -111,6 +133,8 @@ export interface Workflow {
   name: string
   description?: string
   dsl: WorkflowDSL
+  /** Frozen DSL snapshot of the last publish; null until first publish. */
+  published_dsl?: WorkflowDSL | null
   status: WorkflowStatus
   version?: number
   created_at?: string
@@ -153,6 +177,18 @@ export const updateWorkflow = (
 
 export const deleteWorkflow = (id: string): Promise<{ success: boolean }> => del(`/api/v1/workflows/${id}`)
 
+/**
+ * Publish: freezes the current DSL as the published snapshot and flips the
+ * workflow to published. Runs of a published workflow execute the snapshot;
+ * the draft keeps evolving. Rejects (400) a DSL that does not compile.
+ */
+export const publishWorkflow = (id: string): Promise<WorkflowMutationResponse> =>
+  post(`/api/v1/workflows/${id}/publish`)
+
+/** Flip draft/archived (unpublish or archive). Publishing has its own endpoint. */
+export const setWorkflowStatus = (id: string, status: 'draft' | 'archived'): Promise<WorkflowMutationResponse> =>
+  post(`/api/v1/workflows/${id}/status`, { status })
+
 // ---------------------------------------------------------------------------
 // Run execution + progress (consumes the stage-2 backend contract).
 //
@@ -170,6 +206,20 @@ export interface WorkflowRunOutput {
   outputs?: Record<string, Record<string, unknown>>
 }
 
+/** One persisted per-node record of a run's trace (run-detail endpoint). */
+export interface WorkflowRunTraceEntry {
+  node_id: string
+  /** Component name ("LLM", "Retrieval", ...); empty when unknown. */
+  kind?: string
+  /** Terminal phase of this attempt: finished | failed. */
+  phase: string
+  duration_ms?: number
+  outputs?: Record<string, unknown>
+  error?: string
+  /** true when restored from a checkpoint (resume), duration 0. */
+  replayed?: boolean
+}
+
 export interface WorkflowRun {
   id: string
   tenant_id?: number
@@ -177,6 +227,8 @@ export interface WorkflowRun {
   status: WorkflowRunStatus
   input?: unknown
   output?: WorkflowRunOutput | null
+  /** Present on run-detail responses; history list rows omit it. */
+  trace?: WorkflowRunTraceEntry[] | null
   error?: string
   created_at?: string
   updated_at?: string
@@ -186,13 +238,21 @@ export interface WorkflowRun {
 export interface WorkflowRunEventFrame {
   workflow_id: string
   run_id: string
-  kind: 'node' | 'run'
-  /** Set for kind=node frames; matches the canvas node id. */
+  kind: 'node' | 'delta' | 'run'
+  /** Set for kind=node/delta frames; matches the canvas node id. */
   node_id?: string
-  /** node frames: started|finished|failed · run frames: terminal run status. */
+  /** node frames: started|finished|failed · delta frames: "delta" · run frames: terminal run status. */
   phase: string
   error?: string
   duration_ms?: number
+  /** Node outputs on finished frames (run-debugging payload). */
+  outputs?: Record<string, unknown>
+  /** true when the finished frame replayed from a checkpoint (resume). */
+  replayed?: boolean
+  /** Incremental text chunk on kind=delta frames. */
+  content?: string
+  /** "answer" when the delta feeds the terminal Answer node's stream. */
+  stream?: string
   status?: WorkflowRunStatus
 }
 
@@ -210,7 +270,7 @@ export interface WorkflowRunListResponse {
 
 export const runWorkflow = (
   id: string,
-  payload: { query: string; files?: string[]; async?: boolean },
+  payload: { query: string; files?: string[]; inputs?: Record<string, unknown>; async?: boolean },
 ): Promise<WorkflowRunResponse> => post(`/api/v1/workflows/${id}/runs`, payload)
 
 /**
@@ -234,6 +294,17 @@ export const resumeWorkflowRun = (workflowId: string, runId: string): Promise<Wo
 
 export const listWorkflowRuns = (id: string): Promise<WorkflowRunListResponse> =>
   get(`/api/v1/workflows/${id}/runs`)
+
+/**
+ * Run detail — the full row including the per-node trace (execution order).
+ * History list rows deliberately omit `trace`; this endpoint is the payload
+ * source for the run-detail / debug panel.
+ */
+export const getWorkflowRun = (workflowId: string, runId: string): Promise<{
+  success: boolean
+  data?: WorkflowRun
+  message?: string
+}> => get(`/api/v1/workflows/${workflowId}/runs/${runId}`)
 
 /** Path-only SSE URL; the stream composable adds base URL + auth headers. */
 export function workflowRunEventsUrl(workflowId: string, runId: string): string {

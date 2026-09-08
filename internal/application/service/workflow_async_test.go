@@ -29,10 +29,10 @@ func (e *captureEnqueuer) Enqueue(task *asynq.Task, _ ...asynq.Option) (*asynq.T
 
 func newAsyncTestService(t *testing.T, dsl string) (*workflowService, *runRepoStub, *captureEnqueuer) {
 	t.Helper()
-	wf := &types.Workflow{ID: "wf-async", TenantID: 10001, Name: "wf", DSL: types.JSON(dsl)}
+	wf := &types.Workflow{ID: "wf-async", TenantID: 10001, Name: "wf", DSL: types.JSON(dsl), Status: types.WorkflowStatusPublished}
 	repo := newRunRepoStub(wf)
 	enq := &captureEnqueuer{}
-	svc := NewWorkflowService(repo, &wfStubModelSvc{reply: "llm-answer"}, &wfStubKBSvc{}, enq, nil)
+	svc := NewWorkflowService(repo, &wfStubModelSvc{reply: "llm-answer"}, &wfStubKBSvc{}, enq, nil, nil, nil, nil, nil, nil, nil)
 	return svc.(*workflowService), repo, enq
 }
 
@@ -132,9 +132,6 @@ loop:
 				break loop
 			}
 			frames = append(frames, f)
-			if f.Kind == "run" {
-				// Next receive must be the channel close.
-			}
 		case <-timeout:
 			t.Fatal("broker did not close the channel after the terminal frame")
 		}
