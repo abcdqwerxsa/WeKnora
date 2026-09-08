@@ -1543,7 +1543,12 @@ func (s *workflowService) runLLMStream(ctx context.Context, req nodes.LLMRequest
 	msgs = append(msgs, chat.Message{Role: "user", Content: req.Prompt})
 	opts := &chat.ChatOptions{Temperature: req.Temperature}
 	if req.MaxTokens > 0 {
-		opts.MaxCompletionTokens = req.MaxTokens
+		// MaxTokens (wire: max_tokens), not MaxCompletionTokens: most
+		// OpenAI-compatible backends (Ollama, DeepSeek, vLLM, proxies)
+		// ignore max_completion_tokens (#2604). OpenAI o-series/GPT-5 is
+		// still covered — shapeOpenAIReasoning migrates max_tokens at
+		// request-shaping time.
+		opts.MaxTokens = req.MaxTokens
 	}
 	ch, err := model.ChatStream(ctx, msgs, opts)
 	if err != nil {
@@ -1590,7 +1595,9 @@ func (s *workflowService) runLLM(ctx context.Context, req nodes.LLMRequest) (str
 	msgs = append(msgs, chat.Message{Role: "user", Content: req.Prompt})
 	opts := &chat.ChatOptions{Temperature: req.Temperature}
 	if req.MaxTokens > 0 {
-		opts.MaxCompletionTokens = req.MaxTokens
+		// See runLLMStream: max_tokens is the field OpenAI-compatible
+		// backends actually honor.
+		opts.MaxTokens = req.MaxTokens
 	}
 	resp, err := model.Chat(ctx, msgs, opts)
 	if err != nil {
