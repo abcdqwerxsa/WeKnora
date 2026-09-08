@@ -296,9 +296,10 @@ async function fetchPickerData() {
     // keep empty pickers; forms fall back to raw input
   }
   try {
-    const response = await listKnowledgeBases()
-    const items = ((response as unknown as { data?: { list?: unknown[] } })?.data?.list ?? (response as unknown as { list?: unknown[] })?.list ?? []) as Array<{ id: string; name: string }>
-    kbs.value = Array.isArray(items) ? items.map((item) => ({ id: String(item.id), name: String(item.name ?? item.id) })) : []
+    const response: any = await listKnowledgeBases()
+    // Same shape as stores/chatResources: res.data IS the array.
+    const items = response?.data && Array.isArray(response.data) ? response.data : []
+    kbs.value = items.map((item: { id: string; name?: string }) => ({ id: String(item.id), name: String(item.name ?? item.id) }))
   } catch {
     // keep empty pickers
   }
