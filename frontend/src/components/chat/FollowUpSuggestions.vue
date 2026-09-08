@@ -20,7 +20,7 @@
         <button v-for="item in suggestionSet?.questions || []" :key="item.id" type="button"
           class="follow-ups__item" @click="emit('select', item)">
           <span>{{ item.text }}</span>
-          <t-icon name="arrow-up-right" />
+          <t-icon name="jump" />
         </button>
       </div>
     </div>
