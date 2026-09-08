@@ -8,7 +8,7 @@ import (
 
 // VarRefPattern matches the workflow variable-reference syntax:
 //
-//	{nodeId@param}   — output param of an earlier node (id: [a-zA-Z0-9_:]+)
+//	{nodeId@param}   — output param of an earlier node (id: [a-zA-Z0-9_:-]+)
 //	{sys.query}      — runtime request fields (sys.* namespace)
 //	{sys.files}
 //	{env.x}          — deployment-time constants (env.* namespace)
@@ -16,7 +16,8 @@ import (
 // The shape mirrors RAGFlow's variable_ref_patt (minus loop item/index,
 // which this engine does not ship yet). Repeated braces and surrounding
 // whitespace are tolerated: "{{ ref }}" resolves the same as "{ref}".
-var VarRefPattern = regexp.MustCompile(`\{+\s*([a-zA-Z0-9_:]+@[A-Za-z0-9_.-]+|sys\.[A-Za-z0-9_.]+|env\.[A-Za-z0-9_.]+)\s*\}+`)
+// Node ids include "-": the frontend's makeNodeId generates "llm-abc123".
+var VarRefPattern = regexp.MustCompile(`\{+\s*([a-zA-Z0-9_:-]+@[A-Za-z0-9_.-]+|sys\.[A-Za-z0-9_.]+|env\.[A-Za-z0-9_.]+)\s*\}+`)
 
 // ExtractRefs returns the unique references (without braces) in s, in
 // first-occurrence order. Pure regex — no state access.
