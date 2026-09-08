@@ -1545,7 +1545,7 @@ func (s *workflowService) runLLMStream(ctx context.Context, req nodes.LLMRequest
 		msgs = append(msgs, chat.Message{Role: "system", Content: req.SystemPrompt})
 	}
 	msgs = append(msgs, chat.Message{Role: "user", Content: req.Prompt})
-	opts := &chat.ChatOptions{Temperature: req.Temperature, ExplicitTemperature: req.TemperatureSet}
+	opts := &chat.ChatOptions{Temperature: req.Temperature, ExplicitTemperature: req.TemperatureSet, Thinking: req.Thinking}
 	if req.MaxTokens > 0 {
 		// MaxTokens (wire: max_tokens), not MaxCompletionTokens: most
 		// OpenAI-compatible backends (Ollama, DeepSeek, vLLM, proxies)
@@ -1620,7 +1620,7 @@ func (s *workflowService) runLLM(ctx context.Context, req nodes.LLMRequest) (str
 		msgs = append(msgs, chat.Message{Role: "system", Content: req.SystemPrompt})
 	}
 	msgs = append(msgs, chat.Message{Role: "user", Content: req.Prompt})
-	opts := &chat.ChatOptions{Temperature: req.Temperature, ExplicitTemperature: req.TemperatureSet}
+	opts := &chat.ChatOptions{Temperature: req.Temperature, ExplicitTemperature: req.TemperatureSet, Thinking: req.Thinking}
 	if req.MaxTokens > 0 {
 		// See runLLMStream: max_tokens is the field OpenAI-compatible
 		// backends actually honor.
@@ -1698,7 +1698,45 @@ func (s *workflowService) runRetrieval(ctx context.Context, req nodes.RetrievalR
 			return nil, err
 		}
 	}
+	result.DocAggs = aggregateDocAggs(result.Chunks)
 	return result, nil
+}
+
+// aggregateDocAggs folds the retrieved chunks into one row per source
+// document (id, title, hit count, best score) — the "cited sources" view
+// the chat pipeline shows; workflows expose it as {ret@doc_aggs}.
+func aggregateDocAggs(chunks []map[string]any) []map[string]any {
+	type agg struct {
+		title string
+		count int
+		best  float64
+	}
+	order := []string{}
+	byDoc := map[string]*agg{}
+	for _, c := range chunks {
+		id, _ := c["knowledge_id"].(string)
+		title, _ := c["knowledge_title"].(string)
+		score, _ := c["score"].(float64)
+		a, ok := byDoc[id]
+		if !ok {
+			a = &agg{title: title}
+			byDoc[id] = a
+			order = append(order, id)
+		}
+		a.count++
+		if score > a.best {
+			a.best = score
+		}
+	}
+	out := make([]map[string]any, 0, len(order))
+	for _, id := range order {
+		a := byDoc[id]
+		out = append(out, map[string]any{
+			"knowledge_id": id, "knowledge_title": a.title,
+			"chunk_count": a.count, "score": a.best,
+		})
+	}
+	return out
 }
 
 // rerankChunks reranks the merged hits of a multi-KB retrieval with the

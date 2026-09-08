@@ -83,6 +83,14 @@
       <t-form-item :label="t('workflow.editor.temperature')">
         <t-slider :value="numParam('temperature', 0.7)" :min="0" :max="2" :step="0.1" @change="setParam('temperature', $event)" />
       </t-form-item>
+      <t-form-item :label="t('workflow.editor.thinking')">
+        <t-select :value="thinkingValue" @change="setThinking">
+          <t-option value="" :label="t('workflow.editor.thinkingDefault')" />
+          <t-option value="on" :label="t('workflow.editor.thinkingOn')" />
+          <t-option value="off" :label="t('workflow.editor.thinkingOff')" />
+        </t-select>
+        <template #tips>{{ t('workflow.editor.thinkingHint') }}</template>
+      </t-form-item>
       <t-form-item :label="t('workflow.editor.maxTokens')">
         <t-input-number
           :value="numParam('max_tokens', 0)"
@@ -880,6 +888,21 @@ function boolParam(key: string): boolean {
 
 function setParam(key: string, value: unknown) {
   props.params[key] = value
+}
+
+// Thinking tri-state: '' (param absent) | 'on' | 'off'. Absent defers to the
+// model's own default; the wire format for on/off is selected per model via
+// extra_config.thinking_control in the model editor.
+const thinkingValue = computed(() => {
+  const v = props.params.thinking
+  if (v === undefined || v === null) return ''
+  return v === true || v === 'true' ? 'on' : 'off'
+})
+
+function setThinking(next: unknown) {
+  const v = typeof next === 'string' ? next : ''
+  if (v === '') delete props.params.thinking
+  else props.params.thinking = v === 'on'
 }
 
 // Caret tracking for {ref} insertion: remember the last caret position per

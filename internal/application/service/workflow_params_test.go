@@ -199,3 +199,36 @@ func TestRunLLMStreamPromotesThinkingOnlyStream(t *testing.T) {
 	assert.Equal(t, "你是小破破呀！", out, "thinking-only stream must promote its text sans <think> wrapper")
 	assert.Equal(t, []string{"你是小破破呀！"}, seen)
 }
+
+// TestRunLLMForwardsThinkingFlag: the node's tri-state thinking must reach
+// ChatOptions.Thinking untouched (nil = provider default).
+func TestRunLLMForwardsThinkingFlag(t *testing.T) {
+	svc, m, _ := newParamsTestService()
+	off := false
+	_, err := svc.runLLM(context.Background(), nodes.LLMRequest{Prompt: "p", Model: "m", Thinking: &off})
+	require.NoError(t, err)
+	require.NotNil(t, m.chat.opts.Thinking)
+	assert.False(t, *m.chat.opts.Thinking)
+	_, err = svc.runLLM(context.Background(), nodes.LLMRequest{Prompt: "p", Model: "m"})
+	require.NoError(t, err)
+	assert.Nil(t, m.chat.opts.Thinking, "absent thinking must stay nil (provider default)")
+}
+
+// TestRunRetrievalAggregatesDocAggs: doc_aggs folds chunks into one row per
+// source document with hit counts and best score.
+func TestRunRetrievalAggregatesDocAggs(t *testing.T) {
+	svc, _, k := newParamsTestService()
+	k.hits = []*types.SearchResult{
+		{ID: "c0", Content: "a", KnowledgeID: "doc-1", KnowledgeTitle: "Doc One", Score: 0.9},
+		{ID: "c1", Content: "b", KnowledgeID: "doc-1", KnowledgeTitle: "Doc One", Score: 0.7},
+		{ID: "c2", Content: "c", KnowledgeID: "doc-2", KnowledgeTitle: "Doc Two", Score: 0.5},
+	}
+	res, err := svc.runRetrieval(context.Background(), nodes.RetrievalRequest{Query: "q", KBIDs: []string{"kb1"}})
+	require.NoError(t, err)
+	require.Len(t, res.DocAggs, 2)
+	first := res.DocAggs[0]
+	assert.Equal(t, "doc-1", first["knowledge_id"])
+	assert.Equal(t, "Doc One", first["knowledge_title"])
+	assert.Equal(t, 2, first["chunk_count"])
+	assert.InDelta(t, 0.9, first["score"], 1e-9)
+}

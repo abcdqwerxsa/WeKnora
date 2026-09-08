@@ -510,3 +510,32 @@ func TestStartFieldsBadTypeRejected(t *testing.T) {
 		t.Error("unknown field type must fail compilation")
 	}
 }
+
+// TestLLMNodeThinkingTriState: absent = nil (provider default), explicit
+// false/true pass through; string forms from DSL exports coerce too.
+func TestLLMNodeThinkingTriState(t *testing.T) {
+	mk := func(params map[string]any) *LLMRequest {
+		t.Helper()
+		var captured *LLMRequest
+		n, err := New(ComponentLLM, params, Deps{LLMFunc: func(_ context.Context, r LLMRequest) (string, error) {
+			captured = &r
+			return "ok", nil
+		}})
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		if _, err := n.Invoke(context.Background(), withState(nil, &fakeState{})); err != nil {
+			t.Fatalf("Invoke: %v", err)
+		}
+		return captured
+	}
+	if r := mk(map[string]any{"prompt": "p"}); r.Thinking != nil {
+		t.Fatalf("absent thinking must stay nil, got %v", *r.Thinking)
+	}
+	if r := mk(map[string]any{"prompt": "p", "thinking": false}); r.Thinking == nil || *r.Thinking {
+		t.Fatalf("explicit false must disable thinking")
+	}
+	if r := mk(map[string]any{"prompt": "p", "thinking": "true"}); r.Thinking == nil || !*r.Thinking {
+		t.Fatalf("string \"true\" must enable thinking")
+	}
+}
