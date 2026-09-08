@@ -182,14 +182,15 @@ func (n *answerNode) Invoke(ctx context.Context, inputs map[string]any) (map[str
 // ---- LLM -----------------------------------------------------------------
 
 type llmNode struct {
-	prompt       string
-	systemPrompt string
-	model        string
-	temperature  float64
-	maxTokens    int
-	llm          LLMFunc
-	llmStream    LLMStreamFunc
-	onDelta      func(string)
+	prompt         string
+	systemPrompt   string
+	model          string
+	temperature    float64
+	temperatureSet bool
+	maxTokens      int
+	llm            LLMFunc
+	llmStream      LLMStreamFunc
+	onDelta        func(string)
 }
 
 func newLLM(params map[string]any, deps Deps) (Node, error) {
@@ -203,11 +204,12 @@ func newLLM(params map[string]any, deps Deps) (Node, error) {
 	}
 	model, _ := params["model"].(string)
 	temp := 0.0
-	if v, ok := params["temperature"]; ok {
-		temp, err = toFloat("LLM", "temperature", v)
-		if err != nil {
+	tempSet := false
+	if v, ok := params["temperature"]; ok && v != nil {
+		if temp, err = toFloat("LLM", "temperature", v); err != nil {
 			return nil, err
 		}
+		tempSet = true
 	}
 	maxTokens := 0
 	if v, ok := params["max_tokens"]; ok {
@@ -216,7 +218,7 @@ func newLLM(params map[string]any, deps Deps) (Node, error) {
 			return nil, err
 		}
 	}
-	return &llmNode{prompt: prompt, systemPrompt: systemPrompt, model: model, temperature: temp, maxTokens: maxTokens, llm: deps.LLMFunc, llmStream: deps.LLMStreamFunc, onDelta: deps.OnDelta}, nil
+	return &llmNode{prompt: prompt, systemPrompt: systemPrompt, model: model, temperature: temp, temperatureSet: tempSet, maxTokens: maxTokens, llm: deps.LLMFunc, llmStream: deps.LLMStreamFunc, onDelta: deps.OnDelta}, nil
 }
 
 func (n *llmNode) Invoke(ctx context.Context, inputs map[string]any) (map[string]any, error) {
@@ -238,11 +240,12 @@ func (n *llmNode) Invoke(ctx context.Context, inputs map[string]any) (map[string
 		}
 	}
 	req := LLMRequest{
-		Prompt:       prompt,
-		SystemPrompt: system,
-		Model:        n.model,
-		Temperature:  n.temperature,
-		MaxTokens:    n.maxTokens,
+		Prompt:         prompt,
+		SystemPrompt:   system,
+		Model:          n.model,
+		Temperature:    n.temperature,
+		TemperatureSet: n.temperatureSet,
+		MaxTokens:      n.maxTokens,
 	}
 	// Streaming path: tokens flow to the delta sink while the full text
 	// still returns as the recorded output (single source of truth).

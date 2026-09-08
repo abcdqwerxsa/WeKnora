@@ -276,6 +276,11 @@ func (c *AnthropicChat) buildRequest(_ context.Context, messages []Message, opts
 		if opts.Temperature > 0 {
 			temperature := opts.Temperature
 			req.Temperature = &temperature
+		} else if opts.ExplicitTemperature {
+			// Deliberate 0: the pointer serialises the value verbatim (no
+			// omitempty collision on *float64), so no epsilon is needed here.
+			zero := 0.0
+			req.Temperature = &zero
 		}
 		if opts.TopP > 0 {
 			topP := opts.TopP
