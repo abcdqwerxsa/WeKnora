@@ -362,8 +362,6 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewDataSourceService))
 	must(container.Invoke(startDataSourceScheduler))
 	logger.Debugf(ctx, "[Container] Data source sync framework registered")
-	must(container.Invoke(startWorkflowScheduler))
-	logger.Debugf(ctx, "[Container] Workflow cron scheduler registered")
 	must(container.Invoke(startAuditLogRetention))
 	logger.Debugf(ctx, "[Container] Audit log retention runner registered")
 	must(container.Provide(service.NewHousekeepingService))
@@ -438,6 +436,11 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(repository.NewWorkflowScheduleRepository))
 	must(container.Provide(service.NewWorkflowScheduler))
 	must(container.Provide(service.NewWorkflowScheduleService))
+	// Invoke must come after the Provides above: dig resolves an Invoke's
+	// parameters from what is registered so far — invoking earlier panicked
+	// at startup with "missing type: interfaces.WorkflowScheduler".
+	must(container.Invoke(startWorkflowScheduler))
+	logger.Debugf(ctx, "[Container] Workflow cron scheduler registered")
 	must(container.Provide(handler.NewUserResourceFavoriteHandler))
 	must(container.Provide(service.NewSkillService))
 	must(container.Provide(func(s *service.TenantSkillService) *handler.SkillHandler {
