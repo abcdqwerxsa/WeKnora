@@ -276,3 +276,669 @@ builtin_agents:
       multi_turn_enabled: true
       history_turns: 10
 
+
+  # ==========================================================================
+  # 文档智能审查 / 比对 / 生成 / 入库 套件（13 个内置 Agent）
+  # 配套设计文档：docs/poc/document-review-suite/
+  # ==========================================================================
+
+  # ---------- 功能一：基础文档审查 ----------
+
+  - id: "builtin-doc-review-format"
+    avatar: "📐"
+    is_builtin: true
+    i18n:
+      default:
+        name: "Format Reviewer"
+        description: "Check document formatting against the company template library (font, paragraph, numbering, margins)."
+      zh-CN:
+        name: "格式审查"
+        description: "对照公司模板库检查文档的字体、段落、编号、页边距等格式规范。"
+      zh-TW:
+        name: "格式審查"
+        description: "對照公司範本庫檢查文件的字型、段落、編號、邊界等格式規範。"
+      en-US:
+        name: "Format Reviewer"
+        description: "Check document formatting against the company template library."
+      ja-JP:
+        name: "フォーマット審査"
+        description: "社内テンプレートライブラリに基づき書式を審査します。"
+      ko-KR:
+        name: "서식 심사"
+        description: "회사 템플릿 라이브러리에 따라 문서 서식을 검사합니다."
+    config:
+      agent_mode: "smart-reasoning"
+      agent_type: "custom"
+      system_prompt_id: "doc_review_format"
+      temperature: 0.2
+      max_completion_tokens: 8192
+      max_iterations: 20
+      kb_selection_mode: "selected"
+      retrieve_kb_only_when_mentioned: false
+      retain_retrieval_history: false
+      allowed_tools:
+        - "knowledge_search"
+        - "grep_chunks"
+        - "get_document_info"
+      web_search_enabled: false
+      web_search_max_results: 0
+      reflection_enabled: false
+      multi_turn_enabled: true
+      history_turns: 0
+      embedding_top_k: 8
+      keyword_threshold: 0.3
+      vector_threshold: 0.5
+      rerank_top_k: 8
+      rerank_threshold: 0.3
+      enable_query_expansion: false
+      enable_rewrite: false
+
+  - id: "builtin-doc-review-proofread"
+    avatar: "📝"
+    is_builtin: true
+    i18n:
+      default:
+        name: "Proofreader"
+        description: "Find Chinese typos, punctuation, grammar, and terminology issues using the typo dictionary and glossary."
+      zh-CN:
+        name: "文本校对"
+        description: "基于易错字 / 异形词库和行业术语库，识别错别字、标点、语法、术语问题。"
+      zh-TW:
+        name: "文字校對"
+        description: "依據易錯字、詞庫與術語庫識別錯別字、標點、文法問題。"
+      en-US:
+        name: "Proofreader"
+        description: "Find Chinese typos, punctuation, grammar, and terminology issues."
+      ja-JP:
+        name: "テキスト校正"
+        description: "誤字・句読点・文法・用語の問題を検出します。"
+      ko-KR:
+        name: "텍스트 교정"
+        description: "오자, 문장 부호, 문법, 용어 문제를 찾아냅니다."
+    config:
+      agent_mode: "smart-reasoning"
+      agent_type: "custom"
+      system_prompt_id: "doc_review_proofread"
+      temperature: 0.1
+      max_completion_tokens: 8192
+      max_iterations: 20
+      kb_selection_mode: "selected"
+      retrieve_kb_only_when_mentioned: false
+      retain_retrieval_history: false
+      allowed_tools:
+        - "knowledge_search"
+        - "grep_chunks"
+        - "get_document_info"
+      web_search_enabled: false
+      web_search_max_results: 0
+      reflection_enabled: false
+      multi_turn_enabled: true
+      history_turns: 0
+      embedding_top_k: 5
+      keyword_threshold: 0.2
+      vector_threshold: 0.4
+      rerank_top_k: 5
+      rerank_threshold: 0.2
+      enable_query_expansion: true
+      enable_rewrite: false
+
+  - id: "builtin-doc-review-consistency"
+    avatar: "🔍"
+    is_builtin: true
+    i18n:
+      default:
+        name: "Consistency Checker"
+        description: "Cross-check monetary amounts, dates, IDs, and personnel references across the entire document."
+      zh-CN:
+        name: "一致性检查"
+        description: "全文交叉比对金额、日期、编号、人员等实体的前后一致性。"
+      zh-TW:
+        name: "一致性檢查"
+        description: "全文交叉比對金額、日期、編號、人員等實體的一致性。"
+      en-US:
+        name: "Consistency Checker"
+        description: "Cross-check monetary amounts, dates, IDs, and personnel references."
+      ja-JP:
+        name: "整合性チェック"
+        description: "金額・日付・番号・人物参照の全文整合性を検証します。"
+      ko-KR:
+        name: "일관성 검사"
+        description: "금액, 날짜, 번호, 인물의 전체 문서 일관성을 교차 검증합니다."
+    config:
+      agent_mode: "smart-reasoning"
+      agent_type: "custom"
+      system_prompt_id: "doc_review_consistency"
+      temperature: 0.1
+      max_completion_tokens: 8192
+      max_iterations: 20
+      kb_selection_mode: "none"
+      retrieve_kb_only_when_mentioned: false
+      retain_retrieval_history: false
+      allowed_tools:
+        - "grep_chunks"
+        - "list_knowledge_chunks"
+        - "get_document_info"
+      web_search_enabled: false
+      web_search_max_results: 0
+      reflection_enabled: false
+      multi_turn_enabled: true
+      history_turns: 0
+      embedding_top_k: 0
+      keyword_threshold: 0
+      vector_threshold: 0
+      rerank_top_k: 0
+      rerank_threshold: 0
+
+  - id: "builtin-doc-review-dispatcher"
+    avatar: "🧭"
+    is_builtin: true
+    i18n:
+      default:
+        name: "Document Review Dispatcher"
+        description: "Route the document to format / proofread / consistency agents and merge their outputs."
+      zh-CN:
+        name: "文档审查调度"
+        description: "把待审查文档分发到格式 / 校对 / 一致性三个 Agent 并汇总报告。"
+      zh-TW:
+        name: "文件審查調度"
+        description: "將待審查文件分派至三個專業 Agent 並彙整報告。"
+      en-US:
+        name: "Document Review Dispatcher"
+        description: "Route the document to format / proofread / consistency agents."
+      ja-JP:
+        name: "文書審査ディスパッチャ"
+        description: "文書を専門エージェントに振り分けて結果を統合します。"
+      ko-KR:
+        name: "문서 심사 디스패처"
+        description: "문서를 전문 에이전트에 라우팅하고 결과를 병합합니다."
+    config:
+      agent_mode: "smart-reasoning"
+      agent_type: "custom"
+      system_prompt_id: "doc_review_dispatcher"
+      temperature: 0.3
+      max_completion_tokens: 8192
+      max_iterations: 5
+      kb_selection_mode: "none"
+      retrieve_kb_only_when_mentioned: false
+      retain_retrieval_history: false
+      allowed_tools: []
+      web_search_enabled: false
+      web_search_max_results: 0
+      reflection_enabled: false
+      multi_turn_enabled: true
+      history_turns: 0
+
+  # ---------- 功能二：招投标文件智能比对 ----------
+
+  - id: "builtin-bid-parser"
+    avatar: "📋"
+    is_builtin: true
+    i18n:
+      default:
+        name: "Bid Parser"
+        description: "Decompose the tender document into qualifications, scoring rules, technical specs, and knockout clauses."
+      zh-CN:
+        name: "招标解析"
+        description: "结构化拆解招标文件，提取资质要求、评分细则、技术参数、废标条款。"
+      zh-TW:
+        name: "招標解析"
+        description: "結構化拆解招標文件，提取資格、評分、技術規格與廢標條款。"
+      en-US:
+        name: "Bid Parser"
+        description: "Decompose the tender document into qualifications, scoring rules, technical specs, and knockout clauses."
+      ja-JP:
+        name: "入札解析"
+        description: "入札文書を資格・配点・技術仕様・失格条項に分解します。"
+      ko-KR:
+        name: "입찰解析"
+        description: "입찰 문서를 자격, 배점, 기술 사양, 결격 조항으로 분해합니다."
+    config:
+      agent_mode: "smart-reasoning"
+      agent_type: "custom"
+      system_prompt_id: "bid_parser"
+      temperature: 0.1
+      max_completion_tokens: 12288
+      max_iterations: 25
+      kb_selection_mode: "selected"
+      retrieve_kb_only_when_mentioned: false
+      retain_retrieval_history: false
+      allowed_tools:
+        - "knowledge_search"
+        - "grep_chunks"
+        - "get_document_info"
+      web_search_enabled: false
+      web_search_max_results: 0
+      reflection_enabled: false
+      multi_turn_enabled: true
+      history_turns: 0
+      embedding_top_k: 8
+      keyword_threshold: 0.3
+      vector_threshold: 0.5
+      rerank_top_k: 8
+      rerank_threshold: 0.3
+      enable_query_expansion: true
+      enable_rewrite: true
+
+  - id: "builtin-bid-scorer"
+    avatar: "📊"
+    is_builtin: true
+    i18n:
+      default:
+        name: "Scoring Table Structurer"
+        description: "Decompose the scoring table into (item, max_score, requirement) tuples."
+      zh-CN:
+        name: "评分表结构化"
+        description: "把评分表拆解为「评分项-分值-要求」三元组，确保 1:1 对应不漏项。"
+      zh-TW:
+        name: "評分表結構化"
+        description: "將評分表拆解為三元組，確保 1:1 對應不漏項。"
+      en-US:
+        name: "Scoring Table Structurer"
+        description: "Decompose the scoring table into (item, max_score, requirement) tuples."
+      ja-JP:
+        name: "配点表構造化"
+        description: "配点表を三つ組に分解し、漏れを防ぎます。"
+      ko-KR:
+        name: "배점표 구조화"
+        description: "배점표를 (항목, 만점, 요구사항) 튜플로 분해합니다."
+    config:
+      agent_mode: "smart-reasoning"
+      agent_type: "custom"
+      system_prompt_id: "bid_scorer"
+      temperature: 0.05
+      max_completion_tokens: 12288
+      max_iterations: 25
+      kb_selection_mode: "none"
+      retrieve_kb_only_when_mentioned: false
+      retain_retrieval_history: false
+      allowed_tools:
+        - "grep_chunks"
+        - "list_knowledge_chunks"
+      web_search_enabled: false
+      web_search_max_results: 0
+      reflection_enabled: false
+      multi_turn_enabled: true
+      history_turns: 0
+      embedding_top_k: 0
+      keyword_threshold: 0
+      vector_threshold: 0
+      rerank_top_k: 0
+      rerank_threshold: 0
+
+  - id: "builtin-bid-comparator"
+    avatar: "⚖️"
+    is_builtin: true
+    i18n:
+      default:
+        name: "Item-by-item Comparator"
+        description: "For each scoring item, locate the corresponding response in the bid document and judge fulfill / positive deviation / negative deviation / missing."
+      zh-CN:
+        name: "逐项比对"
+        description: "对每个评分项在投标文件中检索应答，判断满足 / 正偏离 / 负偏离 / 缺失。"
+      zh-TW:
+        name: "逐項比對"
+        description: "對每個評分項檢索投標回應，判斷滿足 / 正偏離 / 負偏離 / 缺失。"
+      en-US:
+        name: "Item-by-item Comparator"
+        description: "For each scoring item, locate the corresponding response and judge."
+      ja-JP:
+        name: "項目別比較"
+        description: "各採点項目について入札回答を検索し判定します。"
+      ko-KR:
+        name: "항목별 비교"
+        description: "각 배점 항목에 대해 입찰 응답을 찾아 판정합니다."
+    config:
+      agent_mode: "smart-reasoning"
+      agent_type: "custom"
+      system_prompt_id: "bid_comparator"
+      temperature: 0.2
+      max_completion_tokens: 8192
+      max_iterations: 30
+      kb_selection_mode: "none"
+      retrieve_kb_only_when_mentioned: false
+      retain_retrieval_history: false
+      allowed_tools:
+        - "grep_chunks"
+        - "list_knowledge_chunks"
+      web_search_enabled: false
+      web_search_max_results: 0
+      reflection_enabled: false
+      multi_turn_enabled: true
+      history_turns: 0
+      embedding_top_k: 0
+      keyword_threshold: 0
+      vector_threshold: 0
+      rerank_top_k: 0
+      rerank_threshold: 0
+
+  - id: "builtin-bid-risker"
+    avatar: "⚠️"
+    is_builtin: true
+    i18n:
+      default:
+        name: "Risk Annotator"
+        description: "Annotate risk levels (high / medium / low) and modification suggestions for missing or negatively-deviated items, citing historical bid cases."
+      zh-CN:
+        name: "风险标注"
+        description: "对缺失 / 负偏离项标注 high / medium / low 风险等级与修改建议，引用历史废标案例。"
+      zh-TW:
+        name: "風險標註"
+        description: "為缺失或負偏離項標註風險等級並引用歷史案例。"
+      en-US:
+        name: "Risk Annotator"
+        description: "Annotate risk levels and modification suggestions, citing historical bid cases."
+      ja-JP:
+        name: "リスク注釈"
+        description: "欠落 / 負偏差項目にリスク等級を付与し、修正案を提示します。"
+      ko-KR:
+        name: "리스크 주석"
+        description: "누락 / 부정 편차 항목에 위험 등급과 수정 제안을 부여합니다."
+    config:
+      agent_mode: "smart-reasoning"
+      agent_type: "custom"
+      system_prompt_id: "bid_risker"
+      temperature: 0.3
+      max_completion_tokens: 8192
+      max_iterations: 20
+      kb_selection_mode: "selected"
+      retrieve_kb_only_when_mentioned: false
+      retain_retrieval_history: false
+      allowed_tools:
+        - "knowledge_search"
+        - "grep_chunks"
+      web_search_enabled: false
+      web_search_max_results: 0
+      reflection_enabled: false
+      multi_turn_enabled: true
+      history_turns: 0
+      embedding_top_k: 12
+      keyword_threshold: 0.4
+      vector_threshold: 0.55
+      rerank_top_k: 12
+      rerank_threshold: 0.4
+
+  # ---------- 功能三：知识文档自动生成 ----------
+
+  - id: "builtin-gen-plan"
+    avatar: "🛠️"
+    is_builtin: true
+    i18n:
+      default:
+        name: "Plan Generator"
+        description: "Generate a technical plan draft from new project parameters, using historical bids and templates. Marks unverifiable items as placeholders."
+      zh-CN:
+        name: "方案生成"
+        description: "根据新项目参数检索历史标书/模板生成技术方案，未核实信息用 {{待填:xxx}} 占位。"
+      zh-TW:
+        name: "方案生成"
+        description: "依新專案參數檢索歷史標書/範本生成技術方案，未核實項以佔位符標記。"
+      en-US:
+        name: "Plan Generator"
+        description: "Generate a technical plan draft from new project parameters."
+      ja-JP:
+        name: "方案生成"
+        description: "新規プロジェクトパラメータから技術方案を生成し、未確認項目はプレースホルダ化します。"
+      ko-KR:
+        name: "방안 생성"
+        description: "신규 프로젝트 매개변수에서 기술 방안을 생성하고 미확인 항목은 자리표시자로 표시합니다."
+    config:
+      agent_mode: "smart-reasoning"
+      agent_type: "custom"
+      system_prompt_id: "gen_plan"
+      temperature: 0.5
+      max_completion_tokens: 16384
+      max_iterations: 30
+      kb_selection_mode: "selected"
+      retrieve_kb_only_when_mentioned: false
+      retain_retrieval_history: true
+      allowed_tools:
+        - "knowledge_search"
+        - "grep_chunks"
+        - "list_knowledge_chunks"
+        - "get_document_info"
+      web_search_enabled: false
+      web_search_max_results: 0
+      reflection_enabled: false
+      multi_turn_enabled: true
+      history_turns: 0
+      embedding_top_k: 10
+      keyword_threshold: 0.3
+      vector_threshold: 0.5
+      rerank_top_k: 10
+      rerank_threshold: 0.3
+      enable_query_expansion: true
+      enable_rewrite: true
+
+  - id: "builtin-gen-report"
+    avatar: "📑"
+    is_builtin: true
+    i18n:
+      default:
+        name: "Report Generator"
+        description: "Generate government-facing / executive report materials following the official report template library."
+      zh-CN:
+        name: "汇报材料生成"
+        description: "面向政府 / 上级的标准化汇报材料生成，遵循汇报模板库的章节与文风要求。"
+      zh-TW:
+        name: "匯報材料生成"
+        description: "面向政府 / 上級的標準化匯報材料生成。"
+      en-US:
+        name: "Report Generator"
+        description: "Generate government-facing / executive report materials."
+      ja-JP:
+        name: "報告資料生成"
+        description: "政府向け公式報告資料を生成します。"
+      ko-KR:
+        name: "보고 자료 생성"
+        description: "정부 / 상급자 대상 표준 보고 자료를 생성합니다."
+    config:
+      agent_mode: "smart-reasoning"
+      agent_type: "custom"
+      system_prompt_id: "gen_report"
+      temperature: 0.6
+      max_completion_tokens: 16384
+      max_iterations: 30
+      kb_selection_mode: "selected"
+      retrieve_kb_only_when_mentioned: false
+      retain_retrieval_history: true
+      allowed_tools:
+        - "knowledge_search"
+        - "grep_chunks"
+        - "list_knowledge_chunks"
+        - "get_document_info"
+      web_search_enabled: false
+      web_search_max_results: 0
+      reflection_enabled: false
+      multi_turn_enabled: true
+      history_turns: 0
+      embedding_top_k: 10
+      keyword_threshold: 0.3
+      vector_threshold: 0.5
+      rerank_top_k: 10
+      rerank_threshold: 0.3
+      enable_query_expansion: true
+      enable_rewrite: true
+
+  - id: "builtin-gen-reviewer"
+    avatar: "🛡️"
+    is_builtin: true
+    i18n:
+      default:
+        name: "Generation Reviewer"
+        description: "Verify generated content for factual accuracy (against KB), compliance, and format. Hard gate: no pass, no human delivery."
+      zh-CN:
+        name: "校核"
+        description: "对生成内容做事实 / 合规 / 格式三项校验。硬约束：不通过则不进入人工确认环节。"
+      zh-TW:
+        name: "校核"
+        description: "對生成內容做事實 / 合規 / 格式三項校驗；不通過則不交付。"
+      en-US:
+        name: "Generation Reviewer"
+        description: "Verify generated content for factual accuracy, compliance, and format."
+      ja-JP:
+        name: "生成レビュー"
+        description: "生成内容の事実・コンプライアンス・書式を検証します。"
+      ko-KR:
+        name: "생성 검토"
+        description: "생성된 콘텐츠의 사실 / 규정 / 서식을 검증합니다."
+    config:
+      agent_mode: "smart-reasoning"
+      agent_type: "custom"
+      system_prompt_id: "gen_reviewer"
+      temperature: 0.1
+      max_completion_tokens: 8192
+      max_iterations: 15
+      kb_selection_mode: "all"
+      retrieve_kb_only_when_mentioned: false
+      retain_retrieval_history: true
+      allowed_tools:
+        - "knowledge_search"
+        - "grep_chunks"
+        - "query_knowledge_graph"
+      web_search_enabled: false
+      web_search_max_results: 0
+      reflection_enabled: false
+      multi_turn_enabled: true
+      history_turns: 0
+      embedding_top_k: 15
+      keyword_threshold: 0.3
+      vector_threshold: 0.5
+      rerank_top_k: 15
+      rerank_threshold: 0.3
+
+  # ---------- 功能四：内部知识库构建与应用 ----------
+
+  - id: "builtin-kb-ingest"
+    avatar: "📥"
+    is_builtin: true
+    i18n:
+      default:
+        name: "Document Indexer"
+        description: "Parse unstructured documents, extract metadata (project, category, phase), and write chunks into the knowledge base."
+      zh-CN:
+        name: "文档入库"
+        description: "解析非结构化文档，提取项目 / 类别 / 阶段等元数据并写入知识库。"
+      zh-TW:
+        name: "文件入庫"
+        description: "解析非結構化文件並提取元資料，寫入知識庫。"
+      en-US:
+        name: "Document Indexer"
+        description: "Parse unstructured documents, extract metadata, and write chunks into the knowledge base."
+      ja-JP:
+        name: "文書取り込み"
+        description: "非構造化文書を解析し、メタデータを抽出してナレッジベースに書き込みます。"
+      ko-KR:
+        name: "문서 인덱싱"
+        description: "비정형 문서를 파싱하고 메타데이터를 추출하여 지식 베이스에 기록합니다."
+    config:
+      agent_mode: "smart-reasoning"
+      agent_type: "custom"
+      system_prompt_id: "kb_ingest"
+      temperature: 0.1
+      max_completion_tokens: 8192
+      max_iterations: 20
+      kb_selection_mode: "none"
+      retrieve_kb_only_when_mentioned: false
+      retain_retrieval_history: false
+      allowed_tools:
+        - "get_document_info"
+        - "list_knowledge_chunks"
+      web_search_enabled: false
+      web_search_max_results: 0
+      reflection_enabled: false
+      multi_turn_enabled: true
+      history_turns: 0
+
+  - id: "builtin-kb-associator"
+    avatar: "🔗"
+    is_builtin: true
+    i18n:
+      default:
+        name: "Knowledge Associator"
+        description: "Identify cross-document associations (same category / problem type / project phase) and update the knowledge graph."
+      zh-CN:
+        name: "知识关联"
+        description: "识别文档间关联（同专业、同问题类型、同阶段），更新知识图谱。"
+      zh-TW:
+        name: "知識關聯"
+        description: "識別文件間的關聯並更新知識圖譜。"
+      en-US:
+        name: "Knowledge Associator"
+        description: "Identify cross-document associations and update the knowledge graph."
+      ja-JP:
+        name: "知識関連付け"
+        description: "文書間の関連を識別しナレッジグラフを更新します。"
+      ko-KR:
+        name: "지식 연결"
+        description: "문서 간 연관성을 식별하고 지식 그래프를 업데이트합니다."
+    config:
+      agent_mode: "smart-reasoning"
+      agent_type: "custom"
+      system_prompt_id: "kb_associator"
+      temperature: 0.2
+      max_completion_tokens: 8192
+      max_iterations: 30
+      kb_selection_mode: "all"
+      retrieve_kb_only_when_mentioned: false
+      retain_retrieval_history: false
+      allowed_tools:
+        - "knowledge_search"
+        - "query_knowledge_graph"
+        - "list_knowledge_chunks"
+      web_search_enabled: false
+      web_search_max_results: 0
+      reflection_enabled: false
+      multi_turn_enabled: true
+      history_turns: 0
+      embedding_top_k: 12
+      keyword_threshold: 0.3
+      vector_threshold: 0.5
+      rerank_top_k: 12
+      rerank_threshold: 0.3
+
+  - id: "builtin-kb-advisor"
+    avatar: "💡"
+    is_builtin: true
+    i18n:
+      default:
+        name: "Proactive Advisor"
+        description: "When a new project starts, retrieve related historical issues and generate a checklist of cautions, each linked to source documents."
+      zh-CN:
+        name: "主动提醒"
+        description: "新项目启动时检索关联历史问题，生成注意事项清单，每条挂历史文档引用。"
+      zh-TW:
+        name: "主動提醒"
+        description: "新專案啟動時檢索關聯歷史問題，產出注意事項清單。"
+      en-US:
+        name: "Proactive Advisor"
+        description: "Retrieve related historical issues and generate a checklist of cautions for new projects."
+      ja-JP:
+        name: "能動アドバイザー"
+        description: "新規プロジェクト開始時に関連履歴を検索し、注意事項リストを生成します。"
+      ko-KR:
+        name: "능동 조언"
+        description: "신규 프로젝트 시작 시 관련 이력 문제를 검색하고 주의사항 목록을 생성합니다."
+    config:
+      agent_mode: "smart-reasoning"
+      agent_type: "custom"
+      system_prompt_id: "kb_advisor"
+      temperature: 0.3
+      max_completion_tokens: 8192
+      max_iterations: 20
+      kb_selection_mode: "all"
+      retrieve_kb_only_when_mentioned: false
+      retain_retrieval_history: false
+      allowed_tools:
+        - "knowledge_search"
+        - "query_knowledge_graph"
+        - "grep_chunks"
+      web_search_enabled: false
+      web_search_max_results: 0
+      reflection_enabled: false
+      multi_turn_enabled: true
+      history_turns: 0
+      embedding_top_k: 20
+      keyword_threshold: 0.3
+      vector_threshold: 0.5
+      rerank_top_k: 20
+      rerank_threshold: 0.4

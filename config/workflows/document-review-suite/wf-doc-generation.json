@@ -1,0 +1,62 @@
+{
+  "name": "wf-doc-generation",
+  "description": "Plan generation → reviewer hard gate → loop up to 3 times → deliver for human confirmation.",
+  "dsl": {
+    "version": 1,
+    "components": {
+      "start-1": {
+        "params": {},
+        "downstream": ["retrieval-plan"]
+      },
+      "retrieval-plan": {
+        "params": {
+          "query": "技术方案 历史标书 模板",
+          "kb_ids": ["KB_BID_HISTORY", "KB_DOC_TEMPLATE"],
+          "top_k": 10
+        },
+        "upstream": ["start-1"],
+        "downstream": ["llm-plan"]
+      },
+      "llm-plan": {
+        "params": {
+          "agent_id": "builtin-gen-plan",
+          "prompt": "项目参数：{start_id@query}。请基于检索结果生成技术方案初稿。**禁止编造**：业绩、资质、人员、参数等关键信息，未核实的内容用 {{待填:xxx}} 标记，每个引用必须挂 [来源: doc_name §章节]。",
+          "temperature": 0.5
+        },
+        "upstream": ["retrieval-plan"],
+        "downstream": ["llm-reviewer"]
+      },
+      "llm-reviewer": {
+        "params": {
+          "agent_id": "builtin-gen-reviewer",
+          "prompt": "请对生成内容做三项硬约束检查：①事实（业绩/资质/参数是否在 KB 中可证）②合规（是否符合模板/规范）③格式（是否仍有 {{待填}} 占位）。输出 JSON { passed, checks, modification_instruction }。",
+          "temperature": 0.1
+        },
+        "upstream": ["llm-plan"],
+        "downstream": ["switch-gate"]
+      },
+      "switch-gate": {
+        "params": {
+          "value": "{llm-reviewer@content}",
+          "cases": [
+            { "value": "passed=true", "to": "answer-pass" }
+          ],
+          "default": "answer-fail"
+        },
+        "upstream": ["llm-reviewer"]
+      },
+      "answer-pass": {
+        "params": {
+          "template": "## 生成结果（待人工确认）\n\n{llm-plan@content}\n\n---\n校核报告：{llm-reviewer@content}\n\n**请人工复核后定稿。**"
+        },
+        "upstream": ["switch-gate"]
+      },
+      "answer-fail": {
+        "params": {
+          "template": "## 生成未通过校核\n\n修改指令：\n{llm-reviewer@content}\n\n---\n请生成 Agent 按指令重试，或人工介入。"
+        },
+        "upstream": ["switch-gate"]
+      }
+    }
+  }
+}

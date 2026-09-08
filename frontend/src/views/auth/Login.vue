@@ -97,7 +97,7 @@
 
     <!-- Logo - Top Left -->
     <div class="header-logo">
-      <img src="@/assets/img/LuoAG.svg" alt="LuoAG" class="logo-image" />
+      <img src="@/assets/img/LuoSA.svg" alt="LuoSA" class="logo-image" />
     </div>
 
     <!-- Header Links - Top Right -->

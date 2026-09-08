@@ -1,0 +1,43 @@
+{
+  "name": "wf-kb-ingest",
+  "description": "Parse unstructured document, extract metadata, write chunks to KB. Knowledge association runs asynchronously afterwards.",
+  "dsl": {
+    "version": 1,
+    "components": {
+      "start-1": {
+        "params": {},
+        "downstream": ["llm-ingest"]
+      },
+      "llm-ingest": {
+        "params": {
+          "agent_id": "builtin-kb-ingest",
+          "prompt": "请解析文档 {start_id@files[0]}，提取元数据（project / category / phase / doc_type / effective_date），按段落切块（≤1024 token），输出 JSON。",
+          "temperature": 0.1
+        },
+        "upstream": ["start-1"],
+        "downstream": ["dataops-meta"]
+      },
+      "dataops-meta": {
+        "params": {
+          "sql": "INSERT INTO document_metadata (doc_id, project, category, phase, doc_type, effective_date) VALUES (?, ?, ?, ?, ?, ?)",
+          "variables": [
+            { "name": "doc_id",          "ref": "{start_id@files[0].id}" },
+            { "name": "project",         "ref": "{llm-ingest@content.metadata.project}" },
+            { "name": "category",        "ref": "{llm-ingest@content.metadata.category}" },
+            { "name": "phase",           "ref": "{llm-ingest@content.metadata.phase}" },
+            { "name": "doc_type",        "ref": "{llm-ingest@content.metadata.doc_type}" },
+            { "name": "effective_date",  "ref": "{llm-ingest@content.metadata.effective_date}" }
+          ]
+        },
+        "upstream": ["llm-ingest"],
+        "downstream": ["answer-1"]
+      },
+      "answer-1": {
+        "params": {
+          "template": "## 入库完成\n\n{llm-ingest@content}\n\n---\n异步关联将由 builtin-kb-associator 后台处理。"
+        },
+        "upstream": ["dataops-meta"]
+      }
+    }
+  }
+}

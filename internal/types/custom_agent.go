@@ -30,6 +30,34 @@ const (
 	BuiltinWikiFixerID = "builtin-wiki-fixer"
 	// BuiltinSkillInstallerID is the ID for the built-in skill installer agent
 	BuiltinSkillInstallerID = "builtin-skill-installer"
+	// BuiltinDocReviewFormatID is the ID for the built-in document format reviewer
+	BuiltinDocReviewFormatID = "builtin-doc-review-format"
+	// BuiltinDocReviewProofreadID is the ID for the built-in document proofreader
+	BuiltinDocReviewProofreadID = "builtin-doc-review-proofread"
+	// BuiltinDocReviewConsistencyID is the ID for the built-in document consistency checker
+	BuiltinDocReviewConsistencyID = "builtin-doc-review-consistency"
+	// BuiltinDocReviewDispatcherID is the ID for the built-in document review dispatcher
+	BuiltinDocReviewDispatcherID = "builtin-doc-review-dispatcher"
+	// BuiltinBidParserID is the ID for the built-in bid document parser
+	BuiltinBidParserID = "builtin-bid-parser"
+	// BuiltinBidScorerID is the ID for the built-in bid scoring table structurer
+	BuiltinBidScorerID = "builtin-bid-scorer"
+	// BuiltinBidComparatorID is the ID for the built-in bid item-by-item comparator
+	BuiltinBidComparatorID = "builtin-bid-comparator"
+	// BuiltinBidRisterID is the ID for the built-in bid risk annotator
+	BuiltinBidRisterID = "builtin-bid-risker"
+	// BuiltinGenPlanID is the ID for the built-in technical plan generator
+	BuiltinGenPlanID = "builtin-gen-plan"
+	// BuiltinGenReportID is the ID for the built-in government report material generator
+	BuiltinGenReportID = "builtin-gen-report"
+	// BuiltinGenReviewerID is the ID for the built-in generation reviewer (hard gate)
+	BuiltinGenReviewerID = "builtin-gen-reviewer"
+	// BuiltinKBIngestID is the ID for the built-in knowledge base document indexer
+	BuiltinKBIngestID = "builtin-kb-ingest"
+	// BuiltinKBAssociatorID is the ID for the built-in knowledge associator
+	BuiltinKBAssociatorID = "builtin-kb-associator"
+	// BuiltinKBAdvisorID is the ID for the built-in proactive advisor
+	BuiltinKBAdvisorID = "builtin-kb-advisor"
 )
 
 // AgentMode constants for agent running mode
@@ -587,6 +615,21 @@ var builtinAgentIDsOrdered = []string{
 	BuiltinDataAnalystID,
 	BuiltinKnowledgeGraphExpertID,
 	BuiltinDocumentAssistantID,
+	// Document review suite (新增: 文档智能审查 / 比对 / 生成 / 入库 套件)
+	BuiltinDocReviewFormatID,
+	BuiltinDocReviewProofreadID,
+	BuiltinDocReviewConsistencyID,
+	BuiltinDocReviewDispatcherID,
+	BuiltinBidParserID,
+	BuiltinBidScorerID,
+	BuiltinBidComparatorID,
+	BuiltinBidRisterID,
+	BuiltinGenPlanID,
+	BuiltinGenReportID,
+	BuiltinGenReviewerID,
+	BuiltinKBIngestID,
+	BuiltinKBAssociatorID,
+	BuiltinKBAdvisorID,
 }
 
 // GetBuiltinAgentIDs returns all built-in agent IDs in fixed order

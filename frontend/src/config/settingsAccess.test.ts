@@ -10,7 +10,10 @@ import {
 test('management shortcuts are stricter than read-only settings pages', () => {
   assert.equal(SETTINGS_SECTION_MIN_ROLE.members, 'viewer')
   assert.equal(SETTINGS_MANAGEMENT_SHORTCUT_MIN_ROLE.members, 'owner')
-  assert.equal(SETTINGS_SECTION_MIN_ROLE.models, 'viewer')
+  // LuoSA 客户侧部署场景：vLLM 由租户管理员在 Web 端统一配置一次后，
+  // 普通员工全程不接触任何模型设置入口。整张设置页和头像菜单里的
+  // 管理快捷入口同级别收紧到 admin，而不是让 viewer 看到只读列表。
+  assert.equal(SETTINGS_SECTION_MIN_ROLE.models, 'admin')
   assert.equal(SETTINGS_MANAGEMENT_SHORTCUT_MIN_ROLE.models, 'admin')
 })
 
