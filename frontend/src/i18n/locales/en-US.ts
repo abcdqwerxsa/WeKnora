@@ -7062,6 +7062,7 @@ export default {
       formTitle: 'Input form',
       missingFields: 'Missing required fields: {names}',
       nodeOutputs: 'Node outputs',
+      stalePublished: 'Runs execute the published snapshot, not the draft. Republish to apply your changes.',
      }
   }
 }

@@ -90,7 +90,7 @@ func TestRunLLMAssemblesSystemAndUserMessages(t *testing.T) {
 	assert.Equal(t, "system", m.chat.msgs[0].Role)
 	assert.Equal(t, "be brief", m.chat.msgs[0].Content)
 	assert.Equal(t, "user", m.chat.msgs[1].Role)
-	assert.Equal(t, 321, m.chat.opts.MaxCompletionTokens)
+	assert.Equal(t, 321, m.chat.opts.MaxTokens)
 	assert.Equal(t, 0.3, m.chat.opts.Temperature)
 }
 
@@ -100,7 +100,7 @@ func TestRunLLMWithoutSystemPromptKeepsSingleMessage(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, m.chat.msgs, 1)
 	assert.Equal(t, "user", m.chat.msgs[0].Role)
-	assert.Zero(t, m.chat.opts.MaxCompletionTokens, "0 must stay provider-default")
+	assert.Zero(t, m.chat.opts.MaxTokens, "0 must stay provider-default")
 }
 
 func TestRunRetrievalForwardsThresholds(t *testing.T) {

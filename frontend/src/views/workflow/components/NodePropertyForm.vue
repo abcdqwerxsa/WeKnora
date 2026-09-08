@@ -987,6 +987,10 @@ watch(
       const key = row.key.trim()
       if (key) outputs[key] = row.value
     }
+    // Guard: same no-op-write protection as headerRows — the paired watch
+    // rebuilds rows on every params identity change, which would otherwise
+    // loop forever once action === 'continue'.
+    if (JSON.stringify(outputs) === JSON.stringify(onError.default_outputs ?? {})) return
     props.params.on_error = { ...onError, action: 'continue', default_outputs: outputs }
   },
   { deep: true },
@@ -1040,6 +1044,9 @@ watch(
       const key = row.key.trim()
       if (key) headers[key] = row.value
     }
+    // Guard: skip no-op writes. Without this the two watches ping-pong
+    // forever (new object identities each cycle) and the tab freezes.
+    if (JSON.stringify(headers) === JSON.stringify(props.params.headers ?? {})) return
     setParam('headers', headers)
   },
   { deep: true },

@@ -7064,6 +7064,7 @@ export default {
       formTitle: '输入表单',
       missingFields: '缺少必填字段：{names}',
       nodeOutputs: '节点输出',
+      stalePublished: '当前运行的是已发布快照，不足草稿。修改需重新发布后生效。',
      }
   }
 }

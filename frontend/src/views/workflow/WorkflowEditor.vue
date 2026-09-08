@@ -136,6 +136,7 @@
         :workflow-id="workflowId"
         :nodes="pickerNodes"
         :start-fields="startFields"
+        :published-stale="publishedStale"
         @node-phases="runNodePhases = $event"
         @node-outputs="runNodeOutputs = $event"
       />
@@ -272,6 +273,18 @@ const pickerNodes = computed(() =>
     params: (node.data?.params as Record<string, unknown>) ?? {},
   }))
 )
+
+/**
+ * True when runs execute the frozen published snapshot while the saved
+ * draft has diverged (dslForRun: published status → PublishedDSL). Without
+ * this flag, editor-side param changes silently never reach test runs
+ * until the workflow is republished.
+ */
+const publishedStale = computed(() => {
+  const wf = workflow.value
+  if (!wf || wf.status !== 'published' || !wf.published_dsl) return false
+  return JSON.stringify(wf.dsl) !== JSON.stringify(wf.published_dsl)
+})
 
 async function fetchPickerData() {
   try {

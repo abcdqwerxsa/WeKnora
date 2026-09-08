@@ -71,6 +71,25 @@ func TestResolveTemplateEmptyAndNil(t *testing.T) {
 	}
 }
 
+// TestResolveTemplateHyphenatedNodeID is a regression: the frontend's
+// makeNodeId generates ids like "llm-ctq52j", and VarRefPattern's node-id
+// class originally lacked "-" — refs to such nodes rendered as literal
+// text ({llm-ctq52j@content} showed up verbatim in Answer output).
+func TestResolveTemplateHyphenatedNodeID(t *testing.T) {
+	st := NewCanvasState(nil, nil)
+	st.SetOutput("llm-ctq52j", "content", "rendered body")
+	got, err := ResolveTemplate("out: {llm-ctq52j@content}", st)
+	if err != nil {
+		t.Fatalf("ResolveTemplate: %v", err)
+	}
+	if got != "out: rendered body" {
+		t.Fatalf("got %q, want %q", got, "out: rendered body")
+	}
+	if refs := ExtractRefs("{llm-ctq52j@content}"); len(refs) != 1 || refs[0] != "llm-ctq52j@content" {
+		t.Fatalf("ExtractRefs = %v", refs)
+	}
+}
+
 func TestStateConcurrency(t *testing.T) {
 	st := NewCanvasState(nil, nil)
 	done := make(chan struct{})
