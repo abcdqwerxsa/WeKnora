@@ -1,5 +1,12 @@
 <template>
   <div class="wf-run-panel">
+    <!-- Published workflows run the frozen snapshot, not the draft -->
+    <t-alert
+      v-if="publishedStale"
+      theme="warning"
+      :message="$t('workflow.run.stalePublished')"
+    />
+
     <!-- Start-node input form (declared fields render as run inputs) -->
     <section v-if="(startFields ?? []).length > 0" class="wf-run-section">
       <p class="wf-run-section-title">{{ $t('workflow.run.formTitle') }}</p>
@@ -202,6 +209,8 @@ const props = defineProps<{
   nodes?: Array<{ id: string; kind: string }>
   /** Start-node form fields, rendered as run inputs. */
   startFields?: Array<{ name: string; label?: string; type: string; required?: boolean; default?: string; options?: string[] }>
+  /** True when the workflow is published and the saved draft diverges from the published snapshot: runs execute the snapshot. */
+  publishedStale?: boolean
 }>()
 
 /**

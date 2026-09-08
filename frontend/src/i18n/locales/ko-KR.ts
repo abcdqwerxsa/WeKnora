@@ -7062,6 +7062,7 @@ export default {
       formTitle: '입력 양식',
       missingFields: '필수 필드 누락: {names}',
       nodeOutputs: '노드 출력',
+      stalePublished: '실행은 게시된 스냅샷을 사용하며 초안이 아닙니다. 변경 사항을 적용하려면 다시 게시하세요.',
      }
   }
 }
