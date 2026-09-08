@@ -84,7 +84,19 @@ jobs:
             if [ -z "$base" ] || [[ "$base" =~ ^0+$ ]]; then
               base=$(git rev-parse HEAD^)
             fi
-            diff_range="$base..$GITHUB_SHA"
+            # Fork / force-push / squash-merge 场景下,github.event.before
+            # 指向的 commit 可能已不在本地历史中,导致
+            # `git diff <before>..<after>` 报 "Invalid revision range"。
+            # 先尝试拉一次;若 commit 真的不存在(from-scratch 推送),再
+            # 回退到 HEAD^ 并扫描全部 Go 文件作为安全网。
+            if ! git cat-file -e "$base" 2>/dev/null; then
+              git fetch --no-tags --depth=1 origin "$base" 2>/dev/null || {
+                echo "::warning::base SHA $base not reachable locally; falling back to HEAD^"
+                base=$(git rev-parse HEAD^)
+                diff_range="HEAD^"
+              }
+            fi
+            diff_range="${diff_range:-$base..$GITHUB_SHA}"
           fi
           unformatted=$(
             git diff --name-only --diff-filter=ACMR -z "$diff_range" -- '*.go' ':!cli/**' |

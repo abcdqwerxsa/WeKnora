@@ -1,0 +1,58 @@
+# LuoSA 通用开发镜像
+#
+# 单镜像多角色:
+#   docker compose -f docker-compose.dev-server.yml up
+# 由 SERVICE_ROLE 环境变量决定启动哪个进程:
+#   - frontend  → vite dev (HMR,改前端代码即时刷新)
+#   - app       → air        (Go hot reload,改后端代码 ~3 秒重编译)
+#   - docreader → uvicorn    (Python 文档解析,改代码 uvicorn --reload 重启)
+#   - sandbox   → sandbox dev mode
+#
+# 镜像特点:
+#   - 包含所有工具链(Go + Node + pnpm + Python),体积约 2.5GB
+#   - 生产环境请勿使用此镜像(没有 nginx / 没有瘦身后的 Go 运行时)
+#   - 仅用于本地或测试服务器上的"改了代码立即生效"工作流
+
+# 基础镜像:Debian + Go 1.26 + 常用工具
+FROM golang:1.26-bookworm
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# 一次性安装所有运行时需要的工具链与依赖
+# 用一次 RUN 减少镜像层数,apt-get clean 在最后清理
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl wget git build-essential \
+        libsqlite3-dev libjpeg-dev zlib1g-dev libffi-dev libgl1 libglib2.0-0 \
+        antiword \
+        python3 python3-pip python3-venv python3-dev \
+        && rm -rf /var/lib/apt/lists/*
+
+# Node 22 (通过 NodeSource 装,Debian 12 默认是 18 太老)
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# pnpm (前端用)
+RUN npm install -g pnpm@9
+
+# Go 热重载工具 air
+RUN go install github.com/air-verse/air@latest
+
+# Python 文档解析依赖(docreader 目录下的 requirements)
+# 注意:这里只装 runtime 依赖,docreader 的解析库;具体依赖以后端 Dockerfile.docreader 为准
+RUN pip3 install --no-cache-dir --break-system-packages \
+        fastapi uvicorn[standard] python-multipart \
+        pillow pypdf python-docx openpyxl \
+        beautifulsoup4 lxml markdownify \
+        requests httpx pydantic pydantic-settings \
+        && rm -rf /root/.cache/pip
+
+# 工作目录
+WORKDIR /workspace
+
+# 入口脚本:按 SERVICE_ROLE 分发
+COPY entrypoint-dev.sh /usr/local/bin/entrypoint-dev.sh
+RUN chmod +x /usr/local/bin/entrypoint-dev.sh
+
+# 容器内默认命令(各服务可在 compose 里覆盖)
+CMD ["entrypoint-dev.sh"]
