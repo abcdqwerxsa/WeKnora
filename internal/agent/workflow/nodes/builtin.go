@@ -188,6 +188,7 @@ type llmNode struct {
 	temperature    float64
 	temperatureSet bool
 	maxTokens      int
+	thinking       *bool
 	llm            LLMFunc
 	llmStream      LLMStreamFunc
 	onDelta        func(string)
@@ -218,7 +219,17 @@ func newLLM(params map[string]any, deps Deps) (Node, error) {
 			return nil, err
 		}
 	}
-	return &llmNode{prompt: prompt, systemPrompt: systemPrompt, model: model, temperature: temp, temperatureSet: tempSet, maxTokens: maxTokens, llm: deps.LLMFunc, llmStream: deps.LLMStreamFunc, onDelta: deps.OnDelta}, nil
+	// thinking: tri-state — absent = provider/model default, false = disable
+	// extended thinking, true = request it explicitly.
+	var thinking *bool
+	if v, ok := params["thinking"]; ok && v != nil {
+		b, terr := toBool("LLM", "thinking", v)
+		if terr != nil {
+			return nil, terr
+		}
+		thinking = &b
+	}
+	return &llmNode{prompt: prompt, systemPrompt: systemPrompt, model: model, temperature: temp, temperatureSet: tempSet, maxTokens: maxTokens, thinking: thinking, llm: deps.LLMFunc, llmStream: deps.LLMStreamFunc, onDelta: deps.OnDelta}, nil
 }
 
 func (n *llmNode) Invoke(ctx context.Context, inputs map[string]any) (map[string]any, error) {
@@ -246,6 +257,7 @@ func (n *llmNode) Invoke(ctx context.Context, inputs map[string]any) (map[string
 		Temperature:    n.temperature,
 		TemperatureSet: n.temperatureSet,
 		MaxTokens:      n.maxTokens,
+		Thinking:       n.thinking,
 	}
 	// Streaming path: tokens flow to the delta sink while the full text
 	// still returns as the recorded output (single source of truth).

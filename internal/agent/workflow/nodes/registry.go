@@ -75,6 +75,10 @@ type LLMRequest struct {
 	// the node (vs absent and defaulted to 0): an explicit 0 must reach the
 	// provider instead of being omitted as an unset zero-value.
 	TemperatureSet bool
+	// Thinking requests extended thinking explicitly: nil = provider/model
+	// default, false = disable, true = enable. The wire field it maps to is
+	// provider-specific (thinking_control extra_config picks the format).
+	Thinking *bool
 	// MaxTokens maps to the provider's completion-token cap; 0 = provider
 	// default (the adapter leaves ChatOptions.MaxCompletionTokens unset).
 	MaxTokens int
