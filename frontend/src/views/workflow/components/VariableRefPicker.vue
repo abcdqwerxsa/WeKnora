@@ -17,7 +17,7 @@
               class="wf-refpicker-item"
               @click="pick(`${group.nodeId}@${param}`)"
             >
-              <template #icon><t-icon name="at" /></template>
+              <template #icon><t-icon name="link" /></template>
               {{ param }}
             </t-button>
           </div>
@@ -43,7 +43,7 @@
       </div>
     </template>
     <t-button variant="outline" size="small">
-      <template #icon><t-icon name="at" /></template>
+      <template #icon><t-icon name="link" /></template>
       {{ t('workflow.editor.insertRef') }}
     </t-button>
   </t-popup>

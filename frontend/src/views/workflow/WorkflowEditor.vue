@@ -10,7 +10,7 @@
       </div>
       <div class="wf-editor-toolbar-right">
         <t-button variant="outline" :disabled="!ready" @click="variablesDrawerVisible = true">
-          <template #icon><t-icon name="variable" /></template>
+          <template #icon><t-icon name="braces" /></template>
           {{ $t('workflow.editor.variablesBtn') }}
         </t-button>
         <t-button variant="outline" @click="applyAutoLayout" :disabled="!ready">
@@ -22,14 +22,14 @@
           {{ $t('workflow.editor.copyNode') }}
         </t-button>
         <t-button variant="outline" :disabled="!ready || !clipboard" @click="pasteClipboardNode">
-          <template #icon><t-icon name="clipboard" /></template>
+          <template #icon><t-icon name="file-paste" /></template>
           {{ $t('workflow.editor.pasteNode') }}
         </t-button>
         <t-button variant="outline" :disabled="!ready || !canUndo" @click="undo()">
-          <template #icon><t-icon name="undo" /></template>
+          <template #icon><t-icon name="rollback" /></template>
         </t-button>
         <t-button variant="outline" :disabled="!ready || !canRedo" @click="redo()">
-          <template #icon><t-icon name="redo" /></template>
+          <template #icon><t-icon name="rollfront" /></template>
         </t-button>
         <t-button variant="outline" @click="importDslFile?.click()">
           <template #icon><t-icon name="upload" /></template>
@@ -43,7 +43,7 @@
           {{ saveLabel }}
         </t-button>
         <t-button variant="outline" :loading="publishing" :disabled="!ready" @click="publishFromEditor">
-          <template #icon><t-icon name="upload-cloud" /></template>
+          <template #icon><t-icon name="cloud-upload" /></template>
           {{ workflow?.status === 'published' ? $t('workflow.republish') : $t('workflow.publish') }}
         </t-button>
         <t-button variant="outline" :disabled="!ready" @click="runDrawerVisible = true">
@@ -102,6 +102,7 @@
       size="360px"
       :footer="false"
       :close-btn="true"
+      :show-overlay="false"
     >
       <NodePropertyForm
         v-if="selectedParams && selectedKind"
@@ -128,6 +129,7 @@
       size="420px"
       :footer="false"
       :close-btn="true"
+      :show-overlay="false"
       @closed="onRunDrawerClosed"
     >
       <WorkflowRunPanel
@@ -144,6 +146,7 @@
       size="360px"
       :footer="false"
       :close-btn="true"
+      :show-overlay="false"
     >
       <div class="wf-editor-vars">
         <p class="wf-editor-vars-hint">{{ $t('workflow.editor.variablesHint') }}</p>

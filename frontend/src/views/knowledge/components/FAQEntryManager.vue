@@ -643,7 +643,7 @@
                 <!-- 预览区域 -->
                 <div v-if="importState.preview.length" class="import-preview">
                   <div class="preview-header">
-                    <t-icon name="file-view" size="16px" class="preview-icon" />
+                    <t-icon name="browse" size="16px" class="preview-icon" />
                     <span class="preview-title">
                       {{ $t('knowledgeEditor.faqImport.previewCount', { count: importState.preview.length }) }}
                     </span>
