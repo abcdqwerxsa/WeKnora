@@ -858,6 +858,10 @@ func (s *workflowService) executeWorkflowRun(
 	run.Status = types.WorkflowRunStatusSucceeded
 	run.Output = types.JSON(outJSON)
 	run.Trace = traceJSON()
+	// A resumed run may carry the failed attempt's error text; success is
+	// terminal and the row must not keep advertising the old failure (the
+	// map-based repo update persists "" verbatim).
+	run.Error = ""
 	if uerr := s.repo.UpdateWorkflowRun(ctx, run); uerr != nil {
 		logger.Errorf(ctx, "workflow run %s terminal update failed: %v", run.ID, uerr)
 		return uerr
@@ -1541,7 +1545,7 @@ func (s *workflowService) runLLMStream(ctx context.Context, req nodes.LLMRequest
 		msgs = append(msgs, chat.Message{Role: "system", Content: req.SystemPrompt})
 	}
 	msgs = append(msgs, chat.Message{Role: "user", Content: req.Prompt})
-	opts := &chat.ChatOptions{Temperature: req.Temperature}
+	opts := &chat.ChatOptions{Temperature: req.Temperature, ExplicitTemperature: req.TemperatureSet}
 	if req.MaxTokens > 0 {
 		// MaxTokens (wire: max_tokens), not MaxCompletionTokens: most
 		// OpenAI-compatible backends (Ollama, DeepSeek, vLLM, proxies)
@@ -1556,11 +1560,18 @@ func (s *workflowService) runLLMStream(ctx context.Context, req nodes.LLMRequest
 	}
 	var b strings.Builder
 	for resp := range ch {
-		if resp.Content != "" {
-			b.WriteString(resp.Content)
-			if onDelta != nil {
-				onDelta(resp.Content)
-			}
+		if resp.Content == "" {
+			continue
+		}
+		// Only the answer track becomes node output: thinking models emit
+		// their reasoning as ResponseTypeThinking frames on this same channel,
+		// and error/tool frames must not leak into the recorded content either.
+		if resp.ResponseType != types.ResponseTypeAnswer && resp.ResponseType != "" {
+			continue
+		}
+		b.WriteString(resp.Content)
+		if onDelta != nil {
+			onDelta(resp.Content)
 		}
 	}
 	if b.Len() == 0 {
@@ -1593,7 +1604,7 @@ func (s *workflowService) runLLM(ctx context.Context, req nodes.LLMRequest) (str
 		msgs = append(msgs, chat.Message{Role: "system", Content: req.SystemPrompt})
 	}
 	msgs = append(msgs, chat.Message{Role: "user", Content: req.Prompt})
-	opts := &chat.ChatOptions{Temperature: req.Temperature}
+	opts := &chat.ChatOptions{Temperature: req.Temperature, ExplicitTemperature: req.TemperatureSet}
 	if req.MaxTokens > 0 {
 		// See runLLMStream: max_tokens is the field OpenAI-compatible
 		// backends actually honor.

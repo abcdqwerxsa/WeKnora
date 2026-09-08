@@ -71,6 +71,10 @@ type LLMRequest struct {
 	SystemPrompt string
 	Model        string
 	Temperature  float64
+	// TemperatureSet reports that Temperature was explicitly configured on
+	// the node (vs absent and defaulted to 0): an explicit 0 must reach the
+	// provider instead of being omitted as an unset zero-value.
+	TemperatureSet bool
 	// MaxTokens maps to the provider's completion-token cap; 0 = provider
 	// default (the adapter leaves ChatOptions.MaxCompletionTokens unset).
 	MaxTokens int

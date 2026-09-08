@@ -134,3 +134,23 @@ func TestStateSnapshotIsolation(t *testing.T) {
 		t.Errorf("restore got %v, want v1", v)
 	}
 }
+
+// TestResolveTemplateNestedMapPath: dotted params address map sub-keys
+// ({agg@values.picked}); plain params keep exact-match semantics.
+func TestResolveTemplateNestedMapPath(t *testing.T) {
+	st := NewCanvasState(nil, nil)
+	st.SetOutput("agg", "values", map[string]any{"picked": "A-value", "n": 1})
+	got, err := ResolveTemplate("picked={agg@values.picked} n={agg@values.n}", st)
+	if err != nil {
+		t.Fatalf("ResolveTemplate: %v", err)
+	}
+	if want := "picked=A-value n=1"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	if _, err := ResolveTemplate("{agg@values.missing}", st); err == nil {
+		t.Fatal("missing sub-key must error, not render empty")
+	}
+	if _, err := ResolveTemplate("{agg@values.picked.deeper}", st); err == nil {
+		t.Fatal("addressing through a scalar must error")
+	}
+}

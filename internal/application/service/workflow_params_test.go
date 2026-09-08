@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/Tencent/WeKnora/internal/agent/workflow/nodes"
@@ -127,4 +128,59 @@ func TestRunRetrievalRerankReordersAndTrims(t *testing.T) {
 	require.Len(t, res.Chunks, 1, "rerank must trim to topK")
 	assert.Equal(t, "c2", res.Chunks[0]["id"])
 	assert.Contains(t, res.Chunks[0], "rerank_score")
+}
+
+// thinkingStreamChat streams a thinking-model-shaped channel: reasoning
+// frames (ResponseTypeThinking) followed by answer frames.
+type thinkingStreamChat struct {
+	deltas []string
+}
+
+func (c *thinkingStreamChat) Chat(context.Context, []chat.Message, *chat.ChatOptions) (*types.ChatResponse, error) {
+	return &types.ChatResponse{Content: "unused"}, nil
+}
+
+func (c *thinkingStreamChat) ChatStream(_ context.Context, _ []chat.Message, _ *chat.ChatOptions) (<-chan types.StreamResponse, error) {
+	ch := make(chan types.StreamResponse)
+	go func() {
+		defer close(ch)
+		for _, d := range c.deltas {
+			kind := types.ResponseTypeAnswer
+			if strings.HasPrefix(d, "THINK:") {
+				kind = types.ResponseTypeThinking
+				d = strings.TrimPrefix(d, "THINK:")
+			}
+			ch <- types.StreamResponse{ResponseType: kind, Content: d}
+		}
+	}()
+	return ch, nil
+}
+func (c *thinkingStreamChat) GetModelName() string { return "stub" }
+func (c *thinkingStreamChat) GetModelID() string   { return "stub" }
+
+// streamModelSvc serves the streamer through the ModelService slice.
+type streamModelSvc struct {
+	interfaces.ModelService
+	m   chat.Chat
+	rer *stubReranker
+}
+
+func (s *streamModelSvc) GetChatModel(context.Context, string) (chat.Chat, error) { return s.m, nil }
+func (s *streamModelSvc) GetRerankModel(context.Context, string) (rerank.Reranker, error) {
+	return s.rer, nil
+}
+
+// TestRunLLMStreamSkipsThinkingFrames: thinking models emit their reasoning
+// as ResponseTypeThinking frames on the same channel as the answer; the
+// recorded node output must contain ONLY the answer track.
+func TestRunLLMStreamSkipsThinkingFrames(t *testing.T) {
+	m := &thinkingStreamChat{deltas: []string{
+		"THINK:step one ", "THINK:step two ", "final ", "answer", "THINK:trailing",
+	}}
+	svc := newTestWFService(nil, &streamModelSvc{m: m, rer: &stubReranker{}}, &captureKBSvc{}).(*workflowService)
+	var seen []string
+	out, err := svc.runLLMStream(context.Background(), nodes.LLMRequest{Prompt: "p", Model: "m"}, func(d string) { seen = append(seen, d) })
+	require.NoError(t, err)
+	assert.Equal(t, "final answer", out, "thinking frames must not leak into the recorded content")
+	assert.Equal(t, []string{"final ", "answer"}, seen, "delta sink must carry answer chunks only")
 }
