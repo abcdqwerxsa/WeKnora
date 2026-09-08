@@ -184,3 +184,18 @@ func TestRunLLMStreamSkipsThinkingFrames(t *testing.T) {
 	assert.Equal(t, "final answer", out, "thinking frames must not leak into the recorded content")
 	assert.Equal(t, []string{"final ", "answer"}, seen, "delta sink must carry answer chunks only")
 }
+
+// TestRunLLMStreamPromotesThinkingOnlyStream: mixed-routing backends
+// occasionally deliver the entire reply through reasoning_content frames;
+// the node must promote that text instead of failing with no content.
+func TestRunLLMStreamPromotesThinkingOnlyStream(t *testing.T) {
+	m := &thinkingStreamChat{deltas: []string{
+		"THINK:<think>step ", "THINK:by step</think>", "THINK:你是小破破呀！",
+	}}
+	svc := newTestWFService(nil, &streamModelSvc{m: m, rer: &stubReranker{}}, &captureKBSvc{}).(*workflowService)
+	var seen []string
+	out, err := svc.runLLMStream(context.Background(), nodes.LLMRequest{Prompt: "p", Model: "m"}, func(d string) { seen = append(seen, d) })
+	require.NoError(t, err)
+	assert.Equal(t, "你是小破破呀！", out, "thinking-only stream must promote its text sans <think> wrapper")
+	assert.Equal(t, []string{"你是小破破呀！"}, seen)
+}

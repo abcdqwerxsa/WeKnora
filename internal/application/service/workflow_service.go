@@ -1558,26 +1558,42 @@ func (s *workflowService) runLLMStream(ctx context.Context, req nodes.LLMRequest
 	if err != nil {
 		return "", fmt.Errorf("workflow LLM stream start failed: %w", err)
 	}
-	var b strings.Builder
+	var answer strings.Builder
+	var thinking strings.Builder
 	for resp := range ch {
 		if resp.Content == "" {
 			continue
 		}
-		// Only the answer track becomes node output: thinking models emit
-		// their reasoning as ResponseTypeThinking frames on this same channel,
-		// and error/tool frames must not leak into the recorded content either.
-		if resp.ResponseType != types.ResponseTypeAnswer && resp.ResponseType != "" {
-			continue
-		}
-		b.WriteString(resp.Content)
-		if onDelta != nil {
-			onDelta(resp.Content)
+		switch resp.ResponseType {
+		case types.ResponseTypeThinking:
+			// Thinking track: never becomes node output directly, but keep
+			// it — some mixed-routing backends occasionally stream the whole
+			// reply (reasoning AND answer) through reasoning_content only.
+			thinking.WriteString(resp.Content)
+		case types.ResponseTypeAnswer, "":
+			// The answer track: error/tool frames stay excluded.
+			answer.WriteString(resp.Content)
+			if onDelta != nil {
+				onDelta(resp.Content)
+			}
 		}
 	}
-	if b.Len() == 0 {
+	if answer.Len() == 0 && thinking.Len() > 0 {
+		// Fallback: the provider misrouted everything into the thinking
+		// track. Promote it (sans optional <think> wrapper) rather than
+		// failing the node with no content.
+		promoted := chat.StripLeadingThinkTags(strings.TrimSpace(thinking.String()))
+		if promoted != "" {
+			if onDelta != nil {
+				onDelta(promoted)
+			}
+			return promoted, nil
+		}
+	}
+	if answer.Len() == 0 {
 		return "", errors.New("workflow LLM stream produced no content")
 	}
-	return b.String(), nil
+	return answer.String(), nil
 }
 
 // runLLM adapts the engine's LLMFunc onto the platform ModelService.
