@@ -1,0 +1,37 @@
+{
+  "name": "wf-kb-advisory",
+  "description": "When a new project starts, retrieve related historical issues and generate a cautions checklist.",
+  "dsl": {
+    "version": 1,
+    "components": {
+      "start-1": {
+        "params": {},
+        "downstream": ["retrieval-advisory"]
+      },
+      "retrieval-advisory": {
+        "params": {
+          "query": "{start_id@query}",
+          "kb_ids": ["KB_COMPANY_HISTORY"],
+          "top_k": 15
+        },
+        "upstream": ["start-1"],
+        "downstream": ["llm-advisor"]
+      },
+      "llm-advisor": {
+        "params": {
+          "agent_id": "builtin-kb-advisor",
+          "prompt": "新项目信息：{start_id@query}。请基于检索结果生成『历史问题 & 注意事项清单』，每条挂历史文档引用（可点击跳转），按 high/medium/low 风险倒序排列。",
+          "temperature": 0.3
+        },
+        "upstream": ["retrieval-advisory"],
+        "downstream": ["answer-1"]
+      },
+      "answer-1": {
+        "params": {
+          "template": "## 新项目启动注意事项\n\n{llm-advisor@content}\n\n---\n请项目负责人逐项确认。"
+        },
+        "upstream": ["llm-advisor"]
+      }
+    }
+  }
+}

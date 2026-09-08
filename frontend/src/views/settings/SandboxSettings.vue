@@ -21,10 +21,6 @@
           <p class="section-description">{{ $t('settings.sandbox.description') }}</p>
         </div>
         <div class="header-actions">
-          <a class="header-action-link" :href="sandboxGuideUrl" target="_blank" rel="noopener noreferrer">
-            <t-icon name="help-circle" />
-            {{ $t('settings.sandbox.viewClusterGuide') }}
-          </a>
         </div>
       </div>
     </div>
@@ -237,8 +233,6 @@ const deploymentCapabilities = useDeploymentCapabilitiesStore()
 const dockerBackendEnabled = computed(() =>
   deploymentCapabilities.isSupported('settings.sandbox.docker'),
 )
-
-const sandboxGuideUrl = 'https://github.com/Tencent/WeKnora/blob/main/docs/sandbox-cluster.md'
 
 const backendTypes = [...NAMED_SANDBOX_BACKEND_TYPES]
 

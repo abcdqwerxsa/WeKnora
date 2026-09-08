@@ -1,0 +1,85 @@
+{
+  "name": "wf-doc-review",
+  "description": "Format + proofread + consistency review, three paths in parallel then merged report",
+  "dsl": {
+    "version": 1,
+    "components": {
+      "start-1": {
+        "params": {},
+        "downstream": ["llm-dispatcher"]
+      },
+      "llm-dispatcher": {
+        "params": {
+          "agent_id": "builtin-doc-review-dispatcher",
+          "prompt": "请对待审查文档 {start_id@query} 触发三个专业 Agent（格式审查、文本校对、一致性检查），并最终汇总报告。",
+          "system_prompt": "",
+          "temperature": 0.3
+        },
+        "upstream": ["start-1"],
+        "downstream": ["retrieval-format", "llm-proofread", "llm-consistency"]
+      },
+      "retrieval-format": {
+        "params": {
+          "query": "公司文档格式规范 字体 段落 页边距",
+          "kb_ids": ["KB_COMPANY_TEMPLATE"],
+          "top_k": 8
+        },
+        "upstream": ["llm-dispatcher"],
+        "downstream": ["llm-format"]
+      },
+      "llm-format": {
+        "params": {
+          "agent_id": "builtin-doc-review-format",
+          "prompt": "请基于检索到的格式规范，对 {start_id@files[0]} 做格式审查。",
+          "temperature": 0.2
+        },
+        "upstream": ["retrieval-format"],
+        "downstream": ["agg-1"]
+      },
+      "llm-proofread": {
+        "params": {
+          "agent_id": "builtin-doc-review-proofread",
+          "prompt": "请对 {start_id@files[0]} 做错别字 / 语法 / 术语校对。",
+          "temperature": 0.1
+        },
+        "upstream": ["llm-dispatcher"],
+        "downstream": ["agg-1"]
+      },
+      "llm-consistency": {
+        "params": {
+          "agent_id": "builtin-doc-review-consistency",
+          "prompt": "请对 {start_id@files[0]} 做金额 / 日期 / 编号 / 人员的一致性检查。",
+          "temperature": 0.1
+        },
+        "upstream": ["llm-dispatcher"],
+        "downstream": ["agg-1"]
+      },
+      "agg-1": {
+        "params": {
+          "variables": [
+            { "name": "format_issues", "ref": "{llm-format@content}" },
+            { "name": "proofread_issues", "ref": "{llm-proofread@content}" },
+            { "name": "consistency_issues", "ref": "{llm-consistency@content}" }
+          ]
+        },
+        "upstream": ["llm-format", "llm-proofread", "llm-consistency"],
+        "downstream": ["llm-synth"]
+      },
+      "llm-synth": {
+        "params": {
+          "prompt": "请把三路审查结果合并为一份可读的 Markdown 报告，按优先级排序：\n\n格式问题：{agg-1@format_issues}\n\n校对问题：{agg-1@proofread_issues}\n\n一致性问题：{agg-1@consistency_issues}",
+          "system_prompt": "你是文档审查报告撰写人。输出 Markdown 表格 + 按 high/medium/low 排序的修改建议。",
+          "temperature": 0.3
+        },
+        "upstream": ["agg-1"],
+        "downstream": ["answer-1"]
+      },
+      "answer-1": {
+        "params": {
+          "template": "## 文档审查报告\n\n{llm-synth@content}\n\n---\n请人工复核后决定采纳。"
+        },
+        "upstream": ["llm-synth"]
+      }
+    }
+  }
+}
