@@ -163,6 +163,18 @@ func validateWorkflowFields(name, description, status string, dsl types.JSON) er
 	return nil
 }
 
+// AgentServiceRef defers AgentService resolution to first use.
+// WorkflowService and AgentService depend on each other only at run time
+// (the workflow Agent node calls AgentService.CreateAgentEngine; AgentService
+// builds workflow tools off WorkflowService), but wiring both through their
+// constructors is a cycle uber/dig rejects at startup. WorkflowService holds
+// this ref; NewAgentService fills it when the container is invoked, which
+// main guarantees completes before the HTTP server accepts traffic.
+type AgentServiceRef struct{ svc interfaces.AgentService }
+
+func (r *AgentServiceRef) Set(svc interfaces.AgentService) { r.svc = svc }
+func (r *AgentServiceRef) Get() interfaces.AgentService    { return r.svc }
+
 // workflowService implements interfaces.WorkflowService.
 type workflowService struct {
 	repo     interfaces.WorkflowRepository
@@ -178,8 +190,10 @@ type workflowService struct {
 	// sandboxes resolves the tenant's sandbox backend for the Code node
 	// (nil in Lite mode → the node fails with a clear message).
 	sandboxes sandbox.TenantSandboxResolver
-	// agents runs one ReAct turn for the Agent node (nil → clear node error).
-	agents interfaces.AgentService
+	// agents runs one ReAct turn for the Agent node. Held via AgentServiceRef
+	// to break the WorkflowService ⇄ AgentService constructor cycle (see
+	// AgentServiceRef). Resolved at run time; nil → clear node error.
+	agents *AgentServiceRef
 	// mcpClients + mcpServices back the MCPTool node adapter. mcpClients is
 	// a one-method view of *mcp.MCPManager so tests can fake the client pool.
 	mcpClients  mcpClientProvider
@@ -210,7 +224,7 @@ func NewWorkflowService(
 	webSearch interfaces.WebSearchService,
 	webSearchProviders interfaces.WebSearchProviderRepository,
 	sandboxes sandbox.TenantSandboxResolver,
-	agents interfaces.AgentService,
+	agents *AgentServiceRef,
 	mcpManager *mcp.MCPManager,
 	mcpServices interfaces.MCPServiceService,
 ) interfaces.WorkflowService {
@@ -1356,7 +1370,7 @@ func tail(s string, n int) string {
 // turn: synthetic session/message ids, no history, no session or message
 // persistence; the engine's event bus is a throwaway with no subscribers.
 func (s *workflowService) runAgent(ctx context.Context, req nodes.AgentRequest) (string, error) {
-	if s.agents == nil {
+	if s.agents == nil || s.agents.Get() == nil {
 		return "", errors.New("workflow Agent: agent runtime unavailable")
 	}
 	if s.models == nil {
@@ -1395,7 +1409,7 @@ func (s *workflowService) runAgent(ctx context.Context, req nodes.AgentRequest) 
 		}
 	}
 	// A throwaway event bus keeps engine-internal streaming a no-op.
-	engine, err := s.agents.CreateAgentEngine(ctx, cfg, chatModel, nil, event.NewEventBus(), "workflow-agent-node", "")
+	engine, err := s.agents.Get().CreateAgentEngine(ctx, cfg, chatModel, nil, event.NewEventBus(), "workflow-agent-node", "")
 	if err != nil {
 		return "", fmt.Errorf("workflow Agent: engine setup failed: %w", err)
 	}

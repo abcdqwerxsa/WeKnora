@@ -45,7 +45,7 @@ func (s *fakeAgentService) CreateAgentEngine(_ context.Context, cfg *types.Agent
 // withAgents returns the concrete service with the agent runtime attached
 // (test-only wiring: newTestWFService has no agent/mcp params).
 func (s *workflowService) withAgents(agents interfaces.AgentService) *workflowService {
-	s.agents = agents
+	s.agents = &AgentServiceRef{svc: agents}
 	return s
 }
 

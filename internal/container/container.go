@@ -244,6 +244,9 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewMCPServiceService))
 	must(container.Provide(service.NewMCPToolApprovalService))
 	must(container.Provide(service.NewCustomAgentService))
+	// Filled by NewAgentService when the container is invoked; WorkflowService
+	// reads it lazily — breaks the Workflow ⇄ Agent constructor cycle.
+	must(container.Provide(func() *service.AgentServiceRef { return &service.AgentServiceRef{} }))
 	must(container.Provide(service.NewWorkflowService))
 	must(container.Provide(service.NewUserResourceFavoriteService))
 	must(container.Provide(service.NewWikiPageService))

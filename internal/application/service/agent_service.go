@@ -144,8 +144,9 @@ func NewAgentService(
 	sandboxPinner *SessionSandboxPinner,
 	workflowService interfaces.WorkflowService,
 	sandboxPolicy WorkspaceSandboxPolicy,
+	agentRef *AgentServiceRef,
 ) interfaces.AgentService {
-	return &agentService{
+	svc := &agentService{
 		cfg:                   cfg,
 		modelService:          modelService,
 		knowledgeBaseService:  knowledgeBaseService,
@@ -171,6 +172,11 @@ func NewAgentService(
 		sandboxPinner:         sandboxPinner,
 		sandboxPolicy:         sandboxPolicy,
 	}
+	// Break the WorkflowService ⇄ AgentService constructor cycle: dig has no
+	// lazy deps, and the two services only meet at run time (workflow tools
+	// here, Agent node there), so the workflow side reads this ref instead.
+	agentRef.Set(svc)
+	return svc
 }
 
 // CreateAgentEngine creates an agent engine with the given configuration and EventBus.
