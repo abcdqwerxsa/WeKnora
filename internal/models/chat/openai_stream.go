@@ -628,3 +628,10 @@ func (c *RemoteAPIChat) processToolCallsDelta(
 		}
 	}
 }
+
+// StripLeadingThinkTags exposes removeThinkingContent for callers outside
+// the chat package (e.g. the workflow service promoting a misrouted
+// thinking-only stream to content).
+func StripLeadingThinkTags(content string) string {
+	return removeThinkingContent(content)
+}
