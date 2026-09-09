@@ -433,6 +433,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(handler.NewCustomAgentHandler))
 	must(container.Provide(handler.NewWorkflowHandler))
 	must(container.Provide(handler.NewWorkflowScheduleHandler))
+	must(container.Provide(handler.NewWorkflowRunAttachmentHandlers))
 	must(container.Provide(repository.NewWorkflowScheduleRepository))
 	must(container.Provide(service.NewWorkflowScheduler))
 	must(container.Provide(service.NewWorkflowScheduleService))

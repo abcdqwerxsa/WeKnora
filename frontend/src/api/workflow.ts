@@ -1,4 +1,4 @@
-import { get, post, put, del } from '@/utils/request'
+import { get, post, put, del, postUpload } from '@/utils/request'
 import { WORKFLOW_NODE_TYPES } from './workflowContract'
 import type { WorkflowNodeType, WorkflowStatus } from './workflowContract'
 
@@ -309,4 +309,38 @@ export const getWorkflowRun = (workflowId: string, runId: string): Promise<{
 /** Path-only SSE URL; the stream composable adds base URL + auth headers. */
 export function workflowRunEventsUrl(workflowId: string, runId: string): string {
   return `/api/v1/workflows/${workflowId}/runs/${runId}/events`
+}
+
+// ---- run attachments ---------------------------------------------------------
+
+export interface WorkflowRunAttachment {
+  id: string
+  file_name: string
+  file_type: string
+  file_size: number
+  status: 'uploaded' | 'processing' | 'ready' | 'failed'
+  token_count?: number
+  chunk_count?: number
+  error_message?: string
+}
+
+/** Upload one file as a run attachment (parsed asynchronously — poll until ready). */
+export function uploadWorkflowRunAttachment(
+  workflowId: string,
+  file: File,
+  onProgress?: (percent: number) => void,
+): Promise<{ success: boolean; data: WorkflowRunAttachment }> {
+  const form = new FormData()
+  form.append('file', file)
+  return postUpload(`/api/v1/workflows/${workflowId}/run-attachments`, form, (event) => {
+    if (event.total) onProgress?.(Math.round((event.loaded * 100) / event.total))
+  })
+}
+
+/** Fetch one attachment record (status polling until status=ready). */
+export function getWorkflowRunAttachment(
+  workflowId: string,
+  attachmentId: string,
+): Promise<{ success: boolean; data: WorkflowRunAttachment }> {
+  return get(`/api/v1/workflows/${workflowId}/run-attachments/${attachmentId}`)
 }

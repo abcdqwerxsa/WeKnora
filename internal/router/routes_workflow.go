@@ -30,7 +30,7 @@ import (
 // declared with the read_workflows + run_workflows capabilities — keys can
 // drive published workflows but never read or mutate definitions.
 // Definition routes (CRUD/publish/status) stay default-deny for keys.
-func RegisterWorkflowRoutes(r *gin.RouterGroup, workflowHandler *handler.WorkflowHandler, scheduleHandler *handler.WorkflowScheduleHandler, g *rbacGuards) {
+func RegisterWorkflowRoutes(r *gin.RouterGroup, workflowHandler *handler.WorkflowHandler, scheduleHandler *handler.WorkflowScheduleHandler, attachmentHandler *handler.WorkflowRunAttachmentHandlers, g *rbacGuards) {
 	if workflowHandler == nil {
 		return
 	}
@@ -43,6 +43,12 @@ func RegisterWorkflowRoutes(r *gin.RouterGroup, workflowHandler *handler.Workflo
 		workflows.DELETE("/:id", g.OwnedWorkflowOrAdmin(workflowHandler), workflowHandler.DeleteWorkflow)
 		workflows.POST("/:id/publish", g.OwnedWorkflowOrAdmin(workflowHandler), workflowHandler.PublishWorkflow)
 		workflows.POST("/:id/status", g.OwnedWorkflowOrAdmin(workflowHandler), workflowHandler.SetWorkflowStatus)
+
+		// Run attachments: files uploaded before a run, resolved into LLM
+		// context at execution. Contributor+ matches the run gate's entry
+		// permission (running is separately gated by publish/creator rules).
+		workflows.POST("/:id/run-attachments", g.Contributor(), attachmentHandler.UploadWorkflowRunAttachment)
+		workflows.GET("/:id/run-attachments/:attachment_id", g.Contributor(), attachmentHandler.GetWorkflowRunAttachment)
 
 		// Cron schedules for published workflows: mutations are owner/admin
 		// (same lookup as the workflow itself), reads are Viewer. Deliberately
