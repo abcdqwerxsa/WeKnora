@@ -1110,7 +1110,6 @@ export default {
       model: '에이전트가 사용할 대규모 언어 모델을 선택하세요',
       temperature: '출력의 무작위성을 제어합니다. 0이 가장 확정적, 1이 가장 무작위',
       maxTokens: '모델 응답의 최대 토큰 수. 「기본값」은 2048입니다. 「사용자 지정」은 입력한 값을 그대로 저장합니다.',
-      thinking: '사고 모드',
       thinkingDefault: '기본값(모델 따름)',
       thinkingOn: '켜기',
       thinkingOff: '끄기',
