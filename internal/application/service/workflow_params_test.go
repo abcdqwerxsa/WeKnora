@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"errors"
+	"io"
 	"strings"
 	"testing"
 
@@ -10,6 +12,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/models/rerank"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
+	"github.com/hibiken/asynq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -231,4 +234,57 @@ func TestRunRetrievalAggregatesDocAggs(t *testing.T) {
 	assert.Equal(t, "Doc One", first["knowledge_title"])
 	assert.Equal(t, 2, first["chunk_count"])
 	assert.InDelta(t, 0.9, first["score"], 1e-9)
+}
+
+// stubTempDocs fakes the temporary-document service for attachment tests.
+type stubTempDocs struct {
+	ids    []string
+	prompt string
+}
+
+func (s *stubTempDocs) Create(context.Context, uint64, string, string, string, int64, io.Reader, types.TemporaryDocumentCreateOptions) (*types.TemporaryDocument, error) {
+	return nil, errors.New("not implemented")
+}
+func (s *stubTempDocs) Get(context.Context, uint64, string, string) (*types.TemporaryDocument, error) {
+	return nil, errors.New("not implemented")
+}
+func (s *stubTempDocs) OpenFile(context.Context, uint64, string, string) (io.ReadCloser, string, error) {
+	return nil, "", errors.New("not implemented")
+}
+func (s *stubTempDocs) List(context.Context, uint64, string) ([]*types.TemporaryDocument, error) {
+	return nil, nil
+}
+func (s *stubTempDocs) Delete(context.Context, uint64, string, string) error { return nil }
+func (s *stubTempDocs) Process(context.Context, *asynq.Task) error           { return nil }
+func (s *stubTempDocs) CleanupExpired(context.Context) error                 { return nil }
+func (s *stubTempDocs) ResolveForPrompt(_ context.Context, _ uint64, scope string, ids []string, query string) (*types.TemporaryDocumentPromptResult, error) {
+	s.ids = ids
+	if query != "the query" {
+		return nil, errors.New("unexpected query")
+	}
+	if scope != "workflow-wf-1" {
+		return nil, errors.New("unexpected scope: " + scope)
+	}
+	return &types.TemporaryDocumentPromptResult{
+		Attachments: types.MessageAttachments{{ID: ids[0], FileName: "notes.md", Content: s.prompt}},
+	}, nil
+}
+
+// TestRunLLMWithAttachmentsPrependsContext: run files resolve into the
+// system prompt via MessageAttachments.BuildPrompt, ahead of the node's own
+// system prompt.
+func TestRunLLMWithAttachmentsPrependsContext(t *testing.T) {
+	ms := &captureModelSvc{rer: &stubReranker{}}
+	td := &stubTempDocs{prompt: "SECRET-ATTACHMENT-CONTENT"}
+	svc := NewWorkflowService(nil, ms, &captureKBSvc{}, nil, nil, nil, nil, nil, nil, nil, nil, td).(*workflowService)
+	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(1))
+	out, err := svc.runLLMWithAttachments(ctx, "workflow-wf-1", "the query", []string{"doc-1"},
+		nodes.LLMRequest{Prompt: "p", SystemPrompt: "be brief", Model: "m"})
+	require.NoError(t, err)
+	assert.Equal(t, "reply", out)
+	require.Len(t, ms.chat.msgs, 2)
+	assert.Equal(t, "system", ms.chat.msgs[0].Role)
+	assert.Contains(t, ms.chat.msgs[0].Content, "be brief")
+	assert.Contains(t, ms.chat.msgs[0].Content, "SECRET-ATTACHMENT-CONTENT",
+		"attachment context must be part of the system prompt")
 }

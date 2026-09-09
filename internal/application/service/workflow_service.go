@@ -198,6 +198,11 @@ type workflowService struct {
 	// a one-method view of *mcp.MCPManager so tests can fake the client pool.
 	mcpClients  mcpClientProvider
 	mcpServices interfaces.MCPServiceService
+	// tempDocs backs run attachments: files uploaded before a run and
+	// resolved into LLM context (same machinery as chat attachments, under
+	// the synthetic session scope "workflow-<id>"). Nil in Lite mode →
+	// carrying files on a run fails with a clear message.
+	tempDocs interfaces.TemporaryDocumentService
 	// redis, when non-nil (full mode), bridges run frames across instances
 	// for SSE. Lite mode gets nil and stays process-local.
 	redis *redis.Client
@@ -227,6 +232,7 @@ func NewWorkflowService(
 	agents *AgentServiceRef,
 	mcpManager *mcp.MCPManager,
 	mcpServices interfaces.MCPServiceService,
+	tempDocs interfaces.TemporaryDocumentService,
 ) interfaces.WorkflowService {
 	// Lite (nil redis): no checkpoint KV — engine treats nil Deps.CheckpointKV
 	// as "no persistence" and every run executes fresh (current behaviour).
@@ -245,6 +251,7 @@ func NewWorkflowService(
 		agents:             agents,
 		mcpClients:         mcpManager,
 		mcpServices:        mcpServices,
+		tempDocs:           tempDocs,
 		redis:              redisClient,
 		ckptKV:             ckptKV,
 		runs:               newWorkflowRunBroker(),
@@ -794,9 +801,23 @@ func (s *workflowService) executeWorkflowRun(
 		}
 	}
 
+	// Run attachments: files uploaded for this run resolve into extra LLM
+	// context (same BuildPrompt formatting chat uses). The wrappers resolve
+	// lazily and at most once per run, then delegate to the plain adapters.
+	llmFunc := s.runLLM
+	llmStreamFunc := s.runLLMStream
+	if len(req.Files) > 0 {
+		scope := WorkflowAttachmentScope(wf.ID)
+		llmFunc = func(ctx context.Context, r nodes.LLMRequest) (string, error) {
+			return s.runLLMWithAttachments(ctx, scope, req.Query, req.Files, r)
+		}
+		llmStreamFunc = func(ctx context.Context, r nodes.LLMRequest, onDelta func(string)) (string, error) {
+			return s.runLLMStreamWithAttachments(ctx, scope, req.Query, req.Files, r, onDelta)
+		}
+	}
 	compiled, cerr := wfengine.Compile(normalized, wfengine.Deps{
-		LLMFunc:       s.runLLM,
-		LLMStreamFunc: s.runLLMStream,
+		LLMFunc:       llmFunc,
+		LLMStreamFunc: llmStreamFunc,
 		RetrievalFunc: s.runRetrieval,
 		HTTPFunc:      s.runHTTP,
 		DataOpsFunc:   s.runDataOps,
@@ -1521,6 +1542,67 @@ func mcpContentRaw(items []mcp.ContentItem) any {
 // MCPTool adapter needs (test seam; production passes the manager).
 type mcpClientProvider interface {
 	GetOrCreateClient(ctx context.Context, service *types.MCPService) (mcp.MCPClient, error)
+}
+
+// WorkflowAttachmentScope derives the temporary-document session scope for
+// a workflow's run attachments. Deterministic on both the upload side (the
+// run-attachments endpoints) and the resolve side (run execution), so no
+// real chat session is needed.
+func WorkflowAttachmentScope(workflowID string) string {
+	return "workflow-" + workflowID
+}
+
+// attachmentPrompt resolves run files into the prompt section prepended to
+// the system message. Errors surface loudly: silently dropping attached
+// documents would produce confidently wrong answers.
+func (s *workflowService) attachmentPrompt(ctx context.Context, scope, query string, files []string) (string, error) {
+	if s.tempDocs == nil {
+		return "", errors.New("workflow: run attachments are not available on this deployment")
+	}
+	tenantID, _ := types.TenantIDFromContext(ctx)
+	res, err := s.tempDocs.ResolveForPrompt(ctx, tenantID, scope, files, query)
+	if err != nil {
+		return "", fmt.Errorf("workflow: resolve run attachments: %w", err)
+	}
+	if len(res.Attachments) == 0 {
+		return "", nil
+	}
+	atts := make(types.MessageAttachments, 0, len(res.Attachments))
+	atts = append(atts, res.Attachments...)
+	return atts.BuildPrompt(), nil
+}
+
+func (s *workflowService) runLLMWithAttachments(ctx context.Context, scope, query string, files []string, req nodes.LLMRequest) (string, error) {
+	extra, aerr := s.attachmentPrompt(ctx, scope, query, files)
+	if aerr != nil {
+		return "", aerr
+	}
+	if extra != "" {
+		req.SystemPrompt = strings.Join(nonEmpty(req.SystemPrompt, extra), "\n\n")
+	}
+	return s.runLLM(ctx, req)
+}
+
+func (s *workflowService) runLLMStreamWithAttachments(ctx context.Context, scope, query string, files []string, req nodes.LLMRequest, onDelta func(string)) (string, error) {
+	extra, aerr := s.attachmentPrompt(ctx, scope, query, files)
+	if aerr != nil {
+		return "", aerr
+	}
+	if extra != "" {
+		req.SystemPrompt = strings.Join(nonEmpty(req.SystemPrompt, extra), "\n\n")
+	}
+	return s.runLLMStream(ctx, req, onDelta)
+}
+
+// nonEmpty filters empty strings.
+func nonEmpty(parts ...string) []string {
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // runLLMStream is the streaming sibling of runLLM: identical resolution

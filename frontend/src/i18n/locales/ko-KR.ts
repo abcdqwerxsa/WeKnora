@@ -7066,6 +7066,11 @@ export default {
       generating: '생성 중…',
       formTitle: '입력 양식',
       missingFields: '필수 필드 누락: {names}',
+      attachments: '실행 첨부파일',
+      attachFiles: '파일 업로드',
+      attachmentProcessing: '첨부파일 {n}개 파싱 중 — 완료 후 실행 가능',
+      attachmentWaitHint: '첨부파일 파싱이 끝나야 실행할 수 있습니다',
+      attachmentUploadFailed: '첨부파일 업로드 실패',
       nodeOutputs: '노드 출력',
       stalePublished: '실행은 게시된 스냅샷을 사용하며 초안이 아닙니다. 변경 사항을 적용하려면 다시 게시하세요.',
      }

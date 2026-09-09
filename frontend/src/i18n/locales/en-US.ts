@@ -7066,6 +7066,11 @@ export default {
       generating: 'generating…',
       formTitle: 'Input form',
       missingFields: 'Missing required fields: {names}',
+      attachments: 'Run attachments',
+      attachFiles: 'Upload files',
+      attachmentProcessing: '{n} attachment(s) parsing — run unlocks when done',
+      attachmentWaitHint: 'Wait for attachments to finish parsing',
+      attachmentUploadFailed: 'Attachment upload failed',
       nodeOutputs: 'Node outputs',
       stalePublished: 'Runs execute the published snapshot, not the draft. Republish to apply your changes.',
      }

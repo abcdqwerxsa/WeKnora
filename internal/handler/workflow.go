@@ -7,6 +7,7 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/middleware"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
+	secutils "github.com/Tencent/WeKnora/internal/utils"
 	"github.com/gin-gonic/gin"
 )
 
@@ -529,4 +531,70 @@ func (h *WorkflowHandler) GetWorkflowRunEvents(c *gin.Context) {
 			}
 		}
 	}
+}
+
+// ---- run attachments ---------------------------------------------------------
+//
+// Files uploaded before a run, resolved into LLM context at execution time.
+// Reuses the chat temporary-document machinery under the synthetic session
+// scope "workflow-<id>" (see service.WorkflowAttachmentScope).
+
+// NewWorkflowRunAttachmentHandlers serves upload/status for run attachments.
+// Kept separate from WorkflowHandler so the main constructor stays untouched;
+// wired in routes_workflow.go.
+type WorkflowRunAttachmentHandlers struct {
+	tempDocs interfaces.TemporaryDocumentService
+}
+
+func NewWorkflowRunAttachmentHandlers(tempDocs interfaces.TemporaryDocumentService) *WorkflowRunAttachmentHandlers {
+	return &WorkflowRunAttachmentHandlers{tempDocs: tempDocs}
+}
+
+// UploadWorkflowRunAttachment accepts one multipart file and returns the
+// attachment record (status uploaded/processing; parsing continues in the
+// document worker — poll Get until ready).
+func (h *WorkflowRunAttachmentHandlers) UploadWorkflowRunAttachment(c *gin.Context) {
+	ctx := c.Request.Context()
+	workflowID := c.Param("id")
+	if strings.TrimSpace(workflowID) == "" {
+		c.Error(apperrors.NewBadRequestError("missing workflow id"))
+		return
+	}
+	maxBytes := secutils.GetMaxFileSizeMB()*1024*1024 + 1024*1024
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBytes)
+	fileHeader, err := c.FormFile("file")
+	if err != nil {
+		c.Error(apperrors.NewBadRequestError(fmt.Sprintf("invalid attachment upload: %v", err)))
+		return
+	}
+	file, err := fileHeader.Open()
+	if err != nil {
+		c.Error(apperrors.NewBadRequestError("failed to open attachment"))
+		return
+	}
+	defer file.Close()
+	document, err := h.tempDocs.Create(
+		ctx, c.GetUint64(types.TenantIDContextKey.String()), service.WorkflowAttachmentScope(workflowID),
+		fileHeader.Filename, fileHeader.Header.Get("Content-Type"), fileHeader.Size, file,
+		types.TemporaryDocumentCreateOptions{},
+	)
+	if err != nil {
+		c.Error(apperrors.NewBadRequestError(err.Error()))
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"success": true, "data": document})
+}
+
+// GetWorkflowRunAttachment returns one attachment record (status polling).
+func (h *WorkflowRunAttachmentHandlers) GetWorkflowRunAttachment(c *gin.Context) {
+	ctx := c.Request.Context()
+	document, err := h.tempDocs.Get(
+		ctx, c.GetUint64(types.TenantIDContextKey.String()),
+		service.WorkflowAttachmentScope(c.Param("id")), c.Param("attachment_id"),
+	)
+	if err != nil || document == nil {
+		c.Error(apperrors.NewNotFoundError("attachment not found"))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": document})
 }
