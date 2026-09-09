@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"sort"
 	"time"
 
 	werrors "github.com/Tencent/WeKnora/internal/errors"
@@ -213,6 +214,32 @@ func (s *tenantService) ListAllTenants(ctx context.Context) ([]*types.Tenant, er
 
 	logger.Infof(ctx, "All tenants list retrieved successfully, total: %d", len(tenants))
 	return tenants, nil
+}
+
+// ListJoinableTenants returns tenants flagged is_joinable=true and active.
+// Backed by the same repo.ListTenants as the admin path; we filter
+// in-service so callers can use the slim result without dragging in
+// inactive rows. Ordered by name (stable for UI).
+func (s *tenantService) ListJoinableTenants(ctx context.Context) ([]*types.Tenant, error) {
+	tenants, err := s.repo.ListTenants(ctx)
+	if err != nil {
+		logger.ErrorWithFields(ctx, err, nil)
+		return nil, err
+	}
+	out := make([]*types.Tenant, 0, len(tenants))
+	for _, t := range tenants {
+		if t == nil {
+			continue
+		}
+		if !t.IsJoinable || t.Status != "active" {
+			continue
+		}
+		out = append(out, t)
+	}
+	// Stable sort by name so the dropdown doesn't reshuffle between
+	// page loads (helps autofill / browser-side caching).
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
 }
 
 // BulkSetStorageQuota delegates to the repository. Validation is

@@ -73,6 +73,12 @@ export interface RegisterRequest {
   username: string
   email: string
   password: string
+  // tenant_id routes the user into an existing department (join_existing
+  // provisioning) instead of auto-creating a personal workspace. Server
+  // validates that the tenant is flagged tenants.is_joinable. Omit to
+  // fall back to the auth.default_tenant_mode policy (create_personal
+  // by default).
+  tenant_id?: number
 }
 
 export interface RegisterResponse {

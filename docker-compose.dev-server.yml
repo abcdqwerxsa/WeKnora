@@ -1,0 +1,169 @@
+# LuoSA 服务器开发模式
+#
+# 设计目标:1 个镜像 luosa-dev,同时跑 frontend / app / docreader / mcp-server
+# 改了代码无需重新 build,直接保存即可生效(前端 HMR / 后端 air / Python --reload)
+#
+# 用法:
+#   # 首次(在服务器上)
+#   docker compose -f docker-compose.dev-server.yml build luosa-dev
+#   docker compose -f docker-compose.dev-server.yml up -d
+#
+#   # 日常更新代码
+#   git pull                                    # 在宿主机拉新代码
+#   docker compose -f docker-compose.dev-server.yml restart app    # 仅 Go 服务需要重启
+#                                                    # 前端/文档解析改完保存即可
+#
+#   # 看日志
+#   docker compose -f docker-compose.dev-server.yml logs -f app
+#
+# 注意:生产部署请用 docker-compose.yml,本文件仅用于开发/测试服务器
+
+name: luosa-dev
+
+services:
+  # 通用开发镜像构建(只 build 一次,后续服务都基于它)
+  # 用法:docker compose -f docker-compose.dev-server.yml build luosa-dev
+  # 也可以单独 docker build -f docker/Dockerfile.dev -t luosa-dev:1.0 .
+
+  frontend:
+    image: luosa-dev:1.0
+    container_name: luosa-dev-frontend
+    restart: unless-stopped
+    environment:
+      - SERVICE_ROLE=frontend
+      - WORKSPACE_DIR=/workspace
+    working_dir: /workspace/frontend
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    volumes:
+      # bind mount 宿主机源码 → 改了代码 HMR 自动生效
+      # 必须用绝对路径,避免在不同目录启动 compose 时挂错地方
+      - /opt/luosa:/workspace
+      # 排除 node_modules 由容器内 pnpm install 管理
+      - /workspace/frontend/node_modules
+    networks:
+      - luosa-dev-net
+
+  app:
+    image: luosa-dev:1.0
+    container_name: luosa-dev-app
+    restart: unless-stopped
+    environment:
+      - SERVICE_ROLE=app
+      - WORKSPACE_DIR=/workspace
+      # 后端跑起来要的环境变量(从主 compose 抄过来)
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_DRIVER=postgres
+      - DB_USER=${DB_USER:-luosa}
+      - RETRIEVE_DRIVER=postgres
+      # 复用已有的 wechatopenai/weknora-docreader 容器(功能完整版本 5.69GB)
+      # 不在 dev compose 里起 docreader 了——用现有生产 compose 的
+      - DOCREADER_ADDR=${DOCREADER_ADDR:-WeKnora-docreader:50051}
+      - DOCREADER_TRANSPORT=${DOCREADER_TRANSPORT:-grpc}
+      - DB_PASSWORD=${DB_PASSWORD:-devpassword}
+      - DB_NAME=${DB_NAME:-luosa}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-devredis}
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-devminio}
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6334
+      - LOG_LEVEL=debug
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    volumes:
+      - /opt/luosa:/workspace
+      # air 构建产物放容器内 tmp,不污染宿主机
+      - /workspace/tmp
+    depends_on:
+      - postgres
+      - redis
+      - qdrant
+      - minio
+    networks:
+      - luosa-dev-net
+
+  # docreader: 不在 dev compose 默认启动。
+  # 复用生产 compose 里的 WeKnora-docreader 容器(用 wechatopenai/weknora-docreader:latest,
+  # 5.69GB 全功能版本)。它已被 docker network connect 加到了 luosa-dev_luosa-dev-net。
+  # app 通过 DOCREADER_ADDR=WeKnora-docreader:50051 连过去。
+  # 如要 dev 模式自己起 docreader(改 docreader Python 代码并热重载),启用下方 + 用 build:
+  #   docker compose -f docker-compose.dev-server.yml --profile docreader up -d docreader
+  docreader:
+    image: docreader-dev:1.0
+    container_name: luosa-dev-docreader
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.docreader-dev
+    profiles: ["docreader"]   # 默认不启动,只在 --profile docreader 时启动
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "${DOCREADER_PORT:-5005}:5005"
+    volumes:
+      - /opt/luosa:/workspace
+    networks:
+      - luosa-dev-net
+
+  # ---- 基础设施(和数据服务 compose 复用同一批容器)----
+  postgres:
+    image: paradedb/paradedb:v0.22.2-pg17
+    container_name: luosa-dev-postgres
+    environment:
+      POSTGRES_USER: ${DB_USER:-luosa}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-devpassword}
+      POSTGRES_DB: ${DB_NAME:-luosa}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pg-data-dev:/var/lib/postgresql/data
+    networks:
+      - luosa-dev-net
+
+  redis:
+    image: redis:7.0-alpine
+    container_name: luosa-dev-redis
+    command: redis-server --requirepass ${REDIS_PASSWORD:-devredis}
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    networks:
+      - luosa-dev-net
+
+  qdrant:
+    image: qdrant/qdrant:v1.16.2
+    container_name: luosa-dev-qdrant
+    ports:
+      - "${QDRANT_HTTP_PORT:-6333}:6333"
+      - "${QDRANT_GRPC_PORT:-6334}:6334"
+    volumes:
+      - qdrant-data-dev:/qdrant/storage
+    networks:
+      - luosa-dev-net
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    container_name: luosa-dev-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-devminio}
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio-data-dev:/data
+    networks:
+      - luosa-dev-net
+
+volumes:
+  pg-data-dev:
+  qdrant-data-dev:
+  minio-data-dev:
+
+networks:
+  luosa-dev-net:
+    driver: bridge

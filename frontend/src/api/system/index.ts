@@ -1220,3 +1220,67 @@ export function getConfigSkillFile(
     params: { path },
   }) as unknown as Promise<{ data: ConfigSkillFileContent }>
 }
+
+// ===== Self-registration approval flow =====
+// Public endpoint the registration form calls to populate its "department"
+// dropdown. Returns only tenants flagged is_joinable=true. Safe to call
+// without authentication — the response is intentionally narrow (id +
+// name + description) so an anonymous caller cannot enumerate non-public
+// workspaces.
+export interface DepartmentOption {
+  id: number
+  name: string
+  description?: string
+}
+
+export async function getAvailableDepartments(): Promise<{ success: boolean; departments?: DepartmentOption[] }> {
+  return await get('/api/v1/auth/available-departments') as unknown as {
+    success: boolean
+    departments?: DepartmentOption[]
+  }
+}
+
+// SystemAdmin endpoints backing the approval queue. Each handler returns
+// the API's envelope shape — front-end callers look at .success and
+// inspect .users / .total when listing.
+export interface PendingUser {
+  id: string
+  username: string
+  email: string
+  avatar: string
+  tenant_id: number
+  is_active: boolean
+  is_system_admin: boolean
+  preferences: Record<string, unknown>
+  created_at: string
+}
+
+export interface ListPendingUsersResponse {
+  total: number
+  users: PendingUser[]
+  limit: number
+  offset: number
+}
+
+export async function listPendingUsers(
+  offset = 0,
+  limit = 50,
+): Promise<ListPendingUsersResponse> {
+  return await get('/api/v1/system/admin/pending-users', {
+    params: { offset, limit },
+  }) as unknown as ListPendingUsersResponse
+}
+
+export async function approveUser(userId: string): Promise<{ success: boolean; data?: PendingUser }> {
+  return await post(`/api/v1/system/admin/users/${userId}/approve`, {}) as unknown as {
+    success: boolean
+    data?: PendingUser
+  }
+}
+
+export async function rejectUser(userId: string): Promise<{ success: boolean; user_id?: string }> {
+  return await post(`/api/v1/system/admin/users/${userId}/reject`, {}) as unknown as {
+    success: boolean
+    user_id?: string
+  }
+}

@@ -42,12 +42,6 @@
           <div class="dropdown-user-meta">
             <div class="dropdown-user-name-row">
               <span class="dropdown-user-name">{{ userName }}</span>
-              <t-tooltip :content="$t('newUserGuide.reopen')" placement="top">
-                <button type="button" class="dropdown-guide-btn" :aria-label="$t('newUserGuide.reopen')"
-                  @click.stop="reopenGuide">
-                  <t-icon name="help-circle" size="14px" />
-                </button>
-              </t-tooltip>
             </div>
             <span v-if="userEmail" class="dropdown-user-email">{{ userEmail }}</span>
           </div>
@@ -195,7 +189,6 @@ import {
 import type { TenantInfo } from '@/api/tenant'
 import { useRoleLabel, useHomeTenant } from '@/composables/useRoleLabel'
 import { getRootZoom, rectToCssPx, cssViewportSize } from '@/utils/zoom'
-import { openNewUserGuide } from '@/config/contextualGuides'
 import { SETTINGS_MANAGEMENT_SHORTCUT_MIN_ROLE } from '@/config/settingsAccess'
 import { SKILL_ICON } from '@/types/mention'
 
@@ -474,11 +467,6 @@ const clampFloatingToViewport = (selector: string, target: { value: Record<strin
       target.value = { ...target.value, top: `${Math.max(MARGIN, maxTop)}px` }
     }
   })
-}
-
-const reopenGuide = () => {
-  menuVisible.value = false
-  openNewUserGuide()
 }
 
 // 注销
@@ -813,27 +801,6 @@ onUnmounted(() => {
     text-overflow: ellipsis;
   }
 
-  .dropdown-guide-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    width: 20px;
-    height: 20px;
-    margin: 0;
-    padding: 0;
-    border: none;
-    border-radius: 4px;
-    background: transparent;
-    color: var(--td-text-color-placeholder);
-    cursor: pointer;
-    transition: background-color 0.2s ease, color 0.2s ease;
-
-    &:hover {
-      background: var(--td-bg-color-container-hover);
-      color: var(--td-text-color-secondary);
-    }
-  }
 }
 
 // 下拉 — 当前工作区：与下方 .menu-item 同款对齐（左 16px 图标槽 + 文案列 + 右侧操作图标）

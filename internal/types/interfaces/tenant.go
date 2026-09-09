@@ -25,6 +25,10 @@ type TenantService interface {
 	DeleteTenant(ctx context.Context, id uint64) error
 	// ListAllTenants lists all tenants (for users with cross-tenant access permission)
 	ListAllTenants(ctx context.Context) ([]*types.Tenant, error)
+	// ListJoinableTenants returns tenants flagged is_joinable=true and
+	// active. Used by the unauthenticated /auth/available-departments
+	// endpoint to populate the registration form's department dropdown.
+	ListJoinableTenants(ctx context.Context) ([]*types.Tenant, error)
 	// BulkSetStorageQuota overwrites every tenant's storage_quota with
 	// quotaBytes. Returns how many rows were affected. Used by the
 	// SystemAdmin "apply default to all tenants" action; bypasses the
