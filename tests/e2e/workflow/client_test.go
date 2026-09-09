@@ -455,3 +455,12 @@ func resolveChatModel(t *testing.T) {
 		}
 	}
 }
+
+// jsonDecode decodes a raw response body (kept for the multipart upload path).
+func jsonDecode(r io.Reader, v any) error {
+	raw, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(raw, v)
+}
