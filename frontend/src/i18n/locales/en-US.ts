@@ -6907,6 +6907,7 @@ export default {
       addCase: 'Add case',
       defaultBranch: 'Default',
       template: 'Template',
+      quickAdd: 'Add next node',
       selfLoopBlocked: 'Self-connections are not allowed',
       startHint: 'The start node feeds user input downstream as reference start＠query',
       systemPrompt: 'System prompt',

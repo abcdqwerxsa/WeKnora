@@ -32,6 +32,40 @@
       </t-popup>
     </div>
     <Handle v-if="hasSourceHandle" type="source" :position="Position.Right" />
+    <!-- Dify-style quick add: a fat + on the source side; picking a kind
+         creates the downstream node pre-connected to this one. -->
+    <t-popup
+      v-if="hasSourceHandle"
+      trigger="click"
+      placement="right-top"
+      overlay-class-name="wf-quickadd-pop"
+      :overlay-style="{ padding: '6px' }"
+    >
+      <span
+        class="wf-node-quickadd"
+        :title="$t('workflow.editor.quickAdd')"
+        @mousedown.stop
+        @click.stop
+      >
+        <t-icon name="add" />
+      </span>
+      <template #content>
+        <div class="wf-quickadd-menu">
+          <button
+            v-for="entry in quickAddKinds"
+            :key="entry"
+            type="button"
+            class="wf-quickadd-item"
+            @click="emit('quick-add', entry)"
+          >
+            <span class="wf-quickadd-item-icon" :style="{ background: NODE_COLORS[entry] }">
+              <t-icon :name="NODE_ICONS[entry]" />
+            </span>
+            <span>{{ t(`workflow.nodes.${entry}`) }}</span>
+          </button>
+        </div>
+      </template>
+    </t-popup>
   </div>
 </template>
 
@@ -40,7 +74,9 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Handle, Position } from '@vue-flow/core'
 import type { WorkflowNodeType } from '@/api/workflow'
-import { NODE_COLORS, NODE_ICONS } from '../nodeMeta'
+import { NODE_COLORS, NODE_ICONS, NODE_PALETTE } from '../nodeMeta'
+
+const emit = defineEmits<{ 'quick-add': [kind: WorkflowNodeType] }>()
 
 const props = defineProps<{
   kind: WorkflowNodeType
@@ -64,7 +100,57 @@ const title = computed(() => t(`workflow.nodes.${props.kind}`))
 const desc = computed(() => t(`workflow.nodeDesc.${props.kind}`))
 const outputsJSON = computed(() => JSON.stringify(props.outputs ?? {}, null, 2))
 const outputFailed = computed(() => props.runPhase === 'failed')
+
+// Quick-add menu: everything the palette offers except Start (the graph
+// allows a single Start node, which already exists when any node is on the
+// canvas).
+const quickAddKinds = computed(() =>
+  NODE_PALETTE.filter((entry) => entry.kind !== 'Start').map((entry) => entry.kind),
+)
 </script>
+
+<style>
+/* Global: the quick-add popup teleports to body, so scoped styles cannot
+   reach its content. */
+.wf-quickadd-menu {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(120px, 1fr));
+  gap: 2px;
+  max-height: 320px;
+  overflow-y: auto;
+  min-width: 260px;
+}
+
+.wf-quickadd-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--td-text-color-primary);
+  text-align: left;
+}
+
+.wf-quickadd-item:hover {
+  background: var(--td-bg-color-container-hover);
+}
+
+.wf-quickadd-item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  color: #fff;
+  flex: none;
+  font-size: 12px;
+}
+</style>
 
 <style scoped>
 .wf-node {
@@ -179,6 +265,50 @@ const outputFailed = computed(() => props.runPhase === 'failed')
   font-size: 12px;
   font-weight: 600;
   color: var(--td-text-color-primary);
+}
+
+.wf-node-quickadd {
+  position: absolute;
+  right: -14px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1.5px solid var(--td-component-stroke);
+  background: var(--td-bg-color-container);
+  color: var(--td-text-color-secondary);
+  cursor: pointer;
+  font-size: 14px;
+  box-shadow: var(--td-shadow-1);
+  transition: all 0.15s ease;
+}
+
+.wf-node-quickadd:hover {
+  color: var(--td-brand-color);
+  border-color: var(--td-brand-color);
+  transform: translateY(-50%) scale(1.15);
+}
+
+/* Fat connection dots: a clearly visible 12px core with an invisible 30px
+   interaction halo — dragging edges no longer requires pixel-perfect aim. */
+:deep(.vue-flow__handle) {
+  width: 12px;
+  height: 12px;
+  border: 2.5px solid var(--td-brand-color);
+  background: var(--td-bg-color-container);
+  position: relative;
+}
+
+:deep(.vue-flow__handle)::after {
+  content: '';
+  position: absolute;
+  inset: -9px;
+  border-radius: 50%;
 }
 
 .wf-node-output-json {

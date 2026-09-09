@@ -6908,6 +6908,7 @@ publishConfirm: 'Опубликовать «{name}»? Запуски испол�
       addCase: 'Добавить условие',
       defaultBranch: 'По умолчанию',
       template: 'Шаблон',
+      quickAdd: 'Добавить следующий узел',
       selfLoopBlocked: 'Самоподключение запрещено',
       startHint: 'Начальный узел передаёт ввод как ссылку start＠query',
       systemPrompt: 'Системный промпт',
