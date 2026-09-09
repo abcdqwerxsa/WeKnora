@@ -149,6 +149,16 @@ func (r *fakeTenantMemberRepo) UpdateRole(ctx context.Context, userID string, te
 	return errors.New("not found")
 }
 
+func (r *fakeTenantMemberRepo) Update(ctx context.Context, m *types.TenantMember) error {
+	for _, e := range r.rows {
+		if e.UserID == m.UserID && e.TenantID == m.TenantID && !e.DeletedAt.Valid {
+			*e = *m
+			return nil
+		}
+	}
+	return errors.New("not found")
+}
+
 func (r *fakeTenantMemberRepo) SoftDelete(ctx context.Context, userID string, tenantID uint64) error {
 	if r.failSoftDelete != nil {
 		return r.failSoftDelete
@@ -266,6 +276,9 @@ type cleanupUserRepo struct {
 	users map[string]*types.User
 }
 
+func (r *cleanupUserRepo) ListPendingApprovalUsers(context.Context, int, int) ([]*types.User, int64, error) {
+	return nil, 0, nil
+}
 func (r *cleanupUserRepo) CreateUser(context.Context, *types.User) error { return nil }
 func (r *cleanupUserRepo) GetUserByID(_ context.Context, id string) (*types.User, error) {
 	u, ok := r.users[id]

@@ -304,6 +304,10 @@ func (s *stubTenantServiceForModelDelete) GetTenantByID(context.Context, uint64)
 func (s *stubTenantServiceForModelDelete) GetTenantsByIDs(context.Context, []uint64) (map[uint64]*types.Tenant, error) {
 	return nil, nil
 }
+func (s *stubTenantServiceForModelDelete) ListJoinableTenants(context.Context) ([]*types.Tenant, error) {
+	return nil, nil
+}
+
 func (s *stubTenantServiceForModelDelete) ListTenants(context.Context) ([]*types.Tenant, error) {
 	return nil, nil
 }
