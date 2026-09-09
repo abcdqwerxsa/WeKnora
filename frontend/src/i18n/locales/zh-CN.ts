@@ -6909,6 +6909,7 @@ export default {
       addCase: '添加分支',
       defaultBranch: '默认分支',
       template: '输出模板',
+      quickAdd: '添加下一个节点',
       selfLoopBlocked: '不允许节点连接自身',
       startHint: '开始节点将用户输入作为引用 start＠query 传给下游',
       systemPrompt: '系统提示词',

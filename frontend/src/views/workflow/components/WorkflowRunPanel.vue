@@ -38,7 +38,7 @@
     </section>
 
     <!-- Run attachments: parsed into LLM context at execution -->
-    <section v-if="attachments.length > 0 || true" class="wf-run-section">
+    <section class="wf-run-section">
       <p class="wf-run-section-title">{{ $t('workflow.run.attachments') }}</p>
       <div class="wf-run-attach">
         <input ref="fileInput" type="file" multiple hidden @change="onFilesPicked" />
@@ -208,7 +208,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
 import {

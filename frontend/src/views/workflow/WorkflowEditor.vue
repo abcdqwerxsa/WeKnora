@@ -72,6 +72,7 @@
           :min-zoom="0.2"
           :max-zoom="2"
           :default-edge-options="defaultEdgeOptions"
+          :connection-radius="36"
           @connect="onConnect"
           @node-click="onNodeClick"
           @edge-click="onEdgeClick"
@@ -89,6 +90,7 @@
               :run-phase="runNodePhases[nodeProps.id]"
               :outputs="runNodeOutputs[nodeProps.id]"
               :node-id="nodeProps.id"
+              @quick-add="(kind) => onQuickAdd(String(nodeProps.id), kind)"
             />
           </template>
         </VueFlow>
@@ -670,6 +672,34 @@ function copySelectedNode() {
 function pasteClipboardNode() {
   if (!clipboard.value) return
   addNodeFromPalette(clipboard.value.kind, clipboard.value.params)
+}
+
+// Quick-add from a node's + button: drop the new node to the right of the
+// source (stepping down when the lane is occupied) and connect immediately.
+function onQuickAdd(sourceId: string, kind: WorkflowNodeType) {
+  const source = canvasNodes.value.find((item) => item.id === sourceId)
+  if (!source) return
+  const occupied = (x: number, y: number) =>
+    canvasNodes.value.some((item) => Math.abs(item.position.x - x) < 200 && Math.abs(item.position.y - y) < 90)
+  let x = source.position.x + 260
+  let y = source.position.y
+  let guard = 0
+  while (occupied(x, y) && guard++ < 12) y += 110
+  addNodeAt(kind, { x, y })
+  onConnect({ source: sourceId, target: canvasNodes.value[canvasNodes.value.length - 1].id } as Connection)
+}
+
+function addNodeAt(kind: WorkflowNodeType, position: { x: number; y: number }) {
+  if (!WORKFLOW_NODE_TYPES.includes(kind)) return
+  const node: Node = {
+    id: makeNodeId(kind),
+    type: 'wf',
+    position,
+    data: { kind, params: defaultParams(kind) },
+  }
+  canvasNodes.value.push(node)
+  selectedNodeId.value = node.id
+  selectedEdgeId.value = null
 }
 
 function addNodeFromPalette(kind: WorkflowNodeType, presetParams?: Record<string, unknown>) {

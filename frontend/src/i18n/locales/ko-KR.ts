@@ -6908,6 +6908,7 @@ export default {
       addCase: '분기 추가',
       defaultBranch: '기본',
       template: '템플릿',
+      quickAdd: '다음 노드 추가',
       selfLoopBlocked: '자기 연결은 허용되지 않습니다',
       startHint: '시작 노드는 사용자 입력을 참조 start＠query로 하위에 전달합니다',
       systemPrompt: '시스템 프롬프트',
