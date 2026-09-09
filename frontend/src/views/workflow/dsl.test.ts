@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { autoLayout, validateGraph } from './dsl.ts'
+import { autoLayout, validateGraph, normalizeDsl, buildDsl } from './dsl.ts'
 import type { WFNode } from './dsl.ts'
 
 function node(id: string, kind: WFNode['type'], params?: Record<string, unknown>): WFNode {
@@ -209,4 +209,29 @@ test('validateGraph checks iteration body membership', async () => {
   )
   keys = issues.map((i) => `${i.level}:${i.key}`)
   assert.ok(keys.includes('error:bodyEntries'), keys.join(','))
+})
+
+test('annotations ride in the graph view and never become components', () => {
+  const input = {
+    version: 1,
+    graph: {
+      nodes: [
+        node('start', 'Start'),
+        node('ans', 'Answer'),
+        { id: 'note-1', type: 'wf-note', position: { x: 10, y: 10 }, data: { text: 'hello' } },
+      ],
+      edges: [],
+    },
+    components: {
+      start: { obj: { component_name: 'Start', params: { fields: [] } }, upstream: [], downstream: ['ans'] },
+      ans: { obj: { component_name: 'Answer', params: { template: '{start@query}' } }, upstream: ['start'], downstream: [] },
+    },
+  }
+  const out = normalizeDsl(input)
+  const note = out.graph?.nodes.find((n) => n.id === 'note-1')
+  assert.ok(note, 'note survives normalizeDsl')
+  assert.strictEqual((note!.data as Record<string, unknown>).text, 'hello')
+  const built = buildDsl(out.graph!.nodes, out.graph!.edges)
+  assert.strictEqual(built.components['note-1'], undefined, 'notes must not become components')
+  assert.ok(built.graph?.nodes.some((n) => n.id === 'note-1'))
 })

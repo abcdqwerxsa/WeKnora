@@ -35,7 +35,7 @@
     <!-- Dify-style quick add: a fat + on the source side; picking a kind
          creates the downstream node pre-connected to this one. -->
     <t-popup
-      v-if="hasSourceHandle"
+      v-if="hasSourceHandle && !hasOutgoing"
       trigger="click"
       placement="right-top"
       overlay-class-name="wf-quickadd-pop"
@@ -79,6 +79,9 @@ import { NODE_COLORS, NODE_ICONS, NODE_PALETTE } from '../nodeMeta'
 const emit = defineEmits<{ 'quick-add': [kind: WorkflowNodeType] }>()
 
 const props = defineProps<{
+  /** True when an edge already leaves this node: the + yields its spot to
+   *  the connected edge (Dify behaviour — connected handles show no +). */
+  hasOutgoing?: boolean
   kind: WorkflowNodeType
   selected?: boolean
   subtitle?: string
@@ -268,16 +271,18 @@ const quickAddKinds = computed(() =>
 }
 
 .wf-node-quickadd {
+  /* Exactly over the source handle: the + doubles as the handle's face
+     (Dify-style); once connected it is hidden and the edge takes over. */
   position: absolute;
-  right: -14px;
+  right: -11px;
   top: 50%;
   transform: translateY(-50%);
-  z-index: 5;
+  z-index: 6;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   border: 1.5px solid var(--td-component-stroke);
   background: var(--td-bg-color-container);

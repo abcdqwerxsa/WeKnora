@@ -65,7 +65,39 @@
     <div v-show="ready" class="wf-editor-canvas">
       <NodePalette @add="addNodeFromPalette" />
       <div class="wf-editor-flow">
+        <!-- Dify-style canvas toolbar: pointer (V, box multi-select), hand
+             (H, or hold Space temporarily), comment (C, click to place). -->
+        <div class="wf-canvas-toolbar">
+          <button
+            type="button"
+            class="wf-canvas-tool"
+            :class="{ 'wf-canvas-tool--active': canvasMode === 'pointer' }"
+            :title="`${t('workflow.editor.modePointer')} (V)`"
+            @click="setMode('pointer')"
+          >
+            <t-icon name="cursor" />
+          </button>
+          <button
+            type="button"
+            class="wf-canvas-tool"
+            :class="{ 'wf-canvas-tool--active': canvasMode === 'hand' }"
+            :title="`${t('workflow.editor.modeHand')} (H · Space)`"
+            @click="setMode('hand')"
+          >
+            <t-icon name="hand" />
+          </button>
+          <button
+            type="button"
+            class="wf-canvas-tool"
+            :class="{ 'wf-canvas-tool--active': canvasMode === 'comment' }"
+            :title="`${t('workflow.editor.modeComment')} (C)`"
+            @click="setMode('comment')"
+          >
+            <t-icon name="chat" />
+          </button>
+        </div>
         <VueFlow
+          ref="flowRef"
           v-model:nodes="canvasNodes"
           v-model:edges="canvasEdges"
           fit-view-on-init
@@ -73,15 +105,31 @@
           :max-zoom="2"
           :default-edge-options="defaultEdgeOptions"
           :connection-radius="36"
+          :pan-on-drag="effectiveMode === 'hand'"
+          :nodes-draggable="effectiveMode !== 'hand'"
+          :selection-key-code="effectiveMode === 'pointer'"
+          :delete-key-code="null"
+          @pane-click="onPaneClick"
           @connect="onConnect"
           @node-click="onNodeClick"
           @edge-click="onEdgeClick"
           @edge-double-click="onEdgeDoubleClick"
-          @pane-click="clearSelection"
+
         >
           <Background :gap="20" />
           <Controls position="bottom-left" />
           <MiniMap position="bottom-right" pannable zoomable />
+          <template #node-wf-note="nodeProps">
+            <div class="wf-note" :class="{ 'wf-note--selected': nodeProps.selected }">
+              <textarea
+                class="wf-note-textarea"
+                :value="(nodeProps.data?.text as string) ?? ''"
+                :placeholder="t('workflow.editor.notePlaceholder')"
+                @mousedown.stop
+                @input="updateNoteText(String(nodeProps.id), ($event.target as HTMLTextAreaElement).value)"
+              />
+            </div>
+          </template>
           <template #node-wf="nodeProps">
             <WfNodeCard
               :kind="(nodeProps.data?.kind as WorkflowNodeType) ?? 'Answer'"
@@ -90,6 +138,7 @@
               :run-phase="runNodePhases[nodeProps.id]"
               :outputs="runNodeOutputs[nodeProps.id]"
               :node-id="nodeProps.id"
+              :has-outgoing="canvasEdges.some((edge) => edge.source === nodeProps.id)"
               @quick-add="(kind) => onQuickAdd(String(nodeProps.id), kind)"
             />
           </template>
@@ -258,6 +307,9 @@ const workflow = ref<Workflow | null>(null)
 // Cast to Ref<Node[]>: letting ref() infer UnwrapRef<Node> trips
 // TS2589 (excessively deep) on vue-flow's heavily generic node type.
 const canvasNodes = ref([]) as Ref<Node[]>
+// VueFlow instance (template ref) for screenToFlowCoordinate in comment mode.
+const flowRef = ref()
+const flowInstance = computed(() => flowRef.value)
 const canvasEdges = ref([]) as Ref<Edge[]>
 
 // ---- typed property-form data sources ------------------------------------
@@ -320,6 +372,20 @@ const selectedNodeId = ref<string | null>(null)
 const selectedEdgeId = ref<string | null>(null)
 const importDslFile = ref<HTMLInputElement | null>(null)
 
+function onPaneClick(event: MouseEvent) {
+  if (canvasMode.value === 'comment') {
+    // Place the note at the flow coordinates under the click.
+    const flow = flowInstance.value
+    if (flow) {
+      const pos = flow.screenToFlowCoordinate({ x: event.clientX, y: event.clientY })
+      addNoteAt(pos)
+      canvasMode.value = 'pointer'
+      return
+    }
+  }
+  clearSelection()
+}
+
 function clearSelection() {
   selectedNodeId.value = null
   selectedEdgeId.value = null
@@ -357,6 +423,33 @@ function removeNode(nodeId: string) {
   canvasNodes.value = canvasNodes.value.filter((item) => item.id !== nodeId)
   canvasEdges.value = canvasEdges.value.filter((edge) => edge.source !== nodeId && edge.target !== nodeId)
   if (selectedNodeId.value === nodeId) selectedNodeId.value = null
+}
+
+// ---- canvas modes (Dify-style) ---------------------------------------------
+// pointer: box multi-select by dragging, nodes draggable, pane drag selects.
+// hand: everything pans (nodes not draggable); Space holds it temporarily.
+// comment: next pane click drops a sticky note there, then returns to pointer.
+type CanvasMode = 'pointer' | 'hand' | 'comment'
+const canvasMode = ref<CanvasMode>('pointer')
+const spaceHeld = ref(false)
+const effectiveMode = computed<CanvasMode>(() => (spaceHeld.value ? 'hand' : canvasMode.value))
+
+function setMode(mode: CanvasMode) {
+  canvasMode.value = mode
+}
+
+function updateNoteText(nodeId: string, text: string) {
+  const node = canvasNodes.value.find((item) => item.id === nodeId)
+  if (node) node.data = { ...(node.data ?? {}), text }
+}
+
+function addNoteAt(position: { x: number; y: number }) {
+  canvasNodes.value.push({
+    id: `note-${Date.now().toString(36)}`,
+    type: 'wf-note',
+    position,
+    data: { text: '' },
+  })
 }
 
 // Typing targets: Delete/Backspace must not fire while the user edits a
@@ -399,6 +492,20 @@ function onKeyDown(event: KeyboardEvent) {
     pasteClipboardNode()
     return
   }
+  // Space: temporary hand (Dify/Figma-style) — hold to pan, release to restore.
+  if (event.code === 'Space') {
+    if (isTypingTarget()) return
+    event.preventDefault()
+    spaceHeld.value = true
+    return
+  }
+  // Mode keys: V pointer, H hand, C comment (single press, no modifiers).
+  if (!event.ctrlKey && !event.metaKey && !event.altKey && !isTypingTarget()) {
+    const key = event.key.toLowerCase()
+    if (key === 'v') { setMode('pointer'); return }
+    if (key === 'h') { setMode('hand'); return }
+    if (key === 'c') { setMode('comment'); return }
+  }
   if (event.key !== 'Delete' && event.key !== 'Backspace') return
   if (isTypingTarget()) return
   if (selectedEdgeId.value) {
@@ -409,12 +516,28 @@ function onKeyDown(event: KeyboardEvent) {
   if (selectedNodeId.value) {
     event.preventDefault()
     removeNode(selectedNodeId.value)
+    return
+  }
+  // Box multi-select delete: remove every selected node (Start stays).
+  const selected = canvasNodes.value.filter((node) => node.selected)
+  const removable = selected.filter((node) => (node.data?.kind as WorkflowNodeType) !== 'Start')
+  if (removable.length > 0) {
+    event.preventDefault()
+    for (const node of removable) removeNode(node.id)
   }
 }
 
 if (typeof window !== 'undefined') {
   window.addEventListener('keydown', onKeyDown)
-  onUnmounted(() => window.removeEventListener('keydown', onKeyDown))
+  window.addEventListener('keyup', onKeyUp)
+  onUnmounted(() => {
+    window.removeEventListener('keydown', onKeyDown)
+    window.removeEventListener('keyup', onKeyUp)
+  })
+}
+
+function onKeyUp(event: KeyboardEvent) {
+  if (event.code === 'Space') spaceHeld.value = false
 }
 
 // Run panel state: live node phases (SSE) keyed by canvas node id; cleared
@@ -1001,6 +1124,72 @@ load()
   flex: 1;
   min-width: 0;
   position: relative;
+}
+
+.wf-canvas-toolbar {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 20;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--td-bg-color-container);
+  border: 1px solid var(--td-component-stroke);
+  box-shadow: var(--td-shadow-1);
+}
+
+.wf-canvas-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  color: var(--td-text-color-secondary);
+  font-size: 15px;
+}
+
+.wf-canvas-tool:hover {
+  background: var(--td-bg-color-container-hover);
+}
+
+.wf-canvas-tool--active {
+  background: var(--td-brand-color-light);
+  color: var(--td-brand-color);
+}
+
+/* Sticky note: draggable + editable, purely presentational (excluded from
+   the DSL components; rides in the graph view). */
+.wf-note {
+  width: 220px;
+  min-height: 120px;
+  padding: 8px;
+  border-radius: 8px;
+  background: #fff7d6;
+  border: 1px solid #e8d98a;
+  box-shadow: var(--td-shadow-1);
+}
+
+.wf-note--selected {
+  border-color: var(--td-brand-color);
+  box-shadow: var(--td-shadow-3);
+}
+
+.wf-note-textarea {
+  width: 100%;
+  height: 104px;
+  border: none;
+  outline: none;
+  background: transparent;
+  resize: vertical;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #5b4a12;
 }
 
 .wf-editor-hint {

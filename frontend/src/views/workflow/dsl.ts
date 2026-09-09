@@ -19,6 +19,14 @@ import { WORKFLOW_NODE_TYPES } from '../../api/workflowContract'
  * actually reads are seeded; optional numeric knobs stay absent until
  * the user sets them (the engine applies its own defaults).
  */
+/** Canvas annotation nodes (Dify-style sticky notes): purely presentational,
+ * excluded from `components` — the backend keeps them in the graph view. */
+export const NOTE_NODE_TYPE = 'wf-note'
+
+export function isNoteNode(node: { type?: string }): boolean {
+  return node.type === NOTE_NODE_TYPE
+}
+
 export function defaultParams(kind: WorkflowNodeType): Record<string, unknown> {
   switch (kind) {
     case 'Start':
@@ -174,13 +182,16 @@ export function layoutComponents(components: Record<string, WFComponent>): { nod
 /** Derive `components` from the graph view (edges → upstream/downstream). */
 export function componentsFromGraph(nodes: WFNode[], edges: WFEdge[]): Record<string, WFComponent> {
   const components: Record<string, WFComponent> = {}
-  for (const node of nodes) {
+  const realNodes = nodes.filter((n) => !isNoteNode(n))
+  const noteIds = new Set(nodes.filter(isNoteNode).map((n) => n.id))
+  for (const node of realNodes) {
     const kind = isNodeType(node.type) ? node.type : 'Answer'
     const params = (node.data?.params as Record<string, unknown>) ?? defaultParams(kind)
     const parent = typeof node.data?.parent === 'string' ? (node.data.parent as string) : ''
     components[node.id] = { obj: { component_name: kind, params }, upstream: [], downstream: [], parent }
   }
   for (const edge of edges) {
+    if (noteIds.has(edge.source) || noteIds.has(edge.target)) continue
     const source = components[edge.source]
     const target = components[edge.target]
     if (!source || !target) continue
@@ -205,7 +216,7 @@ export function normalizeDsl(input: unknown): WorkflowDSL {
   const variables = dsl.variables && typeof dsl.variables === 'object' ? dsl.variables : {}
 
   if (graphUsable) {
-    const nodes = graphNodes
+    const realNodes = graphNodes
       .filter((n) => n && typeof n.id === 'string' && isNodeType(n.type))
       .map((n) => ({
         id: n.id,
@@ -216,6 +227,16 @@ export function normalizeDsl(input: unknown): WorkflowDSL {
           ...(typeof (n.data as Record<string, unknown> | undefined)?.parent === 'string' ? { parent: (n.data as Record<string, unknown>).parent } : {}),
         },
       }))
+    // Annotations ride along in the graph view only (no component twins).
+    const noteNodes = graphNodes
+      .filter((n) => n && typeof n.id === 'string' && isNoteNode(n))
+      .map((n) => ({
+        id: n.id,
+        type: NOTE_NODE_TYPE,
+        position: { x: Number(n.position?.x) || 0, y: Number(n.position?.y) || 0 },
+        data: { text: typeof (n.data as Record<string, unknown> | undefined)?.text === 'string' ? (n.data as Record<string, unknown>).text : '' },
+      }))
+    const nodes = [...realNodes, ...noteNodes]
     const nodeIds = new Set(nodes.map((n) => n.id))
     const edges = graphEdges
       .filter((e) => e && typeof e.source === 'string' && typeof e.target === 'string' && nodeIds.has(e.source) && nodeIds.has(e.target))
