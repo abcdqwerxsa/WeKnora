@@ -48,4 +48,9 @@ export const SYSTEM_ADMIN_SETTINGS_SECTIONS = new Set([
   'runtime-queues',
   'platform-api-keys',
   'system-audit-log',
+  // Pending-approval queue: self-registered users waiting for a
+  // SystemAdmin to review before they can sign in. Restricted to
+  // SystemAdmin role because it lets you decide who joins the
+  // platform.
+  'pending-users',
 ])

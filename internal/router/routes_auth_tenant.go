@@ -216,6 +216,7 @@ func RegisterAuthRoutes(r *gin.RouterGroup, handler *handler.AuthHandler, g *rba
 	r.POST("/auth/login", handler.Login)
 	r.POST("/auth/auto-setup", handler.AutoSetup)
 	r.GET("/auth/config", handler.GetAuthConfig)
+	r.GET("/auth/available-departments", handler.GetAvailableDepartments)
 	r.POST("/auth/switch-tenant", handler.SwitchTenant)
 	r.GET("/auth/oidc/config", handler.GetOIDCConfig)
 	r.GET("/auth/oidc/url", handler.GetOIDCAuthorizationURL)
@@ -288,6 +289,12 @@ func RegisterSystemAdminRoutes(
 		adminRoutes.POST("/promote", handler.PromoteUserToSystemAdmin)
 		adminRoutes.POST("/revoke", handler.RevokeSystemAdmin)
 		adminRoutes.GET("/list", handler.ListSystemAdmins)
+		// User-approval queue: SystemAdmin reviews self-registered accounts
+		// before they can sign in. Reuses the same g.SystemAdmin() gate so
+		// approval can't be performed by a non-admin.
+		adminRoutes.GET("/pending-users", handler.ListPendingApprovalUsers)
+		adminRoutes.POST("/users/:id/approve", handler.ApproveUser)
+		adminRoutes.POST("/users/:id/reject", handler.RejectPendingUser)
 		adminRoutes.POST("/users/reset-password", handler.ResetUserPassword)
 		adminRoutes.POST("/users/create", handler.CreateSystemUser)
 		adminRoutes.GET("/api-keys", handler.ListPlatformAPIKeys)

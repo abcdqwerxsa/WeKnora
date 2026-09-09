@@ -219,6 +219,13 @@ const router = createRouter({
           redirect: { path: "/platform/settings", query: { section: "runtime-queues" } },
           meta: { requiresInit: true, requiresAuth: true, requiresSystemAdmin: true },
         },
+        // 待审核用户入口（SystemAdmin 专属）
+        {
+          path: "system/pending-users",
+          name: "systemPendingUsers",
+          redirect: { path: "/platform/settings", query: { section: "pending-users" } },
+          meta: { requiresInit: true, requiresAuth: true, requiresSystemAdmin: true },
+        },
       ],
     },
     // Dev-only markdown rendering test page

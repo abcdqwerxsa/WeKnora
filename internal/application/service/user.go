@@ -163,6 +163,7 @@ func (s *userService) Register(ctx context.Context, req *types.RegisterRequest) 
 	}
 
 	var createdTenant *types.Tenant
+	var joinedTenantID uint64
 	if provisioning == types.TenantProvisioningCreatePersonal {
 		// Note: RetrieverEngines is left empty - system will use defaults
 		// from RETRIEVE_DRIVER env.
@@ -177,9 +178,24 @@ func (s *userService) Register(ctx context.Context, req *types.RegisterRequest) 
 			logger.Errorf(ctx, "Failed to create workspace")
 			return nil, errors.New("failed to create workspace")
 		}
+	} else if provisioning == types.TenantProvisioningJoinExisting {
+		if req.TenantID == 0 {
+			return nil, errors.New("tenant_id is required when joining an existing department")
+		}
+		joinTarget, terr := s.tenantService.GetTenantByID(ctx, req.TenantID)
+		if terr != nil || joinTarget == nil {
+			return nil, fmt.Errorf("department (tenant_id=%d) not found", req.TenantID)
+		}
+		if !joinTarget.IsJoinable {
+			return nil, fmt.Errorf("department (tenant_id=%d) is not currently accepting new members", req.TenantID)
+		}
+		joinedTenantID = joinTarget.ID
 	}
 
-	// Create user
+	// Create user. New registrations always start with IsApproved = FALSE
+	// so self-serve signups cannot bypass the SystemAdmin review queue
+	// (see Login). The user row is fully usable for verification (email
+	// uniqueness etc.) — only Login + AuthMiddleware gate on the flag.
 	user := &types.User{
 		ID:           uuid.New().String(),
 		Username:     req.Username,
@@ -187,11 +203,18 @@ func (s *userService) Register(ctx context.Context, req *types.RegisterRequest) 
 		PasswordHash: string(hashedPassword),
 		TenantID:     0,
 		IsActive:     true,
+		IsApproved:   false,
 		CreatedAt:    time.Now(),
 		UpdatedAt:    time.Now(),
 	}
 	if createdTenant != nil {
 		user.TenantID = createdTenant.ID
+	} else if joinedTenantID != 0 {
+		// Join-existing path: the user's home tenant is the department
+		// they picked. tenant_members below writes the contributor row,
+		// but we also stamp TenantID here so JWT issuance / TenantSelector
+		// pick the right tenant on first login.
+		user.TenantID = joinedTenantID
 	}
 
 	err = s.userRepo.CreateUser(ctx, user)
@@ -216,6 +239,23 @@ func (s *userService) Register(ctx context.Context, req *types.RegisterRequest) 
 			_ = s.userRepo.DeleteUser(ctx, user.ID)
 			_ = s.tenantService.DeleteTenant(ctx, createdTenant.ID)
 			return nil, errors.New("failed to finalise workspace ownership")
+		}
+	}
+
+	// Join-existing path: insert a contributor membership in 'invited'
+	// status. Auth treats 'invited' as "not a member" so the user cannot
+	// do anything in the department until SystemAdmin approves them
+	// (flips both User.IsApproved and the member row to 'active' — see
+	// the admin approve handler). AddPendingMember sets status='invited'
+	// directly; AddMember would default to 'active' and bypass the gate.
+	if joinedTenantID != 0 && s.memberService != nil {
+		if _, err := s.memberService.AddPendingMember(ctx, user.ID, joinedTenantID, types.TenantRoleContributor); err != nil {
+			logger.Errorf(ctx, "Failed to add user %s to pending membership of department tenant %d: %v",
+				user.ID, joinedTenantID, err)
+			// Rollback: user creation is the only side-effect we have so
+			// far on this path (no auto-created tenant to clean up).
+			_ = s.userRepo.DeleteUser(ctx, user.ID)
+			return nil, errors.New("failed to add member to department")
 		}
 	}
 
@@ -249,6 +289,20 @@ func (s *userService) Login(ctx context.Context, req *types.LoginRequest) (*type
 		return &types.LoginResponse{
 			Success: false,
 			Message: "Account is disabled",
+		}, nil
+	}
+
+	// New self-registered users start with IsApproved = FALSE and cannot
+	// log in until a SystemAdmin reviews them. The message intentionally
+	// mirrors the disable branch's UX so an admin cannot tell from the
+	// login response whether the account is pending vs banned — both are
+	// 200 with a generic message, the actual decision lives in admin UI.
+	if !user.IsApproved {
+		logger.Warnf(ctx, "Login rejected: user %s (%s) pending admin approval",
+			user.ID, user.Email)
+		return &types.LoginResponse{
+			Success: false,
+			Message: "Account pending admin approval",
 		}, nil
 	}
 
@@ -599,6 +653,48 @@ func (s *userService) ListSystemAdmins(
 	ctx context.Context, offset, limit int,
 ) ([]*types.User, int64, error) {
 	return s.userRepo.ListSystemAdmins(ctx, offset, limit)
+}
+
+// ListPendingApprovalUsers returns users waiting on admin review, newest
+// first. Pagination matches ListSystemAdmins so the admin UI can use
+// the same page component.
+func (s *userService) ListPendingApprovalUsers(
+	ctx context.Context, offset, limit int,
+) ([]*types.User, int64, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	return s.userRepo.ListPendingApprovalUsers(ctx, offset, limit)
+}
+
+// ApproveUser flips is_approved from FALSE to TRUE. Caller is expected
+// to be a SystemAdmin (handler enforces). The function does NOT touch
+// tenant membership — that's the handler's job so the user approval and
+// membership activation land in the same audit-log entry.
+func (s *userService) ApproveUser(ctx context.Context, userID string) (*types.User, error) {
+	user, err := s.userRepo.GetUserByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if user == nil {
+		// Not exported from the service package — re-using the
+		// repository's sentinel keeps the error surface identical to
+		// other "user not found" returns in the repo layer, so handlers
+		// can map it to 404 without a per-call re-check.
+		return nil, apprepo.ErrUserNotFound
+	}
+	if user.IsApproved {
+		return user, nil
+	}
+	user.IsApproved = true
+	if err := s.userRepo.UpdateUser(ctx, user); err != nil {
+		return nil, err
+	}
+	logger.Infof(ctx, "User %s (%s) approved by admin", user.ID, user.Email)
+	return user, nil
 }
 
 // RevokeSystemAdmin removes system-admin privileges through the

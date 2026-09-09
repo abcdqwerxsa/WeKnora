@@ -95,6 +95,16 @@ type User struct {
 	TenantID uint64 `json:"tenant_id"  gorm:"index"`
 	// Whether the user is active
 	IsActive bool `json:"is_active"  gorm:"default:true"`
+	// Whether the user has been approved by a SystemAdmin after
+	// self-registration. Newly registered users default to FALSE so they
+	// cannot log in until an admin reviews them (see
+	// internal/handler/auth.go Login and the SystemAdmin approve
+	// handler). Existing users created before this column existed are
+	// back-filled to TRUE by migration 000095 so the gate is non-breaking.
+	// Distinct from IsActive so admins can disable an approved account
+	// (IsActive = FALSE) without confusing that with a still-pending
+	// approval (IsActive = TRUE, IsApproved = FALSE).
+	IsApproved bool `json:"is_approved" gorm:"default:false;index"`
 	// Whether the user can access all workspaces (cross-workspace access)
 	CanAccessAllTenants bool `json:"can_access_all_tenants" gorm:"default:false"`
 	// Whether the user is a system administrator (independent of workspace roles)
@@ -190,6 +200,15 @@ type RegisterRequest struct {
 	Email    string `json:"email"    binding:"required,email"`
 	Password string `json:"password" binding:"required,min=6"`
 
+	// TenantID, when set, makes registration route the user into the
+	// named existing tenant instead of auto-creating a personal
+	// workspace. The server validates that the tenant exists and is
+	// flagged tenants.is_joinable; otherwise the field is silently
+	// ignored and the request falls back to create_personal behaviour.
+	// Server-only: TenantProvisioning below decides whether to honour
+	// TenantID (join_existing) or auto-create (create_personal).
+	TenantID uint64 `json:"tenant_id,omitempty"`
+
 	// TenantProvisioning is server-controlled registration context. It is
 	// deliberately excluded from JSON so a public caller cannot choose its
 	// own tenancy semantics. Empty preserves the historical behaviour and is
@@ -218,10 +237,21 @@ type TenantProvisioningMode string
 const (
 	TenantProvisioningCreatePersonal TenantProvisioningMode = "create_personal"
 	TenantProvisioningTenantless     TenantProvisioningMode = "tenantless"
+	// TenantProvisioningJoinExisting places the new user into a
+	// pre-existing tenant flagged is_joinable. The user lands as a
+	// Contributor with a tenant_members row in 'invited' status, and
+	// stays in 'pending approval' until a SystemAdmin flips their
+	// is_approved. Combined with the join_existing mode, the typical
+	// contract-review-department onboarding is: pick a department on the
+	// register form → user exists but can't log in → admin approves →
+	// row flips to 'active' and the user can sign in.
+	TenantProvisioningJoinExisting TenantProvisioningMode = "join_existing"
 )
 
 func (m TenantProvisioningMode) IsValid() bool {
-	return m == TenantProvisioningCreatePersonal || m == TenantProvisioningTenantless
+	return m == TenantProvisioningCreatePersonal ||
+		m == TenantProvisioningTenantless ||
+		m == TenantProvisioningJoinExisting
 }
 
 // LoginResponse represents a login response

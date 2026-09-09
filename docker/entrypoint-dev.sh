@@ -25,7 +25,10 @@ case "$ROLE" in
   frontend)
     echo "[luosa-dev] starting vite dev server (HMR)"
     cd frontend
-    if [ ! -d node_modules ]; then
+    # 检查 node_modules/.pnpm 是否存在(pnpm 装包后会创建这个目录),
+    # 比检查 node_modules 是否存在更可靠 —— 因为 anonymous volume
+    # 总是会创建出空的 node_modules 目录。
+    if [ ! -d node_modules/.pnpm ]; then
       echo "[luosa-dev] installing frontend deps via pnpm"
       pnpm install --prefer-offline
     fi
@@ -41,12 +44,12 @@ case "$ROLE" in
 
   docreader)
     echo "[luosa-dev] starting docreader (uvicorn --reload)"
-    cd docreader
-    if [ -f pyproject.toml ] && [ ! -d .venv ]; then
-      echo "[luosa-dev] installing docreader deps"
-      pip3 install --no-cache-dir --break-system-packages -e . || true
-    fi
-    exec uvicorn main:app --host 0.0.0.0 --port 5005 --reload
+    # main.py 用 `from docreader.auth import ...` 这种 namespace package 风格,
+    # 需要把 /workspace 加到 PYTHONPATH 让 docreader/ 这个目录能被 import 到。
+    # 不再依赖 pip install -e .(那需要装 playwright / opendataloader-pdf 等重型包,
+    # 而且镜像里已有的 grpcio / grpcio-health-checking 已经够 main.py 起来)
+    export PYTHONPATH="/workspace:${PYTHONPATH:-}"
+    exec uvicorn docreader.main:app --host 0.0.0.0 --port 5005 --reload
     ;;
 
   mcp-server)

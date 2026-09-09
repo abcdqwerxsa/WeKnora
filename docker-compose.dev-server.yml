@@ -37,7 +37,8 @@ services:
       - "${FRONTEND_PORT:-5173}:5173"
     volumes:
       # bind mount 宿主机源码 → 改了代码 HMR 自动生效
-      - .:/workspace
+      # 必须用绝对路径,避免在不同目录启动 compose 时挂错地方
+      - /opt/luosa:/workspace
       # 排除 node_modules 由容器内 pnpm install 管理
       - /workspace/frontend/node_modules
     networks:
@@ -53,9 +54,15 @@ services:
       # 后端跑起来要的环境变量(从主 compose 抄过来)
       - DB_HOST=postgres
       - DB_PORT=5432
-      - DB_USERNAME=${DB_USERNAME:-luosa}
+      - DB_DRIVER=postgres
+      - DB_USER=${DB_USER:-luosa}
+      - RETRIEVE_DRIVER=postgres
+      # 复用已有的 wechatopenai/weknora-docreader 容器(功能完整版本 5.69GB)
+      # 不在 dev compose 里起 docreader 了——用现有生产 compose 的
+      - DOCREADER_ADDR=${DOCREADER_ADDR:-WeKnora-docreader:50051}
+      - DOCREADER_TRANSPORT=${DOCREADER_TRANSPORT:-grpc}
       - DB_PASSWORD=${DB_PASSWORD:-devpassword}
-      - DB_DATABASE=${DB_DATABASE:-luosa}
+      - DB_NAME=${DB_NAME:-luosa}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:-devredis}
@@ -68,7 +75,7 @@ services:
     ports:
       - "${APP_PORT:-8080}:8080"
     volumes:
-      - .:/workspace
+      - /opt/luosa:/workspace
       # air 构建产物放容器内 tmp,不污染宿主机
       - /workspace/tmp
     depends_on:
@@ -79,18 +86,26 @@ services:
     networks:
       - luosa-dev-net
 
+  # docreader: 不在 dev compose 默认启动。
+  # 复用生产 compose 里的 WeKnora-docreader 容器(用 wechatopenai/weknora-docreader:latest,
+  # 5.69GB 全功能版本)。它已被 docker network connect 加到了 luosa-dev_luosa-dev-net。
+  # app 通过 DOCREADER_ADDR=WeKnora-docreader:50051 连过去。
+  # 如要 dev 模式自己起 docreader(改 docreader Python 代码并热重载),启用下方 + 用 build:
+  #   docker compose -f docker-compose.dev-server.yml --profile docreader up -d docreader
   docreader:
-    image: luosa-dev:1.0
+    image: docreader-dev:1.0
     container_name: luosa-dev-docreader
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.docreader-dev
+    profiles: ["docreader"]   # 默认不启动,只在 --profile docreader 时启动
     restart: unless-stopped
     environment:
-      - SERVICE_ROLE=docreader
-      - WORKSPACE_DIR=/workspace
-    working_dir: /workspace/docreader
+      - PYTHONUNBUFFERED=1
     ports:
       - "${DOCREADER_PORT:-5005}:5005"
     volumes:
-      - .:/workspace
+      - /opt/luosa:/workspace
     networks:
       - luosa-dev-net
 
@@ -99,9 +114,9 @@ services:
     image: paradedb/paradedb:v0.22.2-pg17
     container_name: luosa-dev-postgres
     environment:
-      POSTGRES_USER: ${DB_USERNAME:-luosa}
+      POSTGRES_USER: ${DB_USER:-luosa}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-devpassword}
-      POSTGRES_DB: ${DB_DATABASE:-luosa}
+      POSTGRES_DB: ${DB_NAME:-luosa}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:

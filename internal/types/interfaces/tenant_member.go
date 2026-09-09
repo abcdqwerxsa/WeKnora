@@ -43,6 +43,11 @@ type TenantMemberRepository interface {
 	// UpdateRole changes the role of an existing active membership. Returns
 	// gorm.ErrRecordNotFound if no active row matches.
 	UpdateRole(ctx context.Context, userID string, tenantID uint64, role types.TenantRole) error
+	// Update persists arbitrary column changes on a membership row. Used
+	// for status transitions (invited→active, active→suspended) and any
+	// future field changes that don't fit the narrow UpdateRole signature.
+	// Returns gorm.ErrRecordNotFound if the row no longer exists.
+	Update(ctx context.Context, member *types.TenantMember) error
 
 	// SoftDelete marks the active membership as deleted. The user record
 	// itself is untouched.

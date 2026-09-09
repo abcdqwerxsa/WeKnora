@@ -238,6 +238,50 @@
                   type="password" autocomplete="new-password" size="large" :disabled="loading" @enter="handleRegister" />
               </t-form-item>
 
+              <!-- Department picker (registration → tenant join_existing).
+                  Two states:
+                    1. There are joinable departments → show t-select, tenant_id required
+                    2. There are none → show informational hint; tenant_id is optional
+                       and the server falls back to auth.default_tenant_mode
+                       (create_personal / tenantless). -->
+              <t-form-item :label="$t('auth.department')" name="tenant_id">
+                <div
+                  v-if="!departmentsLoading && !departmentsError && departments.length === 0"
+                  class="department-empty-state"
+                >
+                  <t-icon name="info-circle" size="16px" aria-hidden="true" />
+                  <span>{{ $t('auth.departmentEmptyHint') }}</span>
+                </div>
+                <t-select
+                  v-else
+                  v-model="registerData.tenant_id"
+                  :placeholder="departmentsLoading ? '…' : $t('auth.departmentPlaceholder')"
+                  :loading="departmentsLoading"
+                  :disabled="departmentsLoading || !!departmentsError"
+                  size="large"
+                  clearable
+                  filterable
+                >
+                  <t-option
+                    v-for="d in departments"
+                    :key="d.id"
+                    :value="d.id"
+                    :label="d.name"
+                  >
+                    <div class="department-option">
+                      <span class="department-option__name">{{ d.name }}</span>
+                      <span v-if="d.description" class="department-option__desc">{{ d.description }}</span>
+                    </div>
+                  </t-option>
+                </t-select>
+                <template v-if="departmentsError" #help>
+                  <span class="department-help department-help--error">
+                    {{ $t('auth.departmentLoadFailed') }}
+                    <a href="#" @click.prevent="loadDepartments">{{ $t('common.retry') }}</a>
+                  </span>
+                </template>
+              </t-form-item>
+
               <t-button type="submit" theme="primary" size="large" block :loading="loading" class="submit-button">
                 {{ loading ? $t('auth.registering') : $t('auth.register') }}
               </t-button>
@@ -275,6 +319,7 @@ import {
   registerByInvite,
   type InviteLookup,
 } from '@/api/auth'
+import { getAvailableDepartments, type DepartmentOption } from '@/api/system'
 import { useAuthStore } from '@/stores/auth'
 import { useI18n } from 'vue-i18n'
 
@@ -335,12 +380,44 @@ const formData = reactive<{ [key: string]: any }>({
   password: '',
 })
 
+// Department options for the registration form. Fetched once on
+// component mount and reused — the list is admin-controlled and
+// rarely changes, so we don't bother with periodic refresh. The
+// loader is best-effort: if the request fails the dropdown shows an
+// inline error and the user can retry by toggling register mode.
+const departments = ref<DepartmentOption[]>([])
+const departmentsLoading = ref(false)
+const departmentsError = ref(false)
+const loadDepartments = async () => {
+  departmentsLoading.value = true
+  departmentsError.value = false
+  try {
+    const resp = await getAvailableDepartments()
+    departments.value = resp.departments ?? []
+  } catch (err) {
+    console.error('Failed to load available departments:', err)
+    departmentsError.value = true
+  } finally {
+    departmentsLoading.value = false
+  }
+}
+
+onMounted(() => {
+  // Lazy-load: only fetch when the register form is actually rendered.
+  // The Login page is shown first on most visits, so this avoids an
+  // unnecessary request for users who never click "create account".
+  if (isRegisterMode.value) {
+    loadDepartments()
+  }
+})
+
 // Register form data
 const registerData = reactive<{ [key: string]: any }>({
   username: '',
   email: '',
   password: '',
-  confirmPassword: ''
+  confirmPassword: '',
+  tenant_id: undefined as number | undefined,
 })
 
 // Login form validation rules
@@ -380,7 +457,25 @@ const registerRules = computed(() => ({
       message: t('auth.passwordMismatch'),
       type: 'error'
     }
-  ]
+  ],
+  // Department is the entry point for the join-existing tenant flow:
+  // server uses tenants.is_joinable to gate the value, so the form
+  // only ever sees valid options. We require a selection only when
+  // there are actually joinable departments to pick — when the list
+  // is empty the user sees an informational state instead, and the
+  // server falls back to auth.default_tenant_mode (create_personal /
+  // tenantless). Function validator reads departments.value live so
+  // the rule stays in sync after the lazy load completes.
+  tenant_id: [
+    {
+      validator: (val: unknown) => {
+        if (departments.value.length === 0) return true
+        return val !== undefined && val !== null && val !== ''
+      },
+      message: t('auth.departmentRequired'),
+      type: 'error',
+    },
+  ],
 }))
 
 // Toggle login/register mode
@@ -390,6 +485,14 @@ const toggleMode = () => {
   Object.keys(registerData).forEach(key => {
     (registerData as any)[key] = ''
   })
+
+  // Lazy-load the department list the first time the user lands on the
+  // register card. Subsequent toggles reuse the cached list so the
+  // dropdown is instant. If a previous load failed, the retry link in
+  // the form help-slot kicks off another attempt.
+  if (isRegisterMode.value && departments.value.length === 0 && !departmentsError.value) {
+    loadDepartments()
+  }
 }
 
 // Toggle language menu
@@ -613,11 +716,15 @@ const handleRegister = async () => {
     const response = await register({
       username: registerData.username,
       email: registerData.email,
-      password: registerData.password
+      password: registerData.password,
+      tenant_id: registerData.tenant_id,
     })
 
     if (response.success) {
-      MessagePlugin.success(t('auth.registerSuccess'))
+      // Backend response message is the canonical "pending approval"
+      // copy — surface it instead of the legacy "registerSuccess"
+      // string so the user knows they still need admin sign-off.
+      MessagePlugin.success(response.message || t('auth.registerSuccess'))
 
       // Switch to login mode and fill in email
       isRegisterMode.value = false
@@ -1487,6 +1594,52 @@ onMounted(async () => {
   .animated-bg {
     display: none;
   }
+}
+
+// Department option rendering inside the t-select dropdown: name on
+// top, optional description underneath. Keeps the picker compact even
+// when admin-set descriptions run long.
+.department-option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.department-option__name {
+  font-weight: 500;
+}
+.department-option__desc {
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #666);
+}
+.department-help {
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #666);
+}
+.department-help--error {
+  color: var(--td-error-color, #d54941);
+}
+// 无可加入部门时的占位提示：虚线框 + info 图标，避免下拉灰着让人误以为
+// 是 bug；文案告诉用户提交后会由系统创建个人工作空间。
+.department-empty-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px dashed var(--td-component-stroke);
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--td-text-color-secondary, #666);
+  background: var(--td-bg-color-secondarycontainer);
+}
+.department-empty-state :deep(.t-icon) {
+  flex: 0 0 auto;
+  color: var(--td-brand-color, #0052d9);
+}
+.department-help a {
+  margin-left: 6px;
+  color: var(--td-brand-color, #0052d9);
+  text-decoration: none;
 }
 </style>
 

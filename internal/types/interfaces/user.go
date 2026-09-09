@@ -82,6 +82,17 @@ type UserService interface {
 	// callers pass offset/limit to page through results. Used by the
 	// /api/v1/system/admin/list endpoint, gated to SystemAdmin callers.
 	ListSystemAdmins(ctx context.Context, offset, limit int) ([]*types.User, int64, error)
+	// ListPendingApprovalUsers returns users where is_approved = FALSE,
+	// paged. Used by the SystemAdmin approval queue
+	// (GET /system/admin/pending-users). Returns rows in created_at DESC
+	// order so the newest self-registrations show first.
+	ListPendingApprovalUsers(ctx context.Context, offset, limit int) ([]*types.User, int64, error)
+	// ApproveUser flips is_approved from FALSE to TRUE for the named user.
+	// Does NOT touch tenant membership — the SystemAdmin approve handler
+	// is responsible for also calling ActivatePendingMember on the
+	// user's invited row so the gate lifts in lock-step. Idempotent:
+	// returns the user unchanged if already approved.
+	ApproveUser(ctx context.Context, userID string) (*types.User, error)
 	// AdminCreateUser provisions a new local user on behalf of a
 	// SystemAdmin. When req.Password is nil, a random password is generated
 	// and returned exactly once as the second result. provisioning is
@@ -127,6 +138,9 @@ type UserRepository interface {
 	// RevokeSystemAdmin removes system-admin privileges with the
 	// last-admin/self-revoke checks performed atomically.
 	RevokeSystemAdmin(ctx context.Context, userID, actorID string) (*types.User, error)
+	// ListPendingApprovalUsers mirrors ListSystemAdmins but for users with
+	// is_approved = false. Same index-friendly pagination contract.
+	ListPendingApprovalUsers(ctx context.Context, offset, limit int) ([]*types.User, int64, error)
 	// SearchUsers searches users by username or email
 	SearchUsers(ctx context.Context, query string, limit int) ([]*types.User, error)
 }

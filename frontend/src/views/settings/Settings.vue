@@ -186,6 +186,11 @@
                     <SystemAuditLog />
                   </div>
 
+                  <!-- 待审核用户队列：SystemAdmin 专属，决定哪些自注册账号可以登录 -->
+                  <div v-if="currentSection === 'pending-users'" class="section">
+                    <PendingUsers />
+                  </div>
+
                   <!-- 用户信息（账户基础信息：ID / 用户名 / 邮箱 / 注册时间）。
                      用户的基本信息不该跟 owner 权限绑定。 -->
                   <div v-if="currentSection === 'userprofile'" class="section">
@@ -253,6 +258,7 @@ import SystemSettings from '@/views/system/SystemSettings.vue'
 import RuntimeQueues from '@/views/system/RuntimeQueues.vue'
 import PlatformAPIKeys from '@/views/system/PlatformAPIKeys.vue'
 import SystemAuditLog from '@/views/system/SystemAuditLog.vue'
+import PendingUsers from '@/views/system/PendingUsers.vue'
 import IntegrationSettingsSection from '@/views/integrations/IntegrationSettingsSection.vue'
 import {
   INTEGRATION_PREVIEW_ITEMS,
@@ -385,6 +391,7 @@ const navItems = computed(() => {
     { key: 'runtime-queues', icon: 'queue', label: t('settings.taskQueue') },
     { key: 'platform-api-keys', icon: 'secured', label: t('platformApiKeys.title') },
     { key: 'system-audit-log', icon: 'history', label: t('system.globalSettings.audit.tabLabel') },
+    { key: 'pending-users', icon: 'user-add', label: t('auth.pendingApprovalTitle') },
     { key: 'userprofile', icon: 'user', label: t('userProfile.title') },
     { key: 'mymemory', icon: 'bookmark', label: t('memorySettings.title') },
     { key: 'envvars', icon: 'key', label: t('envVarSettings.title') },

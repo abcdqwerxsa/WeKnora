@@ -221,7 +221,20 @@ func (h *AuthHandler) Register(c *gin.Context) {
 
 	req.Username = secutils.SanitizeForLog(req.Username)
 	req.Email = secutils.SanitizeForLog(req.Email)
-	req.TenantProvisioning = h.resolveDefaultTenantMode(ctx)
+	// Tenant provisioning decision tree:
+	//   - Department dropdown set (req.TenantID != 0) — user picked an
+	//     existing department, route through TenantProvisioningJoinExisting
+	//     so the user lands as a Contributor (status='invited') in that
+	//     tenant. The service rejects if the tenant isn't flagged
+	//     is_joinable.
+	//   - Otherwise — fall back to the auth.default_tenant_mode policy
+	//     (create_personal / tenantless) so the legacy flow is preserved
+	//     for any client that posts the old payload shape.
+	if req.TenantID != 0 {
+		req.TenantProvisioning = types.TenantProvisioningJoinExisting
+	} else {
+		req.TenantProvisioning = h.resolveDefaultTenantMode(ctx)
+	}
 	// Call service to register user
 	user, err := h.userService.Register(ctx, &req)
 	if err != nil {
@@ -231,10 +244,13 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	// Return success response
+	// Return success response. The "pending approval" wording matters: the
+	// caller just submitted credentials but cannot sign in until a
+	// SystemAdmin reviews the row. Setting expectations in the response
+	// message is cheaper than explaining it on every login attempt.
 	response := &types.RegisterResponse{
 		Success: true,
-		Message: "Registration successful",
+		Message: "Registration submitted — your account is pending administrator approval before you can sign in.",
 		User:    user,
 	}
 
@@ -829,6 +845,52 @@ func (h *AuthHandler) GetAuthConfig(c *gin.Context) {
 		"success":                  true,
 		"registration_mode":        mode,
 		"complex_password_enabled": complexPasswordEnabled,
+	})
+}
+
+// DepartmentInfo is a single row in the public /auth/available-departments
+// response. We deliberately expose only the fields the registration form
+// needs (id + name + a short description) — anything beyond that is
+// tenant-private and must not leak into an unauthenticated payload.
+type DepartmentInfo struct {
+	ID          uint64 `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+// GetAvailableDepartments lists tenants flagged is_joinable for the public
+// registration form. Intentionally unauthenticated — anyone may inspect the
+// set of departments they could join, since the alternative is letting
+// the form post a tenant_id and bouncing on the server. Filtering is
+// strict: only active + joinable tenants are returned, ordered by name
+// so the UI dropdown is stable.
+func (h *AuthHandler) GetAvailableDepartments(c *gin.Context) {
+	// tenantService.ListJoinableTenants should be implemented to filter
+	// status='active' AND is_joinable=true. Defensive: if the service
+	// returns the wider set we still filter client-side so a misconfigured
+	// tenant never escapes into the public response.
+	tenants, err := h.tenantService.ListJoinableTenants(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "failed to list departments",
+		})
+		return
+	}
+	out := make([]DepartmentInfo, 0, len(tenants))
+	for _, t := range tenants {
+		if t == nil || t.Status != "active" || !t.IsJoinable {
+			continue
+		}
+		out = append(out, DepartmentInfo{
+			ID:          t.ID,
+			Name:        t.Name,
+			Description: t.Description,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success":      true,
+		"departments":  out,
 	})
 }
 

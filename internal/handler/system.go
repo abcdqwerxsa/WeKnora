@@ -64,6 +64,9 @@ type SystemHandler struct {
 	// unit tests, in which case only the legacy config is consulted.
 	storageBackendRepo interfaces.StorageBackendRepository
 	sandboxConfigSvc   sandboxConfigService
+	// tenantMemberSvc backs ApproveUser's pending-membership activation.
+	// nil is acceptable only in tests; production wiring always provides it.
+	tenantMemberSvc interfaces.TenantMemberService
 	// startup snapshot for GET /system/capabilities; bound in router.NewRouter.
 	deploymentCapabilities DeploymentCapabilitiesData
 }
@@ -81,6 +84,7 @@ func NewSystemHandler(cfg *config.Config,
 	knowledgeSvc interfaces.KnowledgeService,
 	storageBackendRepo interfaces.StorageBackendRepository,
 	sandboxConfigSvc *service.TenantSandboxConfigService,
+	tenantMemberSvc interfaces.TenantMemberService,
 ) *SystemHandler {
 	return &SystemHandler{
 		cfg:                cfg,
@@ -95,6 +99,7 @@ func NewSystemHandler(cfg *config.Config,
 		knowledgeSvc:       knowledgeSvc,
 		storageBackendRepo: storageBackendRepo,
 		sandboxConfigSvc:   sandboxConfigSvc,
+		tenantMemberSvc:    tenantMemberSvc,
 	}
 }
 
@@ -1518,6 +1523,169 @@ func (h *SystemHandler) ListSystemAdmins(c *gin.Context) {
 		Total:  total,
 		Admins: infos,
 	})
+}
+
+// ListPendingApprovalUsersResponse is the API projection of the
+// approval queue. Mirrors ListSystemAdminsResponse shape so the front-end
+// can reuse the same table component.
+type ListPendingApprovalUsersResponse struct {
+	Total  int64             `json:"total"`
+	Users  []*types.UserInfo `json:"users"`
+	Limit  int               `json:"limit"`
+	Offset int               `json:"offset"`
+}
+
+// ListPendingApprovalUsers returns users with is_approved = false.
+// Backed by an index on users(is_approved) WHERE is_approved = FALSE
+// (added in migration 000095) so the scan stays cheap.
+func (h *SystemHandler) ListPendingApprovalUsers(c *gin.Context) {
+	ctx := logger.CloneContext(c.Request.Context())
+
+	offset := 0
+	limit := 50
+	if v := c.Query("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+	if v := c.Query("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	if limit > 200 {
+		limit = 200
+	}
+
+	users, total, err := h.userSvc.ListPendingApprovalUsers(ctx, offset, limit)
+	if err != nil {
+		logger.Errorf(ctx, "Error listing pending-approval users: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list pending users"})
+		return
+	}
+	infos := make([]*types.UserInfo, 0, len(users))
+	for _, u := range users {
+		infos = append(infos, u.ToUserInfo())
+	}
+	c.JSON(http.StatusOK, ListPendingApprovalUsersResponse{
+		Total:  total,
+		Users:  infos,
+		Limit:  limit,
+		Offset: offset,
+	})
+}
+
+// ApproveUserRequest is intentionally empty: the user ID comes from the
+// URL path. We accept {} so the body parser does not 400 on missing.
+type ApproveUserRequest struct{}
+
+// ApproveUser flips a pending user to is_approved = TRUE and, if they
+// registered via the join-existing path, flips their tenant_members row
+// from 'invited' to 'active'. Idempotent.
+func (h *SystemHandler) ApproveUser(c *gin.Context) {
+	ctx := logger.CloneContext(c.Request.Context())
+
+	userID := c.Param("id")
+	if userID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "user id is required"})
+		return
+	}
+	// Allow either id or email via the optional ?email=... query. Useful
+	// from the admin UI that may have only an email on hand.
+	if email := c.Query("email"); email != "" {
+		user, err := h.userSvc.GetUserByEmail(ctx, email)
+		if err != nil || user == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+			return
+		}
+		userID = user.ID
+	}
+
+	user, err := h.userSvc.ApproveUser(ctx, userID)
+	if err != nil {
+		logger.Errorf(ctx, "Error approving user %s: %v", userID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to approve user"})
+		return
+	}
+
+	// Also activate any tenant_members row in 'invited' status. We don't
+	// hard-fail if the activation fails: the user can log in via Login
+	// once is_approved = TRUE even if their membership is still invited,
+	// because auth uses the user row's home tenant_id for the JWT scope.
+	// The membership activation is what unlocks access to the tenant's
+	// resources. We log the gap so admins can spot it.
+	//
+	// tenantMemberSvc can be nil in partially-wired unit tests; production
+	// always wires it via dig, so we only skip the activation step rather
+	// than fail the approval.
+	if user.TenantID != 0 && h.tenantMemberSvc != nil {
+		membership, mErr := h.tenantMemberSvc.GetMembership(ctx, user.ID, user.TenantID)
+		if mErr == nil && membership != nil && membership.Status == types.TenantMemberStatusInvited {
+			if _, actErr := h.tenantMemberSvc.ActivatePendingMember(ctx, user.ID, user.TenantID); actErr != nil {
+				logger.Warnf(ctx, "Approved user %s but failed to activate tenant membership in %d: %v",
+					user.ID, user.TenantID, actErr)
+			}
+		}
+	}
+
+	// Audit row is best-effort. We don't have a dedicated
+	// AuditActionUserApproved yet (would need to extend the enum +
+	// migrations), so we record against the closest existing category —
+	// system.user_created carries the right semantics for the security
+	// review trail (platform admin acts on a platform user). A future
+	// audit enum extension can split user_approved / user_rejected into
+	// their own actions without changing this call site.
+	if h.auditSvc != nil {
+		// AuditLogService.Log fills CreatedAt when zero, so we don't have
+		// to set it manually. Details is JSON (raw []byte under the
+		// driver.Valuer); we pass the marshalled object straight through.
+		_ = h.auditSvc.Log(ctx, &types.AuditLog{
+			TenantID:    user.TenantID,
+			Action:      types.AuditActionSystemUserCreated,
+			TargetType:  "user",
+			TargetID:    user.ID,
+			TargetUserID: user.ID,
+			ActorUserID: c.GetString("user_id"),
+			Details:     []byte(`{"event":"user_approved"}`),
+		})
+	}
+
+	c.JSON(http.StatusOK, user.ToUserInfo())
+}
+
+// RejectPendingUser deletes a self-registered user that has not yet been
+// approved. Hard delete (soft-delete would leak storage; rejected
+// accounts are not in any active tenant so there is nothing to preserve).
+// Restricted to SystemAdmin by route-level middleware.
+func (h *SystemHandler) RejectPendingUser(c *gin.Context) {
+	ctx := logger.CloneContext(c.Request.Context())
+
+	userID := c.Param("id")
+	if userID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "user id is required"})
+		return
+	}
+
+	user, err := h.userSvc.GetUserByID(ctx, userID)
+	if err != nil || user == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+	// Refuse to reject an already-approved user — that path is "disable
+	// account", not "reject registration". Operators should use the
+	// disable endpoint for active users.
+	if user.IsApproved {
+		c.JSON(http.StatusConflict, gin.H{"error": "User is already approved; use the disable endpoint instead"})
+		return
+	}
+
+	if err := h.userSvc.DeleteUser(ctx, userID); err != nil {
+		logger.Errorf(ctx, "Error rejecting user %s: %v", userID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reject user"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "user_id": userID})
 }
 
 // ResetUserPasswordRequest defines the system-administrator password-reset
