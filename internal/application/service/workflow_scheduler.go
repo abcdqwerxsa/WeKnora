@@ -140,6 +140,12 @@ func (s *workflowScheduler) tick(scheduleID string, tenantID uint64) {
 			req.Inputs = inputs
 		}
 	}
+	if len(schedule.Files) > 0 {
+		var files []string
+		if json.Unmarshal(schedule.Files, &files) == nil && len(files) > 0 {
+			req.Files = files
+		}
+	}
 	inputDoc, _ := json.Marshal(req)
 	run := &types.WorkflowRun{
 		ID:         uuid.New().String(),

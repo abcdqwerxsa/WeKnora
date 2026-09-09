@@ -212,6 +212,9 @@ type WorkflowSchedule struct {
 	Query string `yaml:"query" json:"query" gorm:"type:text"`
 	// Inputs carries the Start-node form values (RunWorkflowRequest.Inputs).
 	Inputs JSON `yaml:"inputs" json:"inputs" gorm:"type:jsonb"`
+	// Files carries run-attachment ids (RunWorkflowRequest.files): each tick
+	// resolves them into LLM context exactly like a manual run with files.
+	Files JSON `yaml:"files" json:"files" gorm:"type:jsonb"`
 	// Enabled: disabled schedules stay listed but never fire.
 	Enabled bool `yaml:"enabled" json:"enabled" gorm:"not null;default:true"`
 
@@ -225,5 +228,6 @@ type CreateWorkflowScheduleRequest struct {
 	Cron    string         `json:"cron" binding:"required"`
 	Query   string         `json:"query"`
 	Inputs  map[string]any `json:"inputs,omitempty"`
+	Files   []string       `json:"files,omitempty"`
 	Enabled *bool          `json:"enabled,omitempty"` // nil = enabled
 }

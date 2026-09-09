@@ -806,6 +806,7 @@ func (s *workflowService) executeWorkflowRun(
 	// lazily and at most once per run, then delegate to the plain adapters.
 	llmFunc := s.runLLM
 	llmStreamFunc := s.runLLMStream
+	agentFunc := s.runAgent
 	if len(req.Files) > 0 {
 		scope := WorkflowAttachmentScope(wf.ID)
 		llmFunc = func(ctx context.Context, r nodes.LLMRequest) (string, error) {
@@ -813,6 +814,9 @@ func (s *workflowService) executeWorkflowRun(
 		}
 		llmStreamFunc = func(ctx context.Context, r nodes.LLMRequest, onDelta func(string)) (string, error) {
 			return s.runLLMStreamWithAttachments(ctx, scope, req.Query, req.Files, r, onDelta)
+		}
+		agentFunc = func(ctx context.Context, r nodes.AgentRequest) (string, error) {
+			return s.runAgentWithAttachments(ctx, scope, req.Query, req.Files, r)
 		}
 	}
 	compiled, cerr := wfengine.Compile(normalized, wfengine.Deps{
@@ -823,7 +827,7 @@ func (s *workflowService) executeWorkflowRun(
 		DataOpsFunc:   s.runDataOps,
 		WebSearchFunc: s.runWebSearch,
 		CodeFunc:      s.runCode,
-		AgentFunc:     s.runAgent,
+		AgentFunc:     agentFunc,
 		MCPFunc:       s.runMCPTool,
 		OnNodeEvent:   publishNode,
 		// Checkpoint persistence (full mode only): eino persists completed-
@@ -1594,6 +1598,17 @@ func (s *workflowService) runLLMStreamWithAttachments(ctx context.Context, scope
 	return s.runLLMStream(ctx, req, onDelta)
 }
 
+func (s *workflowService) runAgentWithAttachments(ctx context.Context, scope, query string, files []string, req nodes.AgentRequest) (string, error) {
+	extra, aerr := s.attachmentPrompt(ctx, scope, query, files)
+	if aerr != nil {
+		return "", aerr
+	}
+	if extra != "" {
+		req.SystemPrompt = strings.Join(nonEmpty(req.SystemPrompt, extra), "\n\n")
+	}
+	return s.runAgent(ctx, req)
+}
+
 // nonEmpty filters empty strings.
 func nonEmpty(parts ...string) []string {
 	out := make([]string, 0, len(parts))
@@ -1642,11 +1657,17 @@ func (s *workflowService) runLLMStream(ctx context.Context, req nodes.LLMRequest
 	}
 	var answer strings.Builder
 	var thinking strings.Builder
+	var streamErr string
 	for resp := range ch {
 		if resp.Content == "" {
 			continue
 		}
 		switch resp.ResponseType {
+		case types.ResponseTypeError:
+			// Mid-stream provider failures arrive as error frames; remember
+			// the last one so a content-less stream fails with the real
+			// cause instead of an opaque "produced no content".
+			streamErr = resp.Content
 		case types.ResponseTypeThinking:
 			// Thinking track: never becomes node output directly, but keep
 			// it — some mixed-routing backends occasionally stream the whole
@@ -1659,6 +1680,11 @@ func (s *workflowService) runLLMStream(ctx context.Context, req nodes.LLMRequest
 				onDelta(resp.Content)
 			}
 		}
+	}
+	if answer.Len() == 0 && streamErr != "" {
+		// A provider-side failure beats both fallbacks: the partial thinking
+		// text of a dead stream is not an answer.
+		return "", fmt.Errorf("workflow LLM stream failed: %s", streamErr)
 	}
 	if answer.Len() == 0 && thinking.Len() > 0 {
 		// Fallback: the provider misrouted everything into the thinking
@@ -1799,6 +1825,11 @@ func aggregateDocAggs(chunks []map[string]any) []map[string]any {
 		id, _ := c["knowledge_id"].(string)
 		title, _ := c["knowledge_title"].(string)
 		score, _ := c["score"].(float64)
+		// After rerank the chunk carries rerank_score; the aggregation's
+		// "best" must reflect the ranking the workflow actually used.
+		if rs, ok := c["rerank_score"].(float64); ok {
+			score = rs
+		}
 		a, ok := byDoc[id]
 		if !ok {
 			a = &agg{title: title}

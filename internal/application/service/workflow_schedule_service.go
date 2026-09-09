@@ -75,6 +75,14 @@ func (s *workflowScheduleService) CreateWorkflowSchedule(ctx context.Context, wo
 		}
 		inputs = doc
 	}
+	var files types.JSON
+	if len(req.Files) > 0 {
+		doc, merr := json.Marshal(req.Files)
+		if merr != nil {
+			return nil, merr
+		}
+		files = doc
+	}
 	creatorID, _ := types.UserIDFromContext(ctx)
 	schedule := &types.WorkflowSchedule{
 		ID:         uuid.New().String(),
@@ -84,6 +92,7 @@ func (s *workflowScheduleService) CreateWorkflowSchedule(ctx context.Context, wo
 		Cron:       req.Cron,
 		Query:      req.Query,
 		Inputs:     inputs,
+		Files:      files,
 		Enabled:    enabled,
 	}
 	if err := s.schedules.CreateWorkflowSchedule(ctx, schedule); err != nil {

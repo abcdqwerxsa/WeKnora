@@ -288,3 +288,42 @@ func TestRunLLMWithAttachmentsPrependsContext(t *testing.T) {
 	assert.Contains(t, ms.chat.msgs[0].Content, "SECRET-ATTACHMENT-CONTENT",
 		"attachment context must be part of the system prompt")
 }
+
+// TestRunLLMStreamSurfacesErrorFrames: a stream that dies mid-flight emits
+// ResponseTypeError frames; the failure must carry the provider's message
+// instead of the generic "produced no content".
+func TestRunLLMStreamSurfacesErrorFrames(t *testing.T) {
+	m := &thinkingStreamChat{deltas: []string{
+		"THINK:partial", "ERR:upstream connection reset",
+	}}
+	// thinkingStreamChat has no error mode — extend via a tiny wrapper.
+	m2 := errFrameChat{thinkingStreamChat: m}
+	svc := newTestWFService(nil, &streamModelSvc{m: &m2, rer: &stubReranker{}}, &captureKBSvc{}).(*workflowService)
+	_, err := svc.runLLMStream(context.Background(), nodes.LLMRequest{Prompt: "p", Model: "m"}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "upstream connection reset")
+}
+
+// errFrameChat re-marks ERR: prefixed deltas as error frames.
+type errFrameChat struct {
+	*thinkingStreamChat
+}
+
+func (c errFrameChat) ChatStream(ctx context.Context, msgs []chat.Message, opts *chat.ChatOptions) (<-chan types.StreamResponse, error) {
+	ch, err := c.thinkingStreamChat.ChatStream(ctx, msgs, opts)
+	if err != nil {
+		return nil, err
+	}
+	out := make(chan types.StreamResponse)
+	go func() {
+		defer close(out)
+		for r := range ch {
+			if strings.HasPrefix(r.Content, "ERR:") {
+				r.Content = strings.TrimPrefix(r.Content, "ERR:")
+				r.ResponseType = types.ResponseTypeError
+			}
+			out <- r
+		}
+	}()
+	return out, nil
+}
