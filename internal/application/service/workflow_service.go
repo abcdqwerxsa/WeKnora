@@ -803,7 +803,7 @@ func (s *workflowService) executeWorkflowRun(
 
 	// Run attachments: files uploaded for this run resolve into extra LLM
 	// context (same BuildPrompt formatting chat uses). The wrappers resolve
-	// lazily and at most once per run, then delegate to the plain adapters.
+	// on every LLM-node call, then delegate to the plain adapters.
 	llmFunc := s.runLLM
 	llmStreamFunc := s.runLLMStream
 	if len(req.Files) > 0 {
@@ -1564,12 +1564,7 @@ func (s *workflowService) attachmentPrompt(ctx context.Context, scope, query str
 	if err != nil {
 		return "", fmt.Errorf("workflow: resolve run attachments: %w", err)
 	}
-	if len(res.Attachments) == 0 {
-		return "", nil
-	}
-	atts := make(types.MessageAttachments, 0, len(res.Attachments))
-	atts = append(atts, res.Attachments...)
-	return atts.BuildPrompt(), nil
+	return res.Attachments.BuildPrompt(), nil
 }
 
 func (s *workflowService) runLLMWithAttachments(ctx context.Context, scope, query string, files []string, req nodes.LLMRequest) (string, error) {
@@ -1577,9 +1572,7 @@ func (s *workflowService) runLLMWithAttachments(ctx context.Context, scope, quer
 	if aerr != nil {
 		return "", aerr
 	}
-	if extra != "" {
-		req.SystemPrompt = strings.Join(nonEmpty(req.SystemPrompt, extra), "\n\n")
-	}
+	req.SystemPrompt = strings.Join(nonEmpty(req.SystemPrompt, extra), "\n\n")
 	return s.runLLM(ctx, req)
 }
 
@@ -1588,9 +1581,7 @@ func (s *workflowService) runLLMStreamWithAttachments(ctx context.Context, scope
 	if aerr != nil {
 		return "", aerr
 	}
-	if extra != "" {
-		req.SystemPrompt = strings.Join(nonEmpty(req.SystemPrompt, extra), "\n\n")
-	}
+	req.SystemPrompt = strings.Join(nonEmpty(req.SystemPrompt, extra), "\n\n")
 	return s.runLLMStream(ctx, req, onDelta)
 }
 
