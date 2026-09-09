@@ -37,6 +37,25 @@
       </t-form>
     </section>
 
+    <!-- Run attachments: parsed into LLM context at execution -->
+    <section v-if="attachments.length > 0 || true" class="wf-run-section">
+      <p class="wf-run-section-title">{{ $t('workflow.run.attachments') }}</p>
+      <div class="wf-run-attach">
+        <input ref="fileInput" type="file" multiple hidden @change="onFilesPicked" />
+        <t-button variant="outline" size="small" :loading="uploading" @click="fileInput?.click()">
+          <template #icon><t-icon name="upload" /></template>
+          {{ $t('workflow.run.attachFiles') }}
+        </t-button>
+        <span v-for="a in attachments" :key="a.id" class="wf-run-attach-chip" :class="`wf-run-attach-chip--${a.status}`">
+          <t-icon :name="attachIcon(a.status)" />
+          <span class="wf-run-attach-name" :title="a.error_message || a.file_name">{{ a.file_name }}</span>
+          <span v-if="a.status === 'ready'" class="wf-run-attach-meta">{{ a.chunk_count }}c</span>
+          <t-icon name="close" class="wf-run-attach-remove" @click="removeAttachment(a.id)" />
+        </span>
+      </div>
+      <div v-if="pendingCount > 0" class="wf-run-muted">{{ $t('workflow.run.attachmentProcessing', { n: pendingCount }) }}</div>
+    </section>
+
     <!-- Trigger -->
     <section class="wf-run-section">
       <t-textarea
@@ -50,8 +69,8 @@
           theme="primary"
           size="small"
           :loading="starting"
-          :disabled="!query.trim() || missingRequired.length > 0"
-          :title="missingRequired.length > 0 ? $t('workflow.run.missingFields', { names: missingRequired.join(', ') }) : undefined"
+          :disabled="!query.trim() || missingRequired.length > 0 || pendingCount > 0"
+          :title="runBlockedTitle"
           @click="start(false)"
         >
           {{ $t('workflow.run.syncRun') }}
@@ -60,8 +79,8 @@
           variant="outline"
           size="small"
           :loading="starting"
-          :disabled="!query.trim() || missingRequired.length > 0"
-          :title="missingRequired.length > 0 ? $t('workflow.run.missingFields', { names: missingRequired.join(', ') }) : undefined"
+          :disabled="!query.trim() || missingRequired.length > 0 || pendingCount > 0"
+          :title="runBlockedTitle"
           @click="start(true)"
         >
           {{ $t('workflow.run.asyncRun') }}
@@ -198,8 +217,11 @@ import {
   cancelWorkflowRun,
   resumeWorkflowRun,
   getWorkflowRun,
+  uploadWorkflowRunAttachment,
+  getWorkflowRunAttachment,
   type WorkflowRun,
   type WorkflowRunTraceEntry,
+  type WorkflowRunAttachment,
 } from '@/api/workflow'
 import { useWorkflowRunStream } from '../useWorkflowRunStream'
 
@@ -265,6 +287,77 @@ const resumingRunId = ref('')
 
 const history = ref<WorkflowRun[]>([])
 const historyError = ref(false)
+
+// ---- run attachments: upload → poll until parsed → carry ids on the run ----
+const fileInput = ref<HTMLInputElement | null>(null)
+const uploading = ref(false)
+const attachments = ref<WorkflowRunAttachment[]>([])
+let pollTimer: ReturnType<typeof setInterval> | null = null
+
+const pendingCount = computed(
+  () => attachments.value.filter((a) => a.status === 'uploaded' || a.status === 'processing').length,
+)
+const runBlockedTitle = computed(() => {
+  if (missingRequired.value.length > 0) {
+    return t('workflow.run.missingFields', { names: missingRequired.value.join(', ') })
+  }
+  if (pendingCount.value > 0) return t('workflow.run.attachmentWaitHint')
+  return undefined
+})
+
+function attachIcon(status: WorkflowRunAttachment['status']): string {
+  if (status === 'ready') return 'check-circle'
+  if (status === 'failed') return 'error-circle'
+  return 'loading'
+}
+
+async function onFilesPicked(event: Event) {
+  const input = event.target as HTMLInputElement
+  const files = Array.from(input.files ?? [])
+  input.value = ''
+  if (files.length === 0) return
+  uploading.value = true
+  try {
+    for (const file of files) {
+      const response = await uploadWorkflowRunAttachment(props.workflowId, file)
+      if (response?.data) attachments.value.push(response.data)
+    }
+    ensurePolling()
+  } catch (error) {
+    MessagePlugin.error(error instanceof Error ? error.message : t('workflow.run.attachmentUploadFailed'))
+  } finally {
+    uploading.value = false
+  }
+}
+
+/** Poll non-terminal attachments until they are ready or failed. */
+function ensurePolling() {
+  if (pollTimer !== null) return
+  pollTimer = setInterval(async () => {
+    const pending = attachments.value.filter((a) => a.status === 'uploaded' || a.status === 'processing')
+    if (pending.length === 0) {
+      if (pollTimer !== null) clearInterval(pollTimer)
+      pollTimer = null
+      return
+    }
+    for (const a of pending) {
+      try {
+        const response = await getWorkflowRunAttachment(props.workflowId, a.id)
+        if (response?.data) Object.assign(a, response.data)
+      } catch {
+        /* transient poll failure: retry on the next tick */
+      }
+    }
+  }, 2000)
+}
+
+function removeAttachment(id: string) {
+  attachments.value = attachments.value.filter((a) => a.id !== id)
+}
+
+onUnmounted(() => {
+  if (pollTimer !== null) clearInterval(pollTimer)
+})
 
 // Trace of the selected history run (fetched from the run-detail endpoint);
 // live runs build their records straight from SSE frames instead.
@@ -391,7 +484,8 @@ async function start(asyncMode: boolean) {
   expandedRecords.value = new Set()
   try {
     const inputs = Object.keys(formValues.value).length > 0 ? { ...formValues.value } : undefined
-    const response = await runWorkflow(props.workflowId, { query: trimmed, inputs, async: asyncMode })
+    const files = attachments.value.length > 0 ? attachments.value.map((a) => a.id) : undefined
+    const response = await runWorkflow(props.workflowId, { query: trimmed, inputs, files, async: asyncMode })
     const run = response?.run
     if (!run) {
       resultError.value = response?.message || t('workflow.run.runFailed')
@@ -746,6 +840,52 @@ defineExpose({ loadHistory })
   word-break: break-word;
   max-height: 200px;
   overflow-y: auto;
+}
+
+.wf-run-attach {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.wf-run-attach-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 220px;
+  padding: 2px 6px;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--td-text-color-secondary);
+}
+
+.wf-run-attach-chip--ready {
+  color: var(--td-success-color);
+  border-color: var(--td-success-color-3);
+}
+
+.wf-run-attach-chip--failed {
+  color: var(--td-error-color);
+  border-color: var(--td-error-color-3);
+}
+
+.wf-run-attach-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wf-run-attach-meta {
+  flex: none;
+  font-size: 11px;
+  color: var(--td-text-color-placeholder);
+}
+
+.wf-run-attach-remove {
+  cursor: pointer;
+  flex: none;
 }
 
 .wf-run-history-list {

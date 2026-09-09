@@ -7068,6 +7068,11 @@ export default {
       generating: '生成中…',
       formTitle: '输入表单',
       missingFields: '缺少必填字段：{names}',
+      attachments: '运行附件',
+      attachFiles: '上传附件',
+      attachmentProcessing: '{n} 个附件解析中，完成后才能运行',
+      attachmentWaitHint: '附件解析完成后才能运行',
+      attachmentUploadFailed: '上传附件失败',
       nodeOutputs: '节点输出',
       stalePublished: '当前运行的是已发布快照，不足草稿。修改需重新发布后生效。',
      }
