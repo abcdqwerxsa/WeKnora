@@ -1552,8 +1552,13 @@ type mcpClientProvider interface {
 // a workflow's run attachments. Deterministic on both the upload side (the
 // run-attachments endpoints) and the resolve side (run execution), so no
 // real chat session is needed.
+//
+// The temporary_documents.session_id column is VARCHAR(36) (sized for chat
+// session UUIDs), so the scope compacts the workflow UUID: "wf-" + the 32
+// hex chars (dashes stripped) = 35 chars. Uniqueness is preserved (same
+// UUID, minus cosmetic dashes).
 func WorkflowAttachmentScope(workflowID string) string {
-	return "workflow-" + workflowID
+	return "wf-" + strings.ReplaceAll(workflowID, "-", "")
 }
 
 // attachmentPrompt resolves run files into the prompt section prepended to

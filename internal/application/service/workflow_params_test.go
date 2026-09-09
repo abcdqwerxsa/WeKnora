@@ -262,7 +262,7 @@ func (s *stubTempDocs) ResolveForPrompt(_ context.Context, _ uint64, scope strin
 	if query != "the query" {
 		return nil, errors.New("unexpected query")
 	}
-	if scope != "workflow-wf-1" {
+	if scope != WorkflowAttachmentScope("wf-1") {
 		return nil, errors.New("unexpected scope: " + scope)
 	}
 	return &types.TemporaryDocumentPromptResult{
@@ -278,7 +278,7 @@ func TestRunLLMWithAttachmentsPrependsContext(t *testing.T) {
 	td := &stubTempDocs{prompt: "SECRET-ATTACHMENT-CONTENT"}
 	svc := NewWorkflowService(nil, ms, &captureKBSvc{}, nil, nil, nil, nil, nil, nil, nil, nil, td).(*workflowService)
 	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(1))
-	out, err := svc.runLLMWithAttachments(ctx, "workflow-wf-1", "the query", []string{"doc-1"},
+	out, err := svc.runLLMWithAttachments(ctx, WorkflowAttachmentScope("wf-1"), "the query", []string{"doc-1"},
 		nodes.LLMRequest{Prompt: "p", SystemPrompt: "be brief", Model: "m"})
 	require.NoError(t, err)
 	assert.Equal(t, "reply", out)
@@ -326,4 +326,13 @@ func (c errFrameChat) ChatStream(ctx context.Context, msgs []chat.Message, opts 
 		}
 	}()
 	return out, nil
+}
+
+// TestWorkflowAttachmentScopeFitsColumn: temporary_documents.session_id is
+// VARCHAR(36); the scope must stay within it for UUID workflow ids.
+func TestWorkflowAttachmentScopeFitsColumn(t *testing.T) {
+	id := "fd88dfdf-e30c-4650-9df7-82c7ef6ccccc"
+	scope := WorkflowAttachmentScope(id)
+	assert.Len(t, scope, 35, "wf- + 32 hex chars")
+	assert.True(t, strings.HasPrefix(scope, "wf-"))
 }
