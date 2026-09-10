@@ -21,6 +21,10 @@ type AgentRequest struct {
 	Model        string
 	KBIDs        []string
 	Temperature  float64
+	// AgentID, when set, reuses a tenant CustomAgent wholesale: the service
+	// adapter loads its config (prompt/tools/models) and ignores the inline
+	// fields above except Prompt (the node's rendered input).
+	AgentID string
 }
 
 // AgentFunc executes one autonomous agent turn and returns its final
@@ -33,6 +37,7 @@ type agentNode struct {
 	model        string
 	kbIDs        []string
 	temperature  float64
+	agentID      string
 	run          AgentFunc
 }
 
@@ -50,6 +55,7 @@ func newAgent(params map[string]any, deps Deps) (Node, error) {
 	if err != nil {
 		return nil, err
 	}
+	agentID, _ := params["agent_id"].(string)
 	temperature := 0.0
 	if v, ok := params["temperature"]; ok && v != nil {
 		if temperature, err = toFloat(ComponentAgent, "temperature", v); err != nil {
@@ -58,7 +64,7 @@ func newAgent(params map[string]any, deps Deps) (Node, error) {
 	}
 	return &agentNode{
 		prompt: prompt, systemPrompt: systemPrompt, model: model,
-		kbIDs: kbIDs, temperature: temperature, run: deps.AgentFunc,
+		kbIDs: kbIDs, temperature: temperature, agentID: agentID, run: deps.AgentFunc,
 	}, nil
 }
 
@@ -82,7 +88,7 @@ func (n *agentNode) Invoke(ctx context.Context, inputs map[string]any) (map[stri
 	}
 	answer, err := n.run(ctx, AgentRequest{
 		Prompt: prompt, SystemPrompt: system, Model: n.model,
-		KBIDs: n.kbIDs, Temperature: n.temperature,
+		KBIDs: n.kbIDs, Temperature: n.temperature, AgentID: n.agentID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("workflow Agent: %w", err)

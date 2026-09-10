@@ -520,6 +520,21 @@
 
     <!-- ================= Agent ================= -->
     <template v-else-if="kind === 'Agent'">
+      <t-form-item :label="t('workflow.editor.platformAgent')">
+        <t-select
+          :value="strParam('agent_id')"
+          :placeholder="t('workflow.editor.platformAgentHint')"
+          clearable
+          filterable
+          :loading="agentOptionsLoading"
+          @change="onAgentIdChange"
+        >
+          <t-option v-for="a in agentOptions" :key="a.id" :value="a.id" :label="a.name" />
+        </t-select>
+        <p class="wf-prop-hint">{{ t('workflow.editor.platformAgentTip') }}</p>
+      </t-form-item>
+      <!-- Prompt stays editable in agent_id mode: it is the node's only query
+           input — the reused agent's config covers everything else. -->
       <t-form-item :label="t('workflow.editor.prompt')">
         <div class="wf-prop-field">
           <RefTextarea
@@ -538,7 +553,7 @@
           />
         </div>
       </t-form-item>
-      <t-form-item :label="t('workflow.editor.systemPrompt')">
+      <t-form-item v-if="!agentIdSelected" :label="t('workflow.editor.systemPrompt')">
         <div class="wf-prop-field">
           <RefTextarea
             :model-value="strParam('system_prompt')"
@@ -549,7 +564,7 @@
           />
         </div>
       </t-form-item>
-      <t-form-item :label="t('workflow.editor.model')">
+      <t-form-item v-if="!agentIdSelected" :label="t('workflow.editor.model')">
         <t-select
           :value="strParam('model')"
           :placeholder="t('workflow.editor.modelPlaceholder')"
@@ -560,7 +575,7 @@
           <t-option v-for="m in chatModels" :key="m.id" :value="m.id" :label="modelLabel(m.name)" />
         </t-select>
       </t-form-item>
-      <t-form-item :label="t('workflow.editor.kbSelect')">
+      <t-form-item v-if="!agentIdSelected" :label="t('workflow.editor.kbSelect')">
         <t-select
           :value="kbIds"
           :placeholder="t('workflow.editor.kbSelectHint')"
@@ -573,7 +588,7 @@
         </t-select>
         <p class="wf-prop-hint">{{ t('workflow.editor.agentKbHint') }}</p>
       </t-form-item>
-      <t-form-item :label="t('workflow.editor.temperature')">
+      <t-form-item v-if="!agentIdSelected" :label="t('workflow.editor.temperature')">
         <t-slider :value="numParam('temperature', 0.4)" :min="0" :max="2" :step="0.1" @change="setParam('temperature', $event)" />
       </t-form-item>
     </template>
@@ -830,6 +845,8 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Edge } from '@vue-flow/core'
 import type { ModelConfig } from '@/api/model'
+import type { CustomAgent } from '@/api/agent'
+import { listAgents } from '@/api/agent'
 import type { ClassifierClass, ExtractorParam, StartField, SwitchCaseGroup, TemplateOp, WorkflowNodeType } from '@/api/workflow'
 import VariableRefPicker from './VariableRefPicker.vue'
 import RefTextarea from './RefTextarea.vue'
@@ -868,6 +885,34 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+
+// ---- platform agent reuse (Agent node) ----------------------------------
+
+// Loaded once per mount; smart-reasoning agents are the ones whose config
+// the node can reuse. Builtins are excluded: they have no DB row, so
+// GetAgentByIDAndTenant cannot load them at run time.
+const agentOptions = ref<CustomAgent[]>([])
+const agentOptionsLoading = ref(false)
+const agentIdSelected = computed(() => strParam('agent_id') !== '')
+
+async function loadAgentOptions() {
+  agentOptionsLoading.value = true
+  try {
+    const res = await listAgents()
+    agentOptions.value = (res.data ?? []).filter(
+      (a) => a.config?.agent_mode === 'smart-reasoning' && !a.is_builtin,
+    )
+  } catch {
+    agentOptions.value = []
+  } finally {
+    agentOptionsLoading.value = false
+  }
+}
+loadAgentOptions()
+
+function onAgentIdChange(value: unknown) {
+  setParam('agent_id', typeof value === 'string' && value ? value : undefined)
+}
 
 // ---- param accessors ----------------------------------------------------
 

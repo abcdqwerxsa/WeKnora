@@ -276,7 +276,7 @@ func (s *stubTempDocs) ResolveForPrompt(_ context.Context, _ uint64, scope strin
 func TestRunLLMWithAttachmentsPrependsContext(t *testing.T) {
 	ms := &captureModelSvc{rer: &stubReranker{}}
 	td := &stubTempDocs{prompt: "SECRET-ATTACHMENT-CONTENT"}
-	svc := NewWorkflowService(nil, ms, &captureKBSvc{}, nil, nil, nil, nil, nil, nil, nil, nil, td).(*workflowService)
+	svc := NewWorkflowService(nil, ms, &captureKBSvc{}, nil, nil, nil, nil, nil, nil, nil, nil, nil, td).(*workflowService)
 	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(1))
 	out, err := svc.runLLMWithAttachments(ctx, WorkflowAttachmentScope("wf-1"), "the query", []string{"doc-1"},
 		nodes.LLMRequest{Prompt: "p", SystemPrompt: "be brief", Model: "m"})

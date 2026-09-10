@@ -13,6 +13,7 @@ func TestAgentNodeRendersAndRecordsAnswer(t *testing.T) {
 		"model":         "m-1",
 		"kb_ids":        []any{"kb-a", "kb-b"},
 		"temperature":   0.3,
+		"agent_id":      "ag-9",
 	}, Deps{AgentFunc: func(_ context.Context, req AgentRequest) (string, error) {
 		got = req
 		return "agent says hi", nil
@@ -37,6 +38,9 @@ func TestAgentNodeRendersAndRecordsAnswer(t *testing.T) {
 	}
 	if got.Temperature != 0.3 {
 		t.Errorf("temperature = %v", got.Temperature)
+	}
+	if got.AgentID != "ag-9" {
+		t.Errorf("agentID = %q, want ag-9", got.AgentID)
 	}
 }
 
