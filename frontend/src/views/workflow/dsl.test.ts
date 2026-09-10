@@ -19,9 +19,10 @@ test('validateGraph accepts a clean linear graph', () => {
   assert.deepEqual(issues, [])
 })
 
-test('validateGraph flags multiple entries, multiple terminals, stale refs and unreachable cycles', () => {
+test('validateGraph: unreachable cycles warn; floating nodes are not entries', () => {
   // x↔y is a disconnected cycle: every node in it is targeted (so not an
-  // "entry") yet unreachable from the real entries a/b.
+  // "entry") yet unreachable from the real entry a. b has no edges at all —
+  // floating, so it is neither an entry nor a hard error, just unreachable.
   const issues = validateGraph(
     [
       node('a', 'Start'),
@@ -37,16 +38,47 @@ test('validateGraph flags multiple entries, multiple terminals, stale refs and u
     ],
   )
   const keys = issues.map((i) => i.key)
-  assert.ok(keys.includes('multipleEntries'))
+  assert.ok(!keys.includes('multipleEntries'))
   // Multiple terminals are legal now (parallel fan-out) — must NOT be flagged.
   assert.ok(!keys.includes('multipleTerminals'))
-  // b, c, x, y all lack downstream edges → no noTerminal (each is a terminal)
   assert.ok(!keys.includes('noTerminal'))
   assert.deepEqual(
     issues.filter((i) => i.key === 'unreachable').map((i) => i.nodeId),
-    ['x', 'y'],
+    ['b', 'x', 'y'],
   )
   assert.ok(keys.includes('staleRef'))
+})
+
+test('validateGraph: floating nodes are not entries (do not block save)', () => {
+  const issues = validateGraph(
+    [
+      node('start', 'Start'),
+      node('llm', 'LLM', { prompt: '{start@query}' }),
+      node('loose', 'Code', { code: 'print(1)' }),
+    ],
+    [{ id: 'e1', source: 'start', target: 'llm' }],
+  )
+  const keys = issues.map((i) => i.key)
+  assert.ok(!keys.includes('multipleEntries'), `unexpected multipleEntries: ${keys}`)
+  assert.ok(keys.includes('unreachable'), 'isolated node should stay an unreachable warning')
+})
+
+test('validateGraph: multiple real flow entries still fail', () => {
+  const issues = validateGraph(
+    [
+      node('a', 'Start'),
+      node('b', 'Start'),
+      node('c', 'LLM'),
+      node('d', 'Template'),
+    ],
+    [
+      { id: 'e1', source: 'a', target: 'c' },
+      { id: 'e2', source: 'b', target: 'd' },
+    ],
+  )
+  const multiple = issues.find((i) => i.key === 'multipleEntries')
+  assert.ok(multiple, 'expected multipleEntries error')
+  assert.equal(multiple.values?.count, 2)
 })
 
 test('validateGraph reports no entry and no terminal on a pure cycle', () => {
@@ -234,4 +266,39 @@ test('annotations ride in the graph view and never become components', () => {
   const built = buildDsl(out.graph!.nodes, out.graph!.edges)
   assert.strictEqual(built.components['note-1'], undefined, 'notes must not become components')
   assert.ok(built.graph?.nodes.some((n) => n.id === 'note-1'))
+})
+
+test('componentsFromGraph excludes floating (unwired) nodes; keep iteration bodies', async () => {
+  const { componentsFromGraph } = await import('./dsl.ts')
+  const nodes = [
+    node('start', 'Start'),
+    node('llm', 'LLM', { prompt: '{start@query}' }),
+    // Fully isolated: no edges at all.
+    node('float', 'WebSearch'),
+    // Iteration body member: parented, wired only to a body sibling.
+    node('iter', 'Iteration'),
+    node('body1', 'Code', { parent: 'iter' }),
+    node('body2', 'Answer', { parent: 'iter' }),
+  ]
+  const edges = [
+    { id: 'e1', source: 'start', target: 'llm' },
+    { id: 'e2', source: 'iter', target: 'body1' },
+    { id: 'e3', source: 'body1', target: 'body2' },
+  ]
+  const out = componentsFromGraph(nodes, edges)
+  assert.ok(out['start'] && out['llm'], 'wired nodes stay')
+  assert.strictEqual(out['float'], undefined, 'floating node must not reach the execution view')
+  assert.ok(out['iter'] && out['body1'] && out['body2'], 'iteration bodies are not excluded')
+
+  // Save-shape sanity: the built DSL keeps >= 1 entry component (server
+  // ValidateWorkflowDSL requires it) and drops the floater.
+  const built = buildDsl(nodes, edges)
+  assert.strictEqual(built.components['float'], undefined)
+  assert.ok(Object.keys(built.components).length > 0)
+})
+
+test('componentsFromGraph keeps everything when ALL nodes are floating', async () => {
+  const { componentsFromGraph } = await import('./dsl.ts')
+  const out = componentsFromGraph([node('a', 'LLM'), node('b', 'Answer')], [])
+  assert.ok(out['a'] && out['b'], 'exclusion must not empty the components view (save would 400)')
 })

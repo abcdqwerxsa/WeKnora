@@ -70,6 +70,9 @@ var (
 	// ErrWorkflowNotPublishable: publish prerequisites failed (wraps the
 	// reason, e.g. DSL does not compile).
 	ErrWorkflowNotPublishable = errors.New("workflow cannot be published")
+	// ErrWorkflowNodeNotRunnable: the requested node cannot run in
+	// isolation (missing from the draft, Start, or an Iteration node).
+	ErrWorkflowNodeNotRunnable = errors.New("this node cannot be run in isolation")
 )
 
 // workflowDSLShape is the minimal structural view used to validate the DSL
@@ -587,7 +590,80 @@ func (s *workflowService) RunWorkflow(ctx context.Context, id string, req *types
 		return run, nil
 	}
 
-	return run, s.executeWorkflowRun(ctx, run, wf, normalized, req)
+	return run, s.executeWorkflowRun(ctx, run, wf, normalized, req, nil)
+}
+
+// RunWorkflowNode executes a SINGLE node of the workflow's DRAFT DSL with
+// injected upstream outputs (n8n-style step debugging): the editor passes
+// inputs (upstream nodeID -> param -> value, usually the previous run's
+// recorded outputs); they are seeded into the run's canvas state so
+// {upstream@param} template refs resolve without executing the upstreams.
+// Runs synchronously and persists a workflow_runs row like RunWorkflow —
+// the trace/SSE/history machinery then applies unchanged.
+func (s *workflowService) RunWorkflowNode(ctx context.Context, id, nodeID string, req *types.RunWorkflowNodeRequest) (*types.WorkflowRun, error) {
+	tenantID, ok := types.TenantIDFromContext(ctx)
+	if !ok || tenantID == 0 {
+		return nil, ErrWorkflowTenantRequired
+	}
+	if req == nil {
+		req = &types.RunWorkflowNodeRequest{}
+	}
+	wf, err := s.repo.GetWorkflowByIDAndTenant(ctx, id, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	// Editor-only debug affordance: always the DRAFT DSL (a published
+	// snapshot may lag the node being debugged), gated like other draft runs.
+	if !canDebugUnpublished(ctx, wf) {
+		return nil, ErrWorkflowNotDebuggable
+	}
+	normalized, err := s.normalizeDSLBytes(wf.DSL)
+	if err != nil {
+		return nil, err
+	}
+	comp, ok := normalized.Components[nodeID]
+	if !ok {
+		return nil, fmt.Errorf("%w: node %q is not in the draft DSL", ErrWorkflowNodeNotRunnable, nodeID)
+	}
+	if strings.EqualFold(comp.Obj.ComponentName, nodes.ComponentStart) {
+		return nil, fmt.Errorf("%w: the Start node has nothing to inject and nothing to debug", ErrWorkflowNodeNotRunnable)
+	}
+	if strings.EqualFold(comp.Obj.ComponentName, nodes.ComponentIteration) {
+		return nil, fmt.Errorf("%w: Iteration nodes need their loop body context; run the whole workflow instead", ErrWorkflowNodeNotRunnable)
+	}
+
+	// Sub-DSL: the lone node, no edges — it is both the entry and the
+	// terminal, which is exactly the shape Compile validates for. Variables
+	// carry over so {env.*} refs keep working.
+	cp := *comp
+	cp.Upstream = []string{}
+	cp.Downstream = []string{}
+	sub := &wfengine.DSL{
+		Version:    normalized.Version,
+		Variables:  normalized.Variables,
+		Components: map[string]*wfengine.Component{nodeID: &cp},
+	}
+
+	// Normalize the injected upstream outputs to the engine's wire shape.
+	seed := make(map[string]map[string]any, len(req.Inputs))
+	for upstreamID, params := range req.Inputs {
+		if m, ok := params.(map[string]any); ok {
+			seed[upstreamID] = m
+		}
+	}
+
+	inputDoc, _ := json.Marshal(map[string]any{"node_id": nodeID, "inputs": req.Inputs})
+	run := &types.WorkflowRun{
+		ID:         uuid.New().String(),
+		TenantID:   tenantID,
+		WorkflowID: id,
+		Status:     types.WorkflowRunStatusPending,
+		Input:      types.JSON(inputDoc),
+	}
+	if err := s.repo.CreateWorkflowRun(ctx, run); err != nil {
+		return nil, err
+	}
+	return run, s.executeWorkflowRun(ctx, run, wf, sub, &types.RunWorkflowRequest{}, seed)
 }
 
 // ProcessWorkflowRun is the asynq handler for types.TypeWorkflowRun.
@@ -640,7 +716,7 @@ func (s *workflowService) ProcessWorkflowRun(ctx context.Context, t *asynq.Task)
 	}
 	req := &types.RunWorkflowRequest{Query: payload.Query, Files: payload.Files, Inputs: payload.Inputs, Async: true}
 	// Execution errors are already persisted as the run's terminal state.
-	_ = s.executeWorkflowRun(ctx, run, wf, normalized, req)
+	_ = s.executeWorkflowRun(ctx, run, wf, normalized, req, nil)
 	return nil
 }
 
@@ -702,6 +778,7 @@ func (s *workflowService) executeWorkflowRun(
 	wf *types.Workflow,
 	normalized *wfengine.DSL,
 	req *types.RunWorkflowRequest,
+	seedOutputs map[string]map[string]any,
 ) error {
 	run.Status = types.WorkflowRunStatusRunning
 	if err := s.repo.UpdateWorkflowRun(ctx, run); err != nil {
@@ -858,6 +935,7 @@ func (s *workflowService) executeWorkflowRun(
 		// re-invoked. Lite mode (nil KV) degrades to fresh runs.
 		CheckpointID: run.ID,
 		Inputs:       req.Inputs,
+		SeedOutputs:  seedOutputs,
 	})
 	if rerr != nil {
 		s.failWorkflowRunWithTrace(ctx, run, rerr, traceJSON)

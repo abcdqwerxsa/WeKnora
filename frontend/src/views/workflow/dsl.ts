@@ -198,6 +198,18 @@ export function componentsFromGraph(nodes: WFNode[], edges: WFEdge[]): Record<st
     if (!source.downstream.includes(edge.target)) source.downstream.push(edge.target)
     if (!target.upstream.includes(edge.source)) target.upstream.push(edge.source)
   }
+  // Floating (unwired) nodes must NOT reach the execution view: the engine
+  // compiles components and every node with empty upstream counts as an
+  // entry, so a stray node would fail the run with "multiple entries".
+  // Isolated = no incoming AND no outgoing edges AND not an iteration body.
+  // If that exclusion would empty the view, keep everything (still saves).
+  const isolated = Object.keys(components).filter((id) => {
+    const comp = components[id]
+    return comp.upstream.length === 0 && comp.downstream.length === 0 && !comp.parent
+  })
+  if (isolated.length > 0 && isolated.length < Object.keys(components).length) {
+    for (const id of isolated) delete components[id]
+  }
   return components
 }
 
@@ -232,7 +244,7 @@ export function normalizeDsl(input: unknown): WorkflowDSL {
       .filter((n) => n && typeof n.id === 'string' && isNoteNode(n))
       .map((n) => ({
         id: n.id,
-        type: NOTE_NODE_TYPE,
+        type: NOTE_NODE_TYPE as WorkflowNodeType,
         position: { x: Number(n.position?.x) || 0, y: Number(n.position?.y) || 0 },
         data: { text: typeof (n.data as Record<string, unknown> | undefined)?.text === 'string' ? (n.data as Record<string, unknown>).text : '' },
       }))
@@ -240,7 +252,14 @@ export function normalizeDsl(input: unknown): WorkflowDSL {
     const nodeIds = new Set(nodes.map((n) => n.id))
     const edges = graphEdges
       .filter((e) => e && typeof e.source === 'string' && typeof e.target === 'string' && nodeIds.has(e.source) && nodeIds.has(e.target))
-      .map((e) => ({ id: e.id || `e-${e.source}-${e.target}`, source: e.source, target: e.target }))
+      .map((e) => ({
+        id: e.id || `e-${e.source}-${e.target}`,
+        source: e.source,
+        target: e.target,
+        // Branch identity (routing nodes) rides on the edge — the canvas
+        // renders branch handles from it; the engine ignores it.
+        ...(e.sourceHandle ? { sourceHandle: e.sourceHandle } : {}),
+      }))
     return {
       version: 1,
       graph: { nodes, edges },
@@ -373,7 +392,10 @@ export function validateGraph(nodes: WFNode[], edges: WFEdge[]): GraphIssue[] {
   const ids = new Set(nodes.map((n) => n.id))
 
   const targeted = new Set(edges.map((e) => e.target))
-  const entries = nodes.filter((n) => !targeted.has(n.id))
+  // An entry is an untargeted node that actually STARTS a flow (has an
+  // outgoing edge). A floating node (no edges at all) is not an entry —
+  // it is already covered by the `unreachable` warning below.
+  const entries = nodes.filter((n) => !targeted.has(n.id) && edges.some((e) => e.source === n.id))
   const terminals = nodes.filter((n) => !edges.some((e) => e.source === n.id))
 
   if (entries.length === 0) issues.push({ level: 'error', key: 'noEntry' })

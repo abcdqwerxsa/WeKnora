@@ -9,6 +9,18 @@
         <span class="wf-node-kind">{{ title }}</span>
         <span class="wf-node-subtitle">{{ subtitle || desc }}</span>
       </div>
+      <!-- n8n-style step run: visible on hover for non-Start nodes;
+           click.stop keeps canvas selection/drawer out of the way. -->
+      <button
+        v-if="kind !== 'Start'"
+        type="button"
+        class="wf-node-run-btn"
+        :disabled="runNodeLoading"
+        :title="t('workflow.editor.runNode')"
+        @click.stop="$emit('run-node')"
+      >
+        <t-icon :name="runNodeLoading ? 'loading' : 'play'" :class="{ 'wf-spin': runNodeLoading }" />
+      </button>
       <t-popup
         v-if="outputs"
         trigger="click"
@@ -46,14 +58,18 @@
       :style="branch.style"
       class="wf-handle"
       @mousedown="onHandleMouseDown"
-      @click.stop="onHandleClick(branch.id)"
+      @click.stop="onHandleClick($event, branch.id)"
     >
-      <span v-if="!connectedHandles.includes(branch.id)" class="wf-node-quickadd" :title="t('workflow.editor.quickAdd')">
+      <!-- + shows on hover for EVERY source handle, connected or not:
+           picking from an occupied handle branches out (multi-output).
+           Connected handles additionally show the line marker below. -->
+      <span class="wf-node-quickadd" :title="t('workflow.editor.quickAdd')">
         <t-icon name="add" />
       </span>
-      <template v-if="menuOpen === branch.id">
-        <div class="wf-quickadd-backdrop" @click.stop="menuOpen = null" />
-        <div class="wf-quickadd-pop">
+      <template v-if="menuOpen === (branch.id ?? '')">
+        <!-- pointerdown must not bubble: the pane would start a box-select
+             (pointer mode) or node drag that intercepts the item click. -->
+        <div class="wf-quickadd-pop" @pointerdown.stop @mousedown.stop>
           <button
             v-for="entry in quickAddKinds"
             :key="entry"
@@ -73,7 +89,7 @@
          once an edge leaves the handle; the + is gone. -->
     <span
       v-for="branch in sourceBranches"
-      v-show="connectedHandles.includes(branch.id)"
+      v-show="connectedHandles.includes(branch.id ?? '')"
       :key="`mark-${branch.id}`"
       class="wf-handle-connected"
       :style="branch.style"
@@ -82,13 +98,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Handle, Position } from '@vue-flow/core'
 import type { WorkflowNodeType } from '@/api/workflow'
 import { NODE_COLORS, NODE_ICONS, NODE_PALETTE } from '../nodeMeta'
 
-const emit = defineEmits<{ 'quick-add': [kind: WorkflowNodeType, sourceHandle?: string] }>()
+const emit = defineEmits<{ 'quick-add': [kind: WorkflowNodeType, sourceHandle?: string]; 'run-node': [] }>()
 
 const props = defineProps<{
   /** Handle ids that already have an outgoing edge: their + yields the spot
@@ -107,6 +123,8 @@ const props = defineProps<{
   outputs?: Record<string, unknown>
   /** Node id shown in the outputs popover header. */
   nodeId?: string
+  /** True while a single-node debug run is in flight (button shows a spinner). */
+  runNodeLoading?: boolean
 }>()
 
 const { t } = useI18n()
@@ -131,7 +149,7 @@ const quickAddKinds = computed(() =>
 // routing nodes (the parent passes `branches`), vertically distributed.
 const sourceBranches = computed(() => {
   if (!props.branches || props.branches.length === 0) {
-    return props.hasSourceHandle ? [{ id: undefined as string | undefined, label: '', style: {} }] : []
+    return hasSourceHandle.value ? [{ id: undefined as string | undefined, label: '', style: {} }] : []
   }
   const n = props.branches.length
   return props.branches.map((branch, i) => ({
@@ -149,14 +167,28 @@ const connectedHandles = computed(() => props.connectedHandles ?? [])
 const menuOpen = ref<string | null>(null)
 let handleDownAt = { x: 0, y: 0 }
 
+// Close the menu on any pointerdown outside it. A fixed backdrop cannot do
+// this job: the node wrapper carries a transform, which traps position:fixed
+// to the node box, so outside clicks never reached it.
+watch(menuOpen, (value, _prev, onCleanup) => {
+  if (value === null) return
+  const close = (event: PointerEvent) => {
+    const target = event.target as Element | null
+    // Handles are left to their own click logic (toggle/switch menus).
+    if (target?.closest('.wf-quickadd-pop, .vue-flow__handle')) return
+    menuOpen.value = null
+  }
+  window.addEventListener('pointerdown', close, true)
+  onCleanup(() => window.removeEventListener('pointerdown', close, true))
+})
+
 function onHandleMouseDown(event: MouseEvent) {
   handleDownAt = { x: event.clientX, y: event.clientY }
 }
 
-function onHandleClick(handleId: string | undefined) {
+function onHandleClick(event: MouseEvent, handleId: string | undefined) {
   if (Math.hypot(event.clientX - handleDownAt.x, event.clientY - handleDownAt.y) > 5) return
   const id = handleId ?? ''
-  if (connectedHandles.value.includes(id)) return
   menuOpen.value = menuOpen.value === id ? null : id
 }
 
@@ -252,6 +284,48 @@ function pickKind(kind: WorkflowNodeType, handleId: string | undefined) {
   white-space: nowrap;
 }
 
+/* n8n-style step-run button: hidden until the card is hovered/selected. */
+.wf-node-run-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: var(--td-brand-color-1, var(--td-brand-color-light));
+  color: var(--td-brand-color);
+  cursor: pointer;
+  flex: none;
+  font-size: 14px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.wf-node:hover .wf-node-run-btn,
+.wf-node--selected .wf-node-run-btn {
+  opacity: 1;
+}
+
+.wf-node-run-btn:hover {
+  background: var(--td-brand-color-2, var(--td-brand-color-focus));
+}
+
+.wf-node-run-btn:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.wf-spin {
+  animation: wf-spin 0.8s linear infinite;
+}
+
+@keyframes wf-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* Last-run outputs inspect badge (debug payload from the run panel). */
 .wf-node-output-badge {
   display: inline-flex;
@@ -304,10 +378,17 @@ function pickKind(kind: WorkflowNodeType, handleId: string | undefined) {
 }
 
 /* While a connection drag is live, every valid drop target lights up so
-   users can SEE where the line can land (Dify highlights targets too). */
-:deep(.vue-flow__handle.connectionindicator) {
+   users can SEE where the line can land (Dify highlights targets too).
+   vue-flow 1.48 marks the handle under the pointer with `connecting` and
+   toggles `valid` when the drop would be accepted. */
+:deep(.vue-flow__handle.connecting) {
   background: var(--td-brand-color) !important;
   border-radius: 50%;
+  opacity: 0.35;
+}
+
+:deep(.vue-flow__handle.connecting.valid) {
+  opacity: 1;
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--td-brand-color) 22%, transparent);
 }
 
@@ -341,14 +422,24 @@ function pickKind(kind: WorkflowNodeType, handleId: string | undefined) {
   transform: translate(-50%, -50%) scale(1);
 }
 
-/* Quick-add popover anchored to the handle (right of the node). The
-   fixed backdrop closes it on any outside click. */
-.wf-quickadd-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 30;
-}
+/* Quick-add popover look lives in the GLOBAL style block at the end of
+   this file: WfEdge's teleported EdgeLabelRenderer content shares these
+   classes and carries no scope attribute, so scoped rules never reach it. */
 
+.wf-node-output-json {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+</style>
+
+<style>
+/* Global: shared by WfNodeCard's own quick-add menu AND WfEdge's teleported
+   EdgeLabelRenderer insert menu (teleported content has no scope attr). */
 .wf-quickadd-pop {
   position: absolute;
   left: calc(100% + 10px);
@@ -366,6 +457,9 @@ function pickKind(kind: WorkflowNodeType, handleId: string | undefined) {
   background: var(--td-bg-color-container);
   border: 1px solid var(--td-component-stroke);
   box-shadow: var(--td-shadow-3);
+  /* the edge-insert pop sits inside .wf-edge-insert (pointer-events: none,
+     so the edge keeps receiving hover); the menu must take pointers back */
+  pointer-events: auto;
 }
 
 .wf-quickadd-item {
@@ -396,15 +490,5 @@ function pickKind(kind: WorkflowNodeType, handleId: string | undefined) {
   color: #fff;
   flex: none;
   font-size: 12px;
-}
-
-.wf-node-output-json {
-  margin: 0;
-  max-height: 260px;
-  overflow: auto;
-  font-size: 11px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-word;
 }
 </style>

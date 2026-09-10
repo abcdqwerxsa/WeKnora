@@ -98,6 +98,15 @@ type RunWorkflowRequest struct {
 	Async bool `json:"async,omitempty"`
 }
 
+// RunWorkflowNodeRequest is the REST payload for POST /workflows/:id/runs/node
+// (n8n-style single-node debug run). Inputs maps upstream node ids to their
+// output params (nodeID -> param -> value); they are injected into the run's
+// canvas state so {upstream@param} template refs resolve without executing
+// the upstreams.
+type RunWorkflowNodeRequest struct {
+	Inputs map[string]any `json:"inputs,omitempty"`
+}
+
 // WorkflowStatusRequest is the REST payload for POST /workflows/:id/status
 // (draft/archived flips; publishing has its own snapshot endpoint).
 type WorkflowStatusRequest struct {
