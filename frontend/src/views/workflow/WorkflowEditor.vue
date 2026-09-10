@@ -64,7 +64,7 @@
 
     <div v-show="ready" class="wf-editor-canvas">
       <NodePalette @add="addNodeFromPalette" />
-      <div class="wf-editor-flow">
+      <div class="wf-editor-flow" :class="{ 'wf-editor-flow--comment': canvasMode === 'comment' }">
         <!-- Dify-style canvas toolbar: pointer (V, box multi-select), hand
              (H, or hold Space temporarily), comment (C, click to place). -->
         <div class="wf-canvas-toolbar">
@@ -105,10 +105,13 @@
           :max-zoom="2"
           :default-edge-options="defaultEdgeOptions"
           :connection-radius="36"
-          :pan-on-drag="effectiveMode === 'hand'"
-          :nodes-draggable="effectiveMode !== 'hand'"
+          :pan-on-drag="effectiveMode === 'hand' || [1]"
+          :nodes-draggable="effectiveMode !== 'comment'"
+          :pan-on-scroll="effectiveMode === 'pointer'"
           :selection-key-code="effectiveMode === 'pointer'"
+          :selection-mode="SelectionMode.Partial"
           :delete-key-code="null"
+          :min-zoom="0.25"
           @pane-click="onPaneClick"
           @connect="onConnect"
           @node-click="onNodeClick"
@@ -231,7 +234,7 @@ import { computed, onUnmounted, ref, watch, type Ref } from 'vue'
 import { useRoute, onBeforeRouteLeave, useRouter } from 'vue-router'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
-import { VueFlow, MarkerType, type Connection, type Edge, type EdgeMouseEvent, type Node, type NodeMouseEvent } from '@vue-flow/core'
+import { VueFlow, MarkerType, SelectionMode, type Connection, type Edge, type EdgeMouseEvent, type Node, type NodeMouseEvent } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
 import { MiniMap } from '@vue-flow/minimap'
@@ -1124,6 +1127,10 @@ load()
   flex: 1;
   min-width: 0;
   position: relative;
+}
+
+.wf-editor-flow--comment :deep(.vue-flow__pane) {
+  cursor: crosshair;
 }
 
 .wf-canvas-toolbar {

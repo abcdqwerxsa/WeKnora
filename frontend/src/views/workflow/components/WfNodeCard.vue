@@ -32,6 +32,9 @@
       </t-popup>
     </div>
     <Handle v-if="hasSourceHandle" type="source" :position="Position.Right" />
+    <!-- Connected marker (Dify-style): a 2×8px vertical line owns the spot
+         once an edge leaves this node; the + is gone. -->
+    <span v-if="hasSourceHandle && hasOutgoing" class="wf-handle-connected" />
     <!-- Dify-style quick add: a fat + on the source side; picking a kind
          creates the downstream node pre-connected to this one. -->
     <t-popup
@@ -270,9 +273,9 @@ const quickAddKinds = computed(() =>
   color: var(--td-text-color-primary);
 }
 
+/* Dify trigger pattern: opacity 0 until the card is hovered or selected
+   (or its popup is open — t-popup keeps it interactive). */
 .wf-node-quickadd {
-  /* Exactly over the source handle: the + doubles as the handle's face
-     (Dify-style); once connected it is hidden and the edge takes over. */
   position: absolute;
   right: -11px;
   top: 50%;
@@ -283,6 +286,8 @@ const quickAddKinds = computed(() =>
   justify-content: center;
   width: 22px;
   height: 22px;
+  opacity: 0;
+  transition: opacity 0.15s ease, transform 0.15s ease;
   border-radius: 50%;
   border: 1.5px solid var(--td-component-stroke);
   background: var(--td-bg-color-container);
@@ -293,27 +298,45 @@ const quickAddKinds = computed(() =>
   transition: all 0.15s ease;
 }
 
+.wf-node:hover .wf-node-quickadd,
+.wf-node--selected .wf-node-quickadd {
+  opacity: 1;
+}
+
 .wf-node-quickadd:hover {
   color: var(--td-brand-color);
   border-color: var(--td-brand-color);
   transform: translateY(-50%) scale(1.15);
 }
 
-/* Fat connection dots: a clearly visible 12px core with an invisible 30px
-   interaction halo — dragging edges no longer requires pixel-perfect aim. */
+/* Dify-style handles: the element itself is invisible (16px hit target);
+   the visuals are either the hover + or, once connected, the line marker.
+   An invisible halo keeps manual edge-drag forgiving. */
 :deep(.vue-flow__handle) {
-  width: 12px;
-  height: 12px;
-  border: 2.5px solid var(--td-brand-color);
-  background: var(--td-bg-color-container);
+  width: 16px;
+  height: 16px;
+  border: none;
+  background: transparent;
   position: relative;
 }
 
 :deep(.vue-flow__handle)::after {
   content: '';
   position: absolute;
-  inset: -9px;
+  inset: -7px;
   border-radius: 50%;
+}
+
+.wf-handle-connected {
+  position: absolute;
+  right: -1px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2px;
+  height: 8px;
+  border-radius: 1px;
+  background: var(--td-brand-color);
+  z-index: 4;
 }
 
 .wf-node-output-json {
