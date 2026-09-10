@@ -1570,7 +1570,7 @@ func (s *workflowService) runPlatformAgent(ctx context.Context, tenantID uint64,
 	if s.customAgents == nil {
 		return "", errors.New("workflow Agent: custom agent service unavailable")
 	}
-	ca, err := s.customAgents.GetAgentByIDAndTenant(ctx, agentID, tenantID)
+	ca, err := s.customAgents.GetAgentByID(ctx, agentID)
 	if err != nil {
 		return "", fmt.Errorf("workflow Agent: load agent %q: %w", agentID, err)
 	}

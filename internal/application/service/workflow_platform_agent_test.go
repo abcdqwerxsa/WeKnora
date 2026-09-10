@@ -21,7 +21,7 @@ type wfStubCustomAgents struct {
 	agent *types.CustomAgent
 }
 
-func (s *wfStubCustomAgents) GetAgentByIDAndTenant(_ context.Context, _ string, _ uint64) (*types.CustomAgent, error) {
+func (s *wfStubCustomAgents) GetAgentByID(_ context.Context, _ string) (*types.CustomAgent, error) {
 	return s.agent, nil
 }
 

@@ -889,8 +889,8 @@ const { t } = useI18n()
 // ---- platform agent reuse (Agent node) ----------------------------------
 
 // Loaded once per mount; smart-reasoning agents are the ones whose config
-// the node can reuse. Builtins are excluded: they have no DB row, so
-// GetAgentByIDAndTenant cannot load them at run time.
+// the node can reuse. Builtins are included: the backend loads them via
+// GetAgentByID (DB row or builtin registry fallback).
 const agentOptions = ref<CustomAgent[]>([])
 const agentOptionsLoading = ref(false)
 const agentIdSelected = computed(() => strParam('agent_id') !== '')
@@ -899,9 +899,7 @@ async function loadAgentOptions() {
   agentOptionsLoading.value = true
   try {
     const res = await listAgents()
-    agentOptions.value = (res.data ?? []).filter(
-      (a) => a.config?.agent_mode === 'smart-reasoning' && !a.is_builtin,
-    )
+    agentOptions.value = (res.data ?? []).filter((a) => a.config?.agent_mode === 'smart-reasoning')
   } catch {
     agentOptions.value = []
   } finally {
