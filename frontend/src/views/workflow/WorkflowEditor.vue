@@ -101,7 +101,7 @@
           v-model:nodes="canvasNodes"
           v-model:edges="canvasEdges"
           fit-view-on-init
-          :min-zoom="0.2"
+          :min-zoom="0.25"
           :max-zoom="2"
           :default-edge-options="defaultEdgeOptions"
           :connection-radius="36"
