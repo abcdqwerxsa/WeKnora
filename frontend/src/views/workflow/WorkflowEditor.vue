@@ -111,7 +111,6 @@
           :selection-key-code="effectiveMode === 'pointer'"
           :selection-mode="SelectionMode.Partial"
           :delete-key-code="null"
-          :min-zoom="0.25"
           @pane-click="onPaneClick"
           @connect="onConnect"
           @node-click="onNodeClick"
