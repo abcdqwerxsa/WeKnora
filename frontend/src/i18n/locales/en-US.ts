@@ -5459,6 +5459,7 @@ export default {
       wikiReadSourceDoc: 'Deep-read Source Doc',
       todoWrite: 'Plan Management',
       knowledgeGraphExtract: 'Knowledge Graph Extraction',
+      thinking: 'Thinking',
       attachmentParsing: 'Parsing Attachment',
       imageAnalysis: 'Image Analysis',
       queryUnderstand: 'Understand Query',
