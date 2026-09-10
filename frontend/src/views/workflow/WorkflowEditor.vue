@@ -118,6 +118,14 @@
           @edge-double-click="onEdgeDoubleClick"
 
         >
+          <!-- Custom default edge: Dify-style midpoint + inserts a node
+               between source and target. -->
+          <template #edge-default="edgeProps">
+            <WfEdge
+              v-bind="edgeProps"
+              @insert="(kind) => onEdgeInsert(String(edgeProps.source), String(edgeProps.target), kind, edgeProps)"
+            />
+          </template>
           <Background :gap="20" />
           <Controls position="bottom-left" />
           <MiniMap position="bottom-right" pannable zoomable />
@@ -140,8 +148,9 @@
               :run-phase="runNodePhases[nodeProps.id]"
               :outputs="runNodeOutputs[nodeProps.id]"
               :node-id="nodeProps.id"
-              :has-outgoing="canvasEdges.some((edge) => edge.source === nodeProps.id)"
-              @quick-add="(kind) => onQuickAdd(String(nodeProps.id), kind)"
+              :branches="branchHandlesOf(nodeProps)"
+              :connected-handles="connectedHandlesOf(nodeProps.id)"
+              @quick-add="(kind, handleId) => onQuickAdd(String(nodeProps.id), kind, handleId)"
             />
           </template>
         </VueFlow>
@@ -244,6 +253,7 @@ import '@vue-flow/core/dist/theme-default.css'
 import '@vue-flow/controls/dist/style.css'
 import '@vue-flow/minimap/dist/style.css'
 import WfNodeCard from './components/WfNodeCard.vue'
+import WfEdge from './components/WfEdge.vue'
 import NodePalette from './components/NodePalette.vue'
 import NodePropertyForm from './components/NodePropertyForm.vue'
 import WorkflowRunPanel from './components/WorkflowRunPanel.vue'
@@ -733,12 +743,15 @@ watch(selectedParams, () => refreshEdgeLabels(), { deep: true })
 function refreshEdgeLabels() {
   for (const edge of canvasEdges.value) {
     const source = canvasNodes.value.find((node) => node.id === edge.source)
-    if (!source || source.data?.kind !== 'Switch') continue
+    if (!source || (source.data?.kind !== 'Switch' && source.data?.kind !== 'QuestionClassifier')) continue
     const params = (source.data as { params?: Record<string, unknown> }).params ?? {}
-    const cases = Array.isArray(params.cases) ? (params.cases as Array<{ value: string; to: string }>) : []
+    const cases = (Array.isArray(params.cases) ? (params.cases as Array<Record<string, unknown>>) : Array.isArray(params.classes) ? (params.classes as Array<Record<string, unknown>>) : []) as Array<{ value?: string; name?: string; to: string }>
     const matched = cases.find((item) => item.to === edge.target)
     const isDefault = typeof params.default === 'string' && params.default === edge.target
-    const label = matched?.value ?? (isDefault ? t('workflow.editor.defaultBranch') : undefined)
+    const label = matched?.value ?? matched?.name ?? (isDefault ? t('workflow.editor.defaultBranch') : undefined)
+    // Map the semantic target back onto its branch handle so multi-handle
+    // nodes render edges from the right outlet.
+    edge.sourceHandle = matched ? `case-${cases.indexOf(matched)}` : isDefault ? 'default' : edge.sourceHandle
     if (label) edge.label = label
     else delete edge.label
   }
@@ -771,7 +784,9 @@ function onConnect(connection: Connection) {
     id: `e-${connection.source}-${connection.target}`,
     source: connection.source,
     target: connection.target,
+    ...(connection.sourceHandle ? { sourceHandle: connection.sourceHandle } : {}),
   })
+  bindBranchTarget(connection.source, connection.sourceHandle, connection.target)
   refreshEdgeLabels()
 }
 
@@ -801,17 +816,95 @@ function pasteClipboardNode() {
 
 // Quick-add from a node's + button: drop the new node to the right of the
 // source (stepping down when the lane is occupied) and connect immediately.
-function onQuickAdd(sourceId: string, kind: WorkflowNodeType) {
+function onQuickAdd(sourceId: string, kind: WorkflowNodeType, sourceHandle?: string) {
   const source = canvasNodes.value.find((item) => item.id === sourceId)
   if (!source) return
   const occupied = (x: number, y: number) =>
     canvasNodes.value.some((item) => Math.abs(item.position.x - x) < 200 && Math.abs(item.position.y - y) < 90)
+  // Multi-branch sources stack their children vertically per branch lane.
   let x = source.position.x + 260
   let y = source.position.y
+  if (sourceHandle?.startsWith('case-')) {
+    y = source.position.y + (Number(sourceHandle.slice(5)) - 0.5) * 110
+  }
   let guard = 0
   while (occupied(x, y) && guard++ < 12) y += 110
   addNodeAt(kind, { x, y })
-  onConnect({ source: sourceId, target: canvasNodes.value[canvasNodes.value.length - 1].id } as Connection)
+  const target = canvasNodes.value[canvasNodes.value.length - 1].id
+  onConnect({ source: sourceId, target, sourceHandle } as Connection)
+  bindBranchTarget(sourceId, sourceHandle, target)
+  refreshEdgeLabels()
+}
+
+/** Branch handles for routing nodes: one per case plus the default branch.
+ *  Plain nodes return undefined → single unnamed source handle. */
+function branchHandlesOf(node: { id: string; data?: Record<string, unknown> }): Array<{ id: string; label: string }> | undefined {
+  const kind = node.data?.kind
+  if (kind !== 'Switch' && kind !== 'QuestionClassifier') return undefined
+  const params = (node.data?.params as Record<string, unknown> | undefined) ?? {}
+  const entries = Array.isArray(params.cases)
+    ? (params.cases as Array<Record<string, unknown>>)
+    : Array.isArray(params.classes)
+      ? (params.classes as Array<Record<string, unknown>>)
+      : []
+  const branches = entries.map((entry, index) => ({
+    id: `case-${index}`,
+    label: String(entry.value ?? entry.name ?? index),
+  }))
+  if (typeof params.default === 'string' && params.default) {
+    branches.push({ id: 'default', label: t('workflow.editor.defaultBranch') })
+  }
+  return branches.length > 0 ? branches : undefined
+}
+
+/** Which source handles of a node already carry an edge ('' = the single
+ *  unnamed handle of plain nodes). */
+function connectedHandlesOf(nodeId: string): string[] {
+  return canvasEdges.value.filter((edge) => edge.source === nodeId).map((edge) => edge.sourceHandle ?? '')
+}
+
+/** Routing-node semantics: connecting from a case handle binds that case's
+ *  `to` (and `default` for the default handle) so the canvas and the DSL
+ *  params never disagree. */
+function bindBranchTarget(sourceId: string, sourceHandle: string | undefined, targetId: string) {
+  if (!sourceHandle) return
+  const source = canvasNodes.value.find((node) => node.id === sourceId)
+  if (!source || (source.data?.kind !== 'Switch' && source.data?.kind !== 'QuestionClassifier')) return
+  const params = { ...((source.data?.params as Record<string, unknown>) ?? {}) }
+  if (sourceHandle === 'default') {
+    params.default = targetId
+  } else if (sourceHandle.startsWith('case-')) {
+    const index = Number(sourceHandle.slice(5))
+    const listKey = Array.isArray(params.cases) ? 'cases' : 'classes'
+    const list = Array.isArray(params[listKey]) ? [...(params[listKey] as Array<Record<string, unknown>>)] : []
+    if (index >= 0 && index < list.length) {
+      list[index] = { ...list[index], to: targetId }
+      params[listKey] = list
+    }
+  }
+  source.data = { ...source.data, params }
+}
+
+/** Edge-midpoint insert (Dify-style): new node lands on the midpoint and
+ *  the old edge becomes source→new + new→target. */
+function onEdgeInsert(sourceId: string, targetId: string, kind: WorkflowNodeType, edgeProps: Record<string, unknown>) {
+  const edge = canvasEdges.value.find((item) => item.source === sourceId && item.target === targetId)
+  if (!edge) return
+  const sourceHandle = edge.sourceHandle
+  const midX = Number(edgeProps.sourceX ?? 0)
+  const midY = Number(edgeProps.sourceY ?? 0)
+  const dx = Number(edgeProps.targetX ?? midX) - midX
+  const dy = Number(edgeProps.targetY ?? midY) - midY
+  const position = {
+    x: midX + dx / 2 - 104,
+    y: midY + dy / 2 - 30,
+  }
+  removeEdge(edge.id)
+  addNodeAt(kind, position)
+  const inserted = canvasNodes.value[canvasNodes.value.length - 1]
+  onConnect({ source: sourceId, target: inserted.id, sourceHandle } as Connection)
+  onConnect({ source: inserted.id, target: targetId } as Connection)
+  refreshEdgeLabels()
 }
 
 function addNodeAt(kind: WorkflowNodeType, position: { x: number; y: number }) {
@@ -1056,10 +1149,11 @@ load()
 
 .wf-editor-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 10px 16px;
+  gap: 8px 12px;
+  padding: 8px 16px;
   background: var(--td-bg-color-container);
   border-bottom: 1px solid var(--td-component-stroke);
 }
@@ -1067,8 +1161,20 @@ load()
 .wf-editor-toolbar-left,
 .wf-editor-toolbar-right {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  justify-content: flex-end;
+  gap: 6px 8px;
+}
+
+.wf-editor-toolbar-left {
+  min-width: 0;
+}
+
+.wf-editor-name {
+  min-width: 120px;
+  width: auto;
+  max-width: 220px;
 }
 
 .wf-editor-name {
