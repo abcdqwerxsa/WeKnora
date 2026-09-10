@@ -285,13 +285,15 @@ function pickKind(kind: WorkflowNodeType, handleId: string | undefined) {
 
 /* Dify-style handles: invisible element, 20px hit target; visuals are the
    big hover + (24px, plus INSIDE the circle) or, once connected, the line
-   marker. The invisible halo keeps manual edge-drag forgiving. */
+   marker. The invisible halo keeps manual edge-drag forgiving.
+   NOTE: never set `position` here — vue-flow anchors handles with its own
+   `position: absolute`; overriding it (a `relative` slipped in during the
+   Dify port) collapses every handle to the card's top-left corner. */
 :deep(.vue-flow__handle) {
   width: 20px;
   height: 20px;
   border: none !important;
   background: transparent !important;
-  position: relative;
 }
 
 :deep(.vue-flow__handle)::after {
