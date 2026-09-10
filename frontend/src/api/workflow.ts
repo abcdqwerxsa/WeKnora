@@ -274,6 +274,20 @@ export const runWorkflow = (
 ): Promise<WorkflowRunResponse> => post(`/api/v1/workflows/${id}/runs`, payload)
 
 /**
+ * Run a SINGLE node of the draft DSL (n8n-style step debugging). inputs
+ * maps upstream node ids to their output params (nodeID -> param -> value);
+ * they are injected into the run's canvas state so {upstream@param} refs
+ * resolve without executing the upstreams. Synchronous: the returned run
+ * carries status + per-node trace. A failed NODE execution is a valid
+ * outcome (failed run row, not a transport error).
+ */
+export const runWorkflowNode = (
+  id: string,
+  nodeId: string,
+  payload: { inputs?: Record<string, Record<string, unknown>> },
+): Promise<WorkflowRunResponse> => post(`/api/v1/workflows/${id}/runs/node/${nodeId}`, payload)
+
+/**
  * Cancel a pending/running run (best-effort engine stop + async-task
  * dequeue). Terminal runs answer idempotently with their current state —
  * cancelling an already-finished run is not an error. The SSE stream (if

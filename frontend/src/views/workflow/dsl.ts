@@ -198,6 +198,18 @@ export function componentsFromGraph(nodes: WFNode[], edges: WFEdge[]): Record<st
     if (!source.downstream.includes(edge.target)) source.downstream.push(edge.target)
     if (!target.upstream.includes(edge.source)) target.upstream.push(edge.source)
   }
+  // Floating (unwired) nodes must NOT reach the execution view: the engine
+  // compiles components and every node with empty upstream counts as an
+  // entry, so a stray node would fail the run with "multiple entries".
+  // Isolated = no incoming AND no outgoing edges AND not an iteration body.
+  // If that exclusion would empty the view, keep everything (still saves).
+  const isolated = Object.keys(components).filter((id) => {
+    const comp = components[id]
+    return comp.upstream.length === 0 && comp.downstream.length === 0 && !comp.parent
+  })
+  if (isolated.length > 0 && isolated.length < Object.keys(components).length) {
+    for (const id of isolated) delete components[id]
+  }
   return components
 }
 

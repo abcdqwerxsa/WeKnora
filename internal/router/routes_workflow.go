@@ -69,6 +69,7 @@ func RegisterWorkflowRoutes(r *gin.RouterGroup, workflowHandler *handler.Workflo
 			WithCapability(types.APIKeyCapabilityReadWorkflows).
 			WithCapability(types.APIKeyCapabilityRunWorkflows))
 		runs.POST("/:id/runs", g.Contributor(), workflowHandler.CreateWorkflowRun)
+		runs.POST("/:id/runs/node/:node_id", g.Contributor(), workflowHandler.RunWorkflowNode)
 		runs.GET("/:id/runs", g.Viewer(), workflowHandler.ListWorkflowRuns)
 		runs.GET("/:id/runs/:run_id", g.Viewer(), workflowHandler.GetWorkflowRun)
 		runs.GET("/:id/runs/:run_id/events", g.Viewer(), workflowHandler.GetWorkflowRunEvents)

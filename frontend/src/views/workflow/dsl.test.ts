@@ -267,3 +267,38 @@ test('annotations ride in the graph view and never become components', () => {
   assert.strictEqual(built.components['note-1'], undefined, 'notes must not become components')
   assert.ok(built.graph?.nodes.some((n) => n.id === 'note-1'))
 })
+
+test('componentsFromGraph excludes floating (unwired) nodes; keep iteration bodies', async () => {
+  const { componentsFromGraph } = await import('./dsl.ts')
+  const nodes = [
+    node('start', 'Start'),
+    node('llm', 'LLM', { prompt: '{start@query}' }),
+    // Fully isolated: no edges at all.
+    node('float', 'WebSearch'),
+    // Iteration body member: parented, wired only to a body sibling.
+    node('iter', 'Iteration'),
+    node('body1', 'Code', { parent: 'iter' }),
+    node('body2', 'Answer', { parent: 'iter' }),
+  ]
+  const edges = [
+    { id: 'e1', source: 'start', target: 'llm' },
+    { id: 'e2', source: 'iter', target: 'body1' },
+    { id: 'e3', source: 'body1', target: 'body2' },
+  ]
+  const out = componentsFromGraph(nodes, edges)
+  assert.ok(out['start'] && out['llm'], 'wired nodes stay')
+  assert.strictEqual(out['float'], undefined, 'floating node must not reach the execution view')
+  assert.ok(out['iter'] && out['body1'] && out['body2'], 'iteration bodies are not excluded')
+
+  // Save-shape sanity: the built DSL keeps >= 1 entry component (server
+  // ValidateWorkflowDSL requires it) and drops the floater.
+  const built = buildDsl(nodes, edges)
+  assert.strictEqual(built.components['float'], undefined)
+  assert.ok(Object.keys(built.components).length > 0)
+})
+
+test('componentsFromGraph keeps everything when ALL nodes are floating', async () => {
+  const { componentsFromGraph } = await import('./dsl.ts')
+  const out = componentsFromGraph([node('a', 'LLM'), node('b', 'Answer')], [])
+  assert.ok(out['a'] && out['b'], 'exclusion must not empty the components view (save would 400)')
+})

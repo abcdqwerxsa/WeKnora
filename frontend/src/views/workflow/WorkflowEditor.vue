@@ -146,7 +146,9 @@
               :node-id="nodeProps.id"
               :branches="branchHandlesOf(nodeProps)"
               :connected-handles="connectedHandlesOf(nodeProps.id)"
+              :run-node-loading="nodeRunLoading === nodeProps.id"
               @quick-add="(kind, handleId) => onQuickAdd(String(nodeProps.id), kind, handleId)"
+              @run-node="onRunNode(String(nodeProps.id))"
             />
           </template>
         </VueFlow>
@@ -199,6 +201,13 @@
         @node-outputs="runNodeOutputs = $event"
       />
     </t-drawer>
+    <NodeRunDrawer
+      v-model:visible="nodeRunVisible"
+      :workflow-id="workflowId"
+      :node-id="nodeRunNodeId"
+      :node-label="nodeRunLabel"
+      :upstreams="nodeRunUpstreams"
+    />
     <t-drawer
       v-model:visible="variablesDrawerVisible"
       :header="$t('workflow.editor.variablesDrawer')"
@@ -254,7 +263,8 @@ import WfEdge from './components/WfEdge.vue'
 import NodePalette from './components/NodePalette.vue'
 import NodePropertyForm from './components/NodePropertyForm.vue'
 import WorkflowRunPanel from './components/WorkflowRunPanel.vue'
-import { WORKFLOW_NODE_TYPES, getWorkflow, updateWorkflow, publishWorkflow, type Workflow, type WorkflowDSL, type WorkflowNodeType } from '@/api/workflow'
+import NodeRunDrawer, { type NodeRunUpstream } from './components/NodeRunDrawer.vue'
+import { WORKFLOW_NODE_TYPES, getWorkflow, updateWorkflow, publishWorkflow, runWorkflowNode, type Workflow, type WorkflowDSL, type WorkflowNodeType } from '@/api/workflow'
 import { buildDsl, defaultParams, makeNodeId, migrateNodeParams, normalizeDsl, autoLayout, validateGraph, type GraphIssue } from './dsl'
 import { paramSummary } from './nodeMeta'
 import { listModels, type ModelConfig } from '@/api/model'
@@ -583,6 +593,37 @@ const runNodePhases = ref<Record<string, 'running' | 'done' | 'failed'>>({})
 // Per-node debug payload (live frames or selected history run's trace),
 // rendered as the inspect badge on canvas cards. Shares the phase lifecycle.
 const runNodeOutputs = ref<Record<string, Record<string, unknown>>>({})
+
+// ---- n8n-style single-node debug run -------------------------------------
+// Hover play button on a node card opens the debug drawer: direct upstream
+// nodes with editable JSON inputs (prefilled from the last run's outputs),
+// then runWorkflowNode POSTs to the draft-only node endpoint.
+const nodeRunVisible = ref(false)
+const nodeRunNodeId = ref('')
+const nodeRunLabel = ref('')
+const nodeRunUpstreams = ref<NodeRunUpstream[]>([])
+const nodeRunLoading = ref<string | null>(null)
+
+async function onRunNode(nodeId: string) {
+  if (nodeRunLoading.value) return
+  nodeRunLoading.value = nodeId
+  try {
+    // The server executes the SAVED draft — flush pending edits first.
+    if (dirty.value && !(await doSave())) return
+    const kindOf = (nodeId_: string): WorkflowNodeType =>
+      ((canvasNodes.value.find((n) => n.id === nodeId_)?.data as { kind?: WorkflowNodeType } | undefined)?.kind) ?? 'Answer'
+    nodeRunNodeId.value = nodeId
+    nodeRunLabel.value = t(`workflow.nodes.${kindOf(nodeId)}`)
+    nodeRunUpstreams.value = canvasEdges.value
+      .filter((edge) => edge.target === nodeId)
+      .map((edge) => edge.source)
+      .filter((id, index, all) => all.indexOf(id) === index)
+      .map((id) => ({ id, kind: kindOf(id), outputs: runNodeOutputs.value[id] ?? null }))
+    nodeRunVisible.value = true
+  } finally {
+    nodeRunLoading.value = null
+  }
+}
 
 // ---- undo / redo ---------------------------------------------------------
 // Snapshot history of the canvas structure (nodes+edges JSON). Structural

@@ -9,6 +9,18 @@
         <span class="wf-node-kind">{{ title }}</span>
         <span class="wf-node-subtitle">{{ subtitle || desc }}</span>
       </div>
+      <!-- n8n-style step run: visible on hover for non-Start nodes;
+           click.stop keeps canvas selection/drawer out of the way. -->
+      <button
+        v-if="kind !== 'Start'"
+        type="button"
+        class="wf-node-run-btn"
+        :disabled="runNodeLoading"
+        :title="t('workflow.editor.runNode')"
+        @click.stop="$emit('run-node')"
+      >
+        <t-icon :name="runNodeLoading ? 'loading' : 'play'" :class="{ 'wf-spin': runNodeLoading }" />
+      </button>
       <t-popup
         v-if="outputs"
         trigger="click"
@@ -92,7 +104,7 @@ import { Handle, Position } from '@vue-flow/core'
 import type { WorkflowNodeType } from '@/api/workflow'
 import { NODE_COLORS, NODE_ICONS, NODE_PALETTE } from '../nodeMeta'
 
-const emit = defineEmits<{ 'quick-add': [kind: WorkflowNodeType, sourceHandle?: string] }>()
+const emit = defineEmits<{ 'quick-add': [kind: WorkflowNodeType, sourceHandle?: string]; 'run-node': [] }>()
 
 const props = defineProps<{
   /** Handle ids that already have an outgoing edge: their + yields the spot
@@ -111,6 +123,8 @@ const props = defineProps<{
   outputs?: Record<string, unknown>
   /** Node id shown in the outputs popover header. */
   nodeId?: string
+  /** True while a single-node debug run is in flight (button shows a spinner). */
+  runNodeLoading?: boolean
 }>()
 
 const { t } = useI18n()
@@ -268,6 +282,48 @@ function pickKind(kind: WorkflowNodeType, handleId: string | undefined) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* n8n-style step-run button: hidden until the card is hovered/selected. */
+.wf-node-run-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: var(--td-brand-color-1, var(--td-brand-color-light));
+  color: var(--td-brand-color);
+  cursor: pointer;
+  flex: none;
+  font-size: 14px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.wf-node:hover .wf-node-run-btn,
+.wf-node--selected .wf-node-run-btn {
+  opacity: 1;
+}
+
+.wf-node-run-btn:hover {
+  background: var(--td-brand-color-2, var(--td-brand-color-focus));
+}
+
+.wf-node-run-btn:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.wf-spin {
+  animation: wf-spin 0.8s linear infinite;
+}
+
+@keyframes wf-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Last-run outputs inspect badge (debug payload from the run panel). */
