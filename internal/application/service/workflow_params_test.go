@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"errors"
-	"io"
 	"strings"
 	"testing"
 
@@ -12,7 +11,6 @@ import (
 	"github.com/Tencent/WeKnora/internal/models/rerank"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
-	"github.com/hibiken/asynq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -236,27 +234,14 @@ func TestRunRetrievalAggregatesDocAggs(t *testing.T) {
 	assert.InDelta(t, 0.9, first["score"], 1e-9)
 }
 
-// stubTempDocs fakes the temporary-document service for attachment tests.
+// stubTempDocs fakes the temporary-document service for attachment tests;
+// embeds the interface so only ResolveForPrompt needs a body.
 type stubTempDocs struct {
+	interfaces.TemporaryDocumentService
 	ids    []string
 	prompt string
 }
 
-func (s *stubTempDocs) Create(context.Context, uint64, string, string, string, int64, io.Reader, types.TemporaryDocumentCreateOptions) (*types.TemporaryDocument, error) {
-	return nil, errors.New("not implemented")
-}
-func (s *stubTempDocs) Get(context.Context, uint64, string, string) (*types.TemporaryDocument, error) {
-	return nil, errors.New("not implemented")
-}
-func (s *stubTempDocs) OpenFile(context.Context, uint64, string, string) (io.ReadCloser, string, error) {
-	return nil, "", errors.New("not implemented")
-}
-func (s *stubTempDocs) List(context.Context, uint64, string) ([]*types.TemporaryDocument, error) {
-	return nil, nil
-}
-func (s *stubTempDocs) Delete(context.Context, uint64, string, string) error { return nil }
-func (s *stubTempDocs) Process(context.Context, *asynq.Task) error           { return nil }
-func (s *stubTempDocs) CleanupExpired(context.Context) error                 { return nil }
 func (s *stubTempDocs) ResolveForPrompt(_ context.Context, _ uint64, scope string, ids []string, query string) (*types.TemporaryDocumentPromptResult, error) {
 	s.ids = ids
 	if query != "the query" {

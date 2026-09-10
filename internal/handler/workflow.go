@@ -610,13 +610,7 @@ func NewWorkflowRunAttachmentHandlers(tempDocs interfaces.TemporaryDocumentServi
 // document worker — poll Get until ready).
 func (h *WorkflowRunAttachmentHandlers) UploadWorkflowRunAttachment(c *gin.Context) {
 	ctx := c.Request.Context()
-	workflowID := c.Param("id")
-	if strings.TrimSpace(workflowID) == "" {
-		c.Error(apperrors.NewBadRequestError("missing workflow id"))
-		return
-	}
-	maxBytes := secutils.GetMaxFileSizeMB()*1024*1024 + 1024*1024
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBytes)
+	limitUploadBody(c, secutils.GetMaxFileSize())
 	fileHeader, err := c.FormFile("file")
 	if err != nil {
 		c.Error(apperrors.NewBadRequestError(fmt.Sprintf("invalid attachment upload: %v", err)))
@@ -629,7 +623,7 @@ func (h *WorkflowRunAttachmentHandlers) UploadWorkflowRunAttachment(c *gin.Conte
 	}
 	defer file.Close()
 	document, err := h.tempDocs.Create(
-		ctx, c.GetUint64(types.TenantIDContextKey.String()), service.WorkflowAttachmentScope(workflowID),
+		ctx, c.GetUint64(types.TenantIDContextKey.String()), service.WorkflowAttachmentScope(c.Param("id")),
 		fileHeader.Filename, fileHeader.Header.Get("Content-Type"), fileHeader.Size, file,
 		types.TemporaryDocumentCreateOptions{},
 	)
@@ -637,7 +631,7 @@ func (h *WorkflowRunAttachmentHandlers) UploadWorkflowRunAttachment(c *gin.Conte
 		c.Error(apperrors.NewBadRequestError(err.Error()))
 		return
 	}
-	c.JSON(http.StatusCreated, gin.H{"success": true, "data": document})
+	c.JSON(http.StatusAccepted, gin.H{"success": true, "data": document})
 }
 
 // GetWorkflowRunAttachment returns one attachment record (status polling).
@@ -647,7 +641,11 @@ func (h *WorkflowRunAttachmentHandlers) GetWorkflowRunAttachment(c *gin.Context)
 		ctx, c.GetUint64(types.TenantIDContextKey.String()),
 		service.WorkflowAttachmentScope(c.Param("id")), c.Param("attachment_id"),
 	)
-	if err != nil || document == nil {
+	if err != nil {
+		c.Error(apperrors.NewInternalServerError(err.Error()))
+		return
+	}
+	if document == nil {
 		c.Error(apperrors.NewNotFoundError("attachment not found"))
 		return
 	}

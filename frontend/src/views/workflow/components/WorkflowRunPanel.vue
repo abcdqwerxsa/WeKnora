@@ -294,9 +294,11 @@ const uploading = ref(false)
 const attachments = ref<WorkflowRunAttachment[]>([])
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
-const pendingCount = computed(
-  () => attachments.value.filter((a) => a.status === 'uploaded' || a.status === 'processing').length,
-)
+function isPending(a: WorkflowRunAttachment): boolean {
+  return a.status === 'uploaded' || a.status === 'processing'
+}
+
+const pendingCount = computed(() => attachments.value.filter(isPending).length)
 const runBlockedTitle = computed(() => {
   if (missingRequired.value.length > 0) {
     return t('workflow.run.missingFields', { names: missingRequired.value.join(', ') })
@@ -322,11 +324,12 @@ async function onFilesPicked(event: Event) {
       const response = await uploadWorkflowRunAttachment(props.workflowId, file)
       if (response?.data) attachments.value.push(response.data)
     }
-    ensurePolling()
   } catch (error) {
     MessagePlugin.error(error instanceof Error ? error.message : t('workflow.run.attachmentUploadFailed'))
   } finally {
     uploading.value = false
+    // Poll even when a later file failed to upload, so earlier ones still resolve.
+    ensurePolling()
   }
 }
 
@@ -334,7 +337,7 @@ async function onFilesPicked(event: Event) {
 function ensurePolling() {
   if (pollTimer !== null) return
   pollTimer = setInterval(async () => {
-    const pending = attachments.value.filter((a) => a.status === 'uploaded' || a.status === 'processing')
+    const pending = attachments.value.filter(isPending)
     if (pending.length === 0) {
       if (pollTimer !== null) clearInterval(pollTimer)
       pollTimer = null
@@ -344,8 +347,14 @@ function ensurePolling() {
       try {
         const response = await getWorkflowRunAttachment(props.workflowId, a.id)
         if (response?.data) Object.assign(a, response.data)
-      } catch {
-        /* transient poll failure: retry on the next tick */
+      } catch (error) {
+        // 404 = expired or deleted server-side: terminal, stop waiting on it.
+        // Anything else (network blip, 5xx) stays transient — retry next tick.
+        const { status, message } = (error ?? {}) as { status?: number; message?: string }
+        if (status === 404) {
+          a.status = 'failed'
+          a.error_message = message || a.error_message
+        }
       }
     }
   }, 2000)
