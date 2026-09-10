@@ -3,20 +3,30 @@
   <path :d="d" class="wf-edge-hit" @mouseenter="hovered = true" @mouseleave="hovered = false" />
   <path :d="d" class="wf-edge-path" :marker-end="markerEnd" />
   <EdgeLabelRenderer>
+    <!-- Branch label (Switch / QuestionClassifier): a chip on the line at
+         the bezier midpoint so parallel branches are distinguishable. -->
+    <div v-if="labelText" class="wf-edge-label" :style="{ left: `${midX}px`, top: `${midY}px` }">
+      {{ labelText }}
+    </div>
     <!-- Dify-style midpoint +: appears on edge hover, opens the quick-add
          list; picking a kind inserts a node BETWEEN source and target. -->
-    <div class="wf-edge-insert" :style="{ left: `${midX}px`, top: `${midY}px` }">
+    <!-- Dify-style midpoint +: appears on edge hover, opens the quick-add
+         list; picking a kind inserts a node BETWEEN source and target.
+         pointerdown must not reach the pane: it would start a box-select
+         drag that intercepts the menu item click. -->
+    <div class="wf-edge-insert" :style="{ left: `${midX}px`, top: `${midY}px` }" @pointerdown.stop @mousedown.stop>
       <button
         v-if="hovered || open"
         type="button"
         class="wf-edge-insert-btn"
         :title="t('workflow.editor.quickAdd')"
         @click.stop="open = !open"
+        @mouseenter="hovered = true"
+        @mouseleave="hovered = false"
       >
         <t-icon name="add" />
       </button>
       <template v-if="open">
-        <div class="wf-quickadd-backdrop" @click.stop="open = false" />
         <div class="wf-quickadd-pop wf-edge-insert-pop">
           <button
             v-for="entry in quickAddKinds"
@@ -37,7 +47,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EdgeLabelRenderer, getBezierPath } from '@vue-flow/core'
 import type { WorkflowNodeType } from '@/api/workflow'
@@ -52,6 +62,10 @@ const props = defineProps<{
   sourcePosition?: unknown
   targetPosition?: unknown
   markerEnd?: string
+  /** Branch label set by the editor (refreshEdgeLabels). Loosely typed:
+   *  vue-flow's EdgeProps.label is string | VNode | Component and the
+   *  whole edgeProps object is v-bind'ed onto this component. */
+  label?: unknown
 }>()
 
 const emit = defineEmits<{
@@ -63,8 +77,9 @@ const { t } = useI18n()
 const open = ref(false)
 const hovered = ref(false)
 
-// The bezier path plus its midpoint (labelX/labelY) — the + sits there.
-const [d, midX, midY] = computed(() =>
+// Reactive: the path (and the + anchor) must follow node drags. Destructuring
+// a computed once leaves the geometry frozen at setup time.
+const edgePath = computed(() =>
   getBezierPath({
     sourceX: props.sourceX,
     sourceY: props.sourceY,
@@ -73,7 +88,25 @@ const [d, midX, midY] = computed(() =>
     targetY: props.targetY,
     targetPosition: props.targetPosition as never,
   }),
-).value
+)
+const d = computed(() => edgePath.value[0])
+const midX = computed(() => edgePath.value[1])
+const midY = computed(() => edgePath.value[2])
+const labelText = computed(() => (typeof props.label === 'string' ? props.label : ''))
+
+// Close the insert menu on any click outside it. A fixed backdrop would
+// not work here: EdgeLabelRenderer content sits inside the transformed
+// viewport, which traps position:fixed to that box.
+watch(open, (value, _prev, onCleanup) => {
+  if (!value) return
+  const close = (event: PointerEvent) => {
+    const target = event.target as Element | null
+    if (target?.closest('.wf-edge-insert')) return
+    open.value = false
+  }
+  window.addEventListener('pointerdown', close, true)
+  onCleanup(() => window.removeEventListener('pointerdown', close, true))
+})
 
 const quickAddKinds = computed(() =>
   NODE_PALETTE.filter((entry) => entry.kind !== 'Start').map((entry) => entry.kind),
@@ -83,13 +116,14 @@ function pick(kind: WorkflowNodeType) {
   open.value = false
   emit('insert', kind)
 }
-
-defineExpose({ midX, midY })
 </script>
 
 <style scoped>
+/* Plain hex on purpose: `rgb(var(--td-gray-color-5, …))` is invalid at
+   computed-value time wherever the theme defines the token as a hex value,
+   which leaves stroke at its initial `none` — invisible edges. */
 .wf-edge-path {
-  stroke: rgb(var(--td-gray-color-5, 148, 158, 176));
+  stroke: #a6b1bd;
   stroke-width: 2;
   fill: none;
 }
@@ -99,6 +133,22 @@ defineExpose({ midX, midY })
   stroke-width: 16;
   fill: none;
   pointer-events: stroke;
+}
+
+/* Branch label chip on the line (Switch / QuestionClassifier edges). */
+.wf-edge-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  padding: 1px 8px;
+  border-radius: 6px;
+  background: var(--td-bg-color-secondarycontainer);
+  border: 1px solid var(--td-component-stroke);
+  color: var(--td-text-color-secondary);
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 3;
 }
 
 /* Midpoint insert +: circle button at the bezier midpoint, visible on

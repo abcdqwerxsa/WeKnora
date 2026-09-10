@@ -232,7 +232,7 @@ export function normalizeDsl(input: unknown): WorkflowDSL {
       .filter((n) => n && typeof n.id === 'string' && isNoteNode(n))
       .map((n) => ({
         id: n.id,
-        type: NOTE_NODE_TYPE,
+        type: NOTE_NODE_TYPE as WorkflowNodeType,
         position: { x: Number(n.position?.x) || 0, y: Number(n.position?.y) || 0 },
         data: { text: typeof (n.data as Record<string, unknown> | undefined)?.text === 'string' ? (n.data as Record<string, unknown>).text : '' },
       }))
@@ -240,7 +240,14 @@ export function normalizeDsl(input: unknown): WorkflowDSL {
     const nodeIds = new Set(nodes.map((n) => n.id))
     const edges = graphEdges
       .filter((e) => e && typeof e.source === 'string' && typeof e.target === 'string' && nodeIds.has(e.source) && nodeIds.has(e.target))
-      .map((e) => ({ id: e.id || `e-${e.source}-${e.target}`, source: e.source, target: e.target }))
+      .map((e) => ({
+        id: e.id || `e-${e.source}-${e.target}`,
+        source: e.source,
+        target: e.target,
+        // Branch identity (routing nodes) rides on the edge — the canvas
+        // renders branch handles from it; the engine ignores it.
+        ...(e.sourceHandle ? { sourceHandle: e.sourceHandle } : {}),
+      }))
     return {
       version: 1,
       graph: { nodes, edges },

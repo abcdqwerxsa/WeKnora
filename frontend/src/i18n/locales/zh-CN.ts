@@ -6962,6 +6962,7 @@ export default {
       refPickerEmpty: '无可用上游输出',
       deleteHint: '选中节点或连线后按 Delete 删除；双击连线可直接删除',
       startProtected: '开始节点不可删除',
+      startExists: '画布上已存在开始节点',
       autoLayout: '自动布局',
       copyNode: '复制节点',
       pasteNode: '粘贴节点',

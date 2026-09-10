@@ -16,7 +16,11 @@
           :key="entry"
           type="button"
           class="wf-palette-item"
+          :disabled="entry === 'Start' && hasStart"
+          :title="entry === 'Start' && hasStart ? t('workflow.editor.startExists') : undefined"
+          draggable="true"
           @click="emit('add', entry)"
+          @dragstart="onDragStart($event, entry)"
         >
           <span class="wf-palette-item-icon" :style="{ background: NODE_COLORS[entry] }">
             <t-icon :name="NODE_ICONS[entry]" />
@@ -35,8 +39,17 @@ import type { WorkflowNodeType } from '@/api/workflow'
 import { NODE_PALETTE, PALETTE_GROUPS, NODE_COLORS, NODE_ICONS, type NodePaletteEntry } from '../nodeMeta'
 
 const emit = defineEmits<{ add: [kind: WorkflowNodeType] }>()
+const props = defineProps<{ /** A Start node already exists → disable the entry. */ hasStart?: boolean }>()
 const { t } = useI18n()
 const collapsed = ref(false)
+
+// Dify-style add-node: drag the entry onto the canvas; the editor's drop
+// handler places it under the release point.
+function onDragStart(event: DragEvent, kind: WorkflowNodeType) {
+  if (!event.dataTransfer) return
+  event.dataTransfer.setData('application/x-wf-node', kind)
+  event.dataTransfer.effectAllowed = 'copy'
+}
 
 function kindsOf(group: NodePaletteEntry['group']): WorkflowNodeType[] {
   return NODE_PALETTE.filter((entry) => entry.group === group).map((entry) => entry.kind)
@@ -110,8 +123,13 @@ function kindsOf(group: NodePaletteEntry['group']): WorkflowNodeType[] {
   transition: background 0.12s ease;
 }
 
-.wf-palette-item:hover {
+.wf-palette-item:hover:not(:disabled) {
   background: var(--td-bg-color-container-hover);
+}
+
+.wf-palette-item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .wf-palette-item-icon {
