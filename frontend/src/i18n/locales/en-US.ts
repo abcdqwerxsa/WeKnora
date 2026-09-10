@@ -5667,7 +5667,6 @@ export default {
       model: 'Select the LLM used by the agent',
       temperature: 'Control output randomness, 0 is most deterministic, 1 is most random',
       maxTokens: 'Maximum tokens for the model reply. Default is 2048. Custom values are saved as entered.',
-      thinking: 'Thinking',
       thinkingDefault: 'Default (model decides)',
       thinkingOn: 'Enabled',
       thinkingOff: 'Disabled',
