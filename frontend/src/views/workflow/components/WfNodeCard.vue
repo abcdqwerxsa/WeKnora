@@ -31,35 +31,29 @@
         </template>
       </t-popup>
     </div>
-    <Handle v-if="hasSourceHandle" type="source" :position="Position.Right" />
-    <!-- Connected marker (Dify-style): a 2×8px vertical line owns the spot
-         once an edge leaves this node; the + is gone. -->
-    <span v-if="hasSourceHandle && hasOutgoing" class="wf-handle-connected" />
-    <!-- Dify-style quick add: a fat + on the source side; picking a kind
-         creates the downstream node pre-connected to this one. -->
-    <t-popup
-      v-if="hasSourceHandle && !hasOutgoing"
-      trigger="click"
-      placement="right-top"
-      overlay-class-name="wf-quickadd-pop"
-      :overlay-style="{ padding: '6px' }"
+    <!-- Source handle, Dify-style: the Handle itself is the interaction
+         surface — a click toggles the quick-add menu, a drag starts a
+         connection (vue-flow native). The + is a purely VISUAL affordance
+         (pointer-events: none) so it never blocks connection drags. -->
+    <Handle
+      v-if="hasSourceHandle"
+      type="source"
+      :position="Position.Right"
+      @mousedown="onHandleMouseDown"
+      @click.stop="onHandleClick"
     >
-      <span
-        class="wf-node-quickadd"
-        :title="$t('workflow.editor.quickAdd')"
-        @mousedown.stop
-        @click.stop
-      >
+      <span v-if="!hasOutgoing" class="wf-node-quickadd" :title="t('workflow.editor.quickAdd')">
         <t-icon name="add" />
       </span>
-      <template #content>
-        <div class="wf-quickadd-menu">
+      <template v-if="menuOpen">
+        <div class="wf-quickadd-backdrop" @click.stop="menuOpen = false" />
+        <div class="wf-quickadd-pop">
           <button
             v-for="entry in quickAddKinds"
             :key="entry"
             type="button"
             class="wf-quickadd-item"
-            @click="emit('quick-add', entry)"
+            @click.stop="pickKind(entry)"
           >
             <span class="wf-quickadd-item-icon" :style="{ background: NODE_COLORS[entry] }">
               <t-icon :name="NODE_ICONS[entry]" />
@@ -68,12 +62,15 @@
           </button>
         </div>
       </template>
-    </t-popup>
+    </Handle>
+    <!-- Connected marker (Dify-style): a 2×8px vertical line owns the spot
+         once an edge leaves this node; the + is gone. -->
+    <span v-if="hasSourceHandle && hasOutgoing" class="wf-handle-connected" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Handle, Position } from '@vue-flow/core'
 import type { WorkflowNodeType } from '@/api/workflow'
@@ -113,50 +110,31 @@ const outputFailed = computed(() => props.runPhase === 'failed')
 const quickAddKinds = computed(() =>
   NODE_PALETTE.filter((entry) => entry.kind !== 'Start').map((entry) => entry.kind),
 )
+
+// Quick-add menu: opened by a plain CLICK on the handle. A click that
+// follows a drag (vue-flow connection) must not open it — track the mousedown
+// position and ignore displaced clicks (Dify relies on react-flow's own
+// click/drag separation; we approximate with a 5px threshold).
+const menuOpen = ref(false)
+let handleDownAt = { x: 0, y: 0 }
+
+function onHandleMouseDown(event: MouseEvent) {
+  handleDownAt = { x: event.clientX, y: event.clientY }
+}
+
+function onHandleClick(event: MouseEvent) {
+  if (Math.hypot(event.clientX - handleDownAt.x, event.clientY - handleDownAt.y) > 5) return
+  if (props.hasOutgoing) return
+  menuOpen.value = !menuOpen.value
+}
+
+function pickKind(kind: WorkflowNodeType) {
+  menuOpen.value = false
+  emit('quick-add', kind)
+}
 </script>
 
-<style>
-/* Global: the quick-add popup teleports to body, so scoped styles cannot
-   reach its content. */
-.wf-quickadd-menu {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(120px, 1fr));
-  gap: 2px;
-  max-height: 320px;
-  overflow-y: auto;
-  min-width: 260px;
-}
 
-.wf-quickadd-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  border: none;
-  background: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 12px;
-  color: var(--td-text-color-primary);
-  text-align: left;
-}
-
-.wf-quickadd-item:hover {
-  background: var(--td-bg-color-container-hover);
-}
-
-.wf-quickadd-item-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
-  color: #fff;
-  flex: none;
-  font-size: 12px;
-}
-</style>
 
 <style scoped>
 .wf-node {
@@ -273,70 +251,90 @@ const quickAddKinds = computed(() =>
   color: var(--td-text-color-primary);
 }
 
-/* Dify trigger pattern: opacity 0 until the card is hovered or selected
-   (or its popup is open — t-popup keeps it interactive). */
+/* The + lives INSIDE the handle box, centered on the connection anchor —
+   edges and the affordance can never drift apart. Purely visual: pointer
+   events pass through to the Handle so connection drags always work. */
 .wf-node-quickadd {
   position: absolute;
-  right: -11px;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 6;
-  display: inline-flex;
+  inset: 0;
+  display: flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
-  opacity: 0;
-  transition: opacity 0.15s ease, transform 0.15s ease;
-  border-radius: 50%;
-  border: 1.5px solid var(--td-component-stroke);
+  font-size: 13px;
+  color: var(--td-brand-color);
   background: var(--td-bg-color-container);
-  color: var(--td-text-color-secondary);
-  cursor: pointer;
-  font-size: 14px;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
   box-shadow: var(--td-shadow-1);
-  transition: all 0.15s ease;
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(0.8);
+  transition: opacity 0.15s ease, transform 0.15s ease;
 }
 
 .wf-node:hover .wf-node-quickadd,
 .wf-node--selected .wf-node-quickadd {
   opacity: 1;
+  transform: scale(1);
 }
 
-.wf-node-quickadd:hover {
-  color: var(--td-brand-color);
-  border-color: var(--td-brand-color);
-  transform: translateY(-50%) scale(1.15);
+/* Quick-add popover anchored to the handle (right of the node). The
+   fixed backdrop closes it on any outside click. */
+.wf-quickadd-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
 }
 
-/* Dify-style handles: the element itself is invisible (16px hit target);
-   the visuals are either the hover + or, once connected, the line marker.
-   An invisible halo keeps manual edge-drag forgiving. */
-:deep(.vue-flow__handle) {
-  width: 16px;
-  height: 16px;
-  border: none;
-  background: transparent;
-  position: relative;
-}
-
-:deep(.vue-flow__handle)::after {
-  content: '';
+.wf-quickadd-pop {
   position: absolute;
-  inset: -7px;
-  border-radius: 50%;
-}
-
-.wf-handle-connected {
-  position: absolute;
-  right: -1px;
+  left: calc(100% + 10px);
   top: 50%;
   transform: translateY(-50%);
-  width: 2px;
-  height: 8px;
-  border-radius: 1px;
-  background: var(--td-brand-color);
-  z-index: 4;
+  z-index: 31;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(120px, 1fr));
+  gap: 2px;
+  max-height: 320px;
+  overflow-y: auto;
+  min-width: 260px;
+  padding: 6px;
+  border-radius: 8px;
+  background: var(--td-bg-color-container);
+  border: 1px solid var(--td-component-stroke);
+  box-shadow: var(--td-shadow-3);
+}
+
+.wf-quickadd-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--td-text-color-primary);
+  text-align: left;
+}
+
+.wf-quickadd-item:hover {
+  background: var(--td-bg-color-container-hover);
+}
+
+.wf-quickadd-item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  color: #fff;
+  flex: none;
+  font-size: 12px;
 }
 
 .wf-node-output-json {
