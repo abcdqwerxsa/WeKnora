@@ -30,7 +30,7 @@ func newWorkflowEventsTestEnv(t *testing.T, dsl string) *wfEventsTestEnv {
 	t.Helper()
 	wf := &types.Workflow{ID: "wf-sse", TenantID: 7, Name: "wf", DSL: types.JSON(dsl), Status: types.WorkflowStatusPublished}
 	repo := &wfEventsRepoStub{base: &wfEventsBaseRepo{saved: wf}}
-	svc := service.NewWorkflowService(repo, nil, nil, &wfEventsEnqueuer{}, nil, nil, nil, nil, nil, nil, nil, nil)
+	svc := service.NewWorkflowService(repo, nil, nil, &wfEventsEnqueuer{}, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	return &wfEventsTestEnv{handler: NewWorkflowHandler(svc)}
 }
 

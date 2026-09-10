@@ -36,9 +36,10 @@ var versionedSQLiteColumns = map[string][]string{
 	"mcp_oauth_tokens":   {"principal_type", "principal_id"}, // 000064
 	"workflow_runs":      {"trace"},                          // 000092 / sqlite 000014
 	"workflows":          {"published_dsl"},                  // 000093 / sqlite 000015
+	"workflow_schedules": {"files"},                          // sqlite 000018
 }
 
-const expectedSQLiteMigrationVersion = 16
+const expectedSQLiteMigrationVersion = 18
 
 func TestSQLiteMigrationsCreateVersionedSchema(t *testing.T) {
 	repoRoot := sqliteRepoRoot(t)

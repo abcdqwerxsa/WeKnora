@@ -48,7 +48,7 @@ func nodeRunWorkflow() *types.Workflow {
 func TestRunWorkflowNode_SucceedsWithInjectedState(t *testing.T) {
 	wf := nodeRunWorkflow()
 	repo := newRunRepoStub(wf)
-	svc := NewWorkflowService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	svc := NewWorkflowService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	ctx := draftCtx(t, 10001, "creator-1")
 
 	// The Answer template references {start@query}; the start node never
@@ -77,7 +77,7 @@ func TestRunWorkflowNode_FailedRunSurfacesUnresolvedRef(t *testing.T) {
 	// the execution error is returned; the handler maps it to 200 + run.
 	wf := nodeRunWorkflow()
 	repo := newRunRepoStub(wf)
-	svc := NewWorkflowService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	svc := NewWorkflowService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	ctx := draftCtx(t, 10001, "creator-1")
 
 	run, err := svc.RunWorkflowNode(ctx, "wf-node", "ans", &types.RunWorkflowNodeRequest{})
@@ -91,7 +91,7 @@ func TestRunWorkflowNode_FailedRunSurfacesUnresolvedRef(t *testing.T) {
 func TestRunWorkflowNode_NodeGuards(t *testing.T) {
 	wf := nodeRunWorkflow()
 	repo := newRunRepoStub(wf)
-	svc := NewWorkflowService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	svc := NewWorkflowService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	ctx := draftCtx(t, 10001, "creator-1")
 
 	// Missing node.
@@ -126,7 +126,7 @@ func TestRunWorkflowNode_DraftGate(t *testing.T) {
 	// A draft workflow may only be node-run by its creator (draft gate).
 	wf := nodeRunWorkflow()
 	repo := newRunRepoStub(wf)
-	svc := NewWorkflowService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	svc := NewWorkflowService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	ctx := draftCtx(t, 10001, "someone-else")
 
 	_, err := svc.RunWorkflowNode(ctx, "wf-node", "ans", &types.RunWorkflowNodeRequest{})
@@ -148,7 +148,7 @@ func TestCompile_IgnoresGraphOnlyFloatingNodes(t *testing.T) {
 
 	wf.DSL = types.JSON(cleaned)
 	repo := newRunRepoStub(wf)
-	svc := NewWorkflowService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	svc := NewWorkflowService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	ctx := draftCtx(t, 10001, "creator-1")
 
 	run, err := svc.RunWorkflow(ctx, "wf-node", &types.RunWorkflowRequest{Query: "hello"})

@@ -20,6 +20,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Tencent/WeKnora/internal/agent/tools"
 	wfengine "github.com/Tencent/WeKnora/internal/agent/workflow"
 	"github.com/Tencent/WeKnora/internal/agent/workflow/nodes"
 	apprepo "github.com/Tencent/WeKnora/internal/application/repository"
@@ -27,6 +28,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/mcp"
 	"github.com/Tencent/WeKnora/internal/models/chat"
+	"github.com/Tencent/WeKnora/internal/models/rerank"
 	"github.com/Tencent/WeKnora/internal/sandbox"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
@@ -197,6 +199,9 @@ type workflowService struct {
 	// to break the WorkflowService ⇄ AgentService constructor cycle (see
 	// AgentServiceRef). Resolved at run time; nil → clear node error.
 	agents *AgentServiceRef
+	// customAgents backs the Agent node's agent_id reuse path: load a tenant
+	// CustomAgent and run it through the same engine entry chat uses.
+	customAgents interfaces.CustomAgentService
 	// mcpClients + mcpServices back the MCPTool node adapter. mcpClients is
 	// a one-method view of *mcp.MCPManager so tests can fake the client pool.
 	mcpClients  mcpClientProvider
@@ -233,6 +238,7 @@ func NewWorkflowService(
 	webSearchProviders interfaces.WebSearchProviderRepository,
 	sandboxes sandbox.TenantSandboxResolver,
 	agents *AgentServiceRef,
+	customAgents interfaces.CustomAgentService,
 	mcpManager *mcp.MCPManager,
 	mcpServices interfaces.MCPServiceService,
 	tempDocs interfaces.TemporaryDocumentService,
@@ -252,6 +258,7 @@ func NewWorkflowService(
 		webSearchProviders: webSearchProviders,
 		sandboxes:          sandboxes,
 		agents:             agents,
+		customAgents:       customAgents,
 		mcpClients:         mcpManager,
 		mcpServices:        mcpServices,
 		tempDocs:           tempDocs,
@@ -1487,6 +1494,9 @@ func (s *workflowService) runAgent(ctx context.Context, req nodes.AgentRequest) 
 	if !ok || tenantID == 0 {
 		return "", ErrWorkflowTenantRequired
 	}
+	if id := strings.TrimSpace(req.AgentID); id != "" {
+		return s.runPlatformAgent(ctx, tenantID, id, req.Prompt)
+	}
 	modelID := strings.TrimSpace(req.Model)
 	if modelID == "" {
 		fallback, ferr := s.defaultChatModelID(ctx)
@@ -1525,6 +1535,138 @@ func (s *workflowService) runAgent(ctx context.Context, req nodes.AgentRequest) 
 	}
 	// llmContext nil = fresh single turn; synthetic ids are logging metadata only.
 	state, err := engine.Execute(ctx, "workflow-agent-node", "workflow-agent-node", req.Prompt, nil)
+	if err != nil {
+		return "", fmt.Errorf("workflow Agent: turn failed: %w", err)
+	}
+	if state == nil || strings.TrimSpace(state.FinalAnswer) == "" {
+		return "", errors.New("workflow Agent: turn produced no final answer")
+	}
+	return state.FinalAnswer, nil
+}
+
+// runPlatformAgent runs one stateless turn of a tenant CustomAgent inside a
+// workflow node: load the agent by id, rebuild the full AgentConfig the same
+// way the chat path does (session_agent_qa.buildAgentConfig), and drive the
+// same CreateAgentEngine entry. Deliberate divergences from chat:
+//   - MultiTurn/History stay off — a workflow node is a single call and its
+//     context flows through the canvas state, not a session;
+//   - per-turn @Skill / @MCP scoping has no workflow equivalent, so the
+//     agent's own selection is used verbatim;
+//   - KB sharing across tenants is not resolved here: search targets are
+//     bound to the running workspace;
+//   - sandbox/skills support is partial: TenantSkills (installed skill
+//     lists) are not populated and remote sandbox backends need a real
+//     sessions row to pin, so skill tools and remote sandboxes degrade to
+//     a warn-and-skip (local backends still get shell/file tools under the
+//     per-agent sandbox key below);
+//   - no global LLMCallTimeout fallback / tenant WebSearchConfig override /
+//     model-window MaxContextTokens sizing, and a missing RerankModelID
+//     silently runs KB search without rerank (chat errors instead).
+//
+// ponytail: KB-share target resolution + TenantSkills population omitted;
+// port session_knowledge_qa buildSearchTargets / skillsForRun if
+// cross-tenant KB or sandbox-skill agents must run fully in workflows.
+func (s *workflowService) runPlatformAgent(ctx context.Context, tenantID uint64, agentID, prompt string) (string, error) {
+	if s.customAgents == nil {
+		return "", errors.New("workflow Agent: custom agent service unavailable")
+	}
+	ca, err := s.customAgents.GetAgentByIDAndTenant(ctx, agentID, tenantID)
+	if err != nil {
+		return "", fmt.Errorf("workflow Agent: load agent %q: %w", agentID, err)
+	}
+	if ca == nil {
+		return "", fmt.Errorf("workflow Agent: agent %q not found in this workspace", agentID)
+	}
+	ca.EnsureDefaults()
+	// Guard the UI filter server-side: quick-answer agents are chat RAG
+	// presets (context-template driven), running them through the ReAct
+	// engine would ignore half their config.
+	if ca.Config.AgentMode == types.AgentModeQuickAnswer {
+		return "", fmt.Errorf("workflow Agent: agent %q is a quick-answer agent (only smart-reasoning agents can be reused in workflows)", agentID)
+	}
+
+	modelID := strings.TrimSpace(ca.Config.ModelID)
+	if modelID == "" {
+		if modelID, err = s.defaultChatModelID(ctx); err != nil {
+			return "", err
+		}
+	}
+	chatModel, err := s.models.GetChatModel(ctx, modelID)
+	if err != nil {
+		return "", fmt.Errorf("workflow Agent: model %q unavailable: %w", modelID, err)
+	}
+	var rerankModel rerank.Reranker
+	if strings.TrimSpace(ca.Config.RerankModelID) != "" && len(ca.Config.KnowledgeBases) > 0 {
+		if rerankModel, err = s.models.GetRerankModel(ctx, ca.Config.RerankModelID); err != nil {
+			return "", fmt.Errorf("workflow Agent: rerank model %q unavailable: %w", ca.Config.RerankModelID, err)
+		}
+	}
+
+	cfg := &types.AgentConfig{
+		MaxIterations:               ca.Config.MaxIterations,
+		Temperature:                 ca.Config.Temperature,
+		MaxCompletionTokens:         ca.Config.MaxCompletionTokens,
+		LLMCallTimeout:              ca.Config.LLMCallTimeout,
+		Thinking:                    ca.Config.Thinking,
+		CitationEnabled:             ca.Config.CitationEnabled,
+		WebSearchEnabled:            ca.Config.WebSearchEnabled,
+		WebSearchMaxResults:         ca.Config.WebSearchMaxResults,
+		WebSearchProviderID:         ca.Config.WebSearchProviderID,
+		MemoryEnabled:               ca.Config.MemoryEnabled,
+		MCPSelectionMode:            ca.Config.MCPSelectionMode,
+		MCPServices:                 ca.Config.MCPServices,
+		MCPAuthWaitTimeout:          ca.Config.MCPAuthWaitTimeout,
+		RetrieveKBOnlyWhenMentioned: ca.Config.RetrieveKBOnlyWhenMentioned,
+		RetainRetrievalHistory:      ca.Config.RetainRetrievalHistory,
+		VLMModelID:                  ca.Config.VLMModelID,
+		SandboxConfigID:             ca.Config.SandboxConfigID,
+		KnowledgeBases:              ca.Config.KnowledgeBases,
+	}
+	if ca.Config.SystemPrompt != "" {
+		cfg.UseCustomSystemPrompt = true
+		cfg.SystemPrompt = ca.Config.SystemPrompt
+	}
+	if len(ca.Config.AllowedTools) > 0 {
+		cfg.AllowedTools = ca.Config.AllowedTools
+	} else {
+		cfg.AllowedTools = tools.DefaultAllowedTools()
+	}
+	// Skills/sandbox selection mirrors configureSkillsFromAgent (chat path).
+	switch ca.Config.SkillsSelectionMode {
+	case "all":
+		cfg.SkillsEnabled = true
+	case "selected":
+		if len(ca.Config.SelectedSkills) > 0 {
+			cfg.SkillsEnabled = true
+			cfg.AllowedSkills = ca.Config.SelectedSkills
+		}
+	}
+	if cfg.WebSearchMaxResults == 0 {
+		cfg.WebSearchMaxResults = 5
+	}
+	if cfg.WebSearchProviderID == "" && s.webSearchProviders != nil {
+		if p, perr := s.webSearchProviders.GetDefault(ctx, tenantID); perr == nil && p != nil {
+			cfg.WebSearchProviderID = p.ID
+		}
+	}
+	for _, kbID := range ca.Config.KnowledgeBases {
+		cfg.SearchTargets = append(cfg.SearchTargets, &types.SearchTarget{
+			Type:            types.SearchTargetTypeKnowledgeBase,
+			KnowledgeBaseID: kbID,
+			TenantID:        tenantID,
+		})
+	}
+
+	// Throwaway event bus: engine-internal streaming is a no-op. The synthetic
+	// per-agent session id keeps each reused agent on its own sandbox key (no
+	// cross-agent file contamination on local backends); remote backends that
+	// need a real sessions row fail the pin and degrade to warn-and-skip.
+	workflowSessionID := "workflow-agent-" + agentID
+	engine, err := s.agents.Get().CreateAgentEngine(ctx, cfg, chatModel, rerankModel, event.NewEventBus(), workflowSessionID, "")
+	if err != nil {
+		return "", fmt.Errorf("workflow Agent: engine setup failed: %w", err)
+	}
+	state, err := engine.Execute(ctx, workflowSessionID, workflowSessionID, prompt, nil)
 	if err != nil {
 		return "", fmt.Errorf("workflow Agent: turn failed: %w", err)
 	}
@@ -1687,7 +1829,13 @@ func (s *workflowService) runAgentWithAttachments(ctx context.Context, scope, qu
 		return "", aerr
 	}
 	if extra != "" {
-		req.SystemPrompt = strings.Join(nonEmpty(req.SystemPrompt, extra), "\n\n")
+		if strings.TrimSpace(req.AgentID) != "" {
+			// agent_id mode ignores SystemPrompt; the rendered prompt is the
+			// only text reaching the turn, so attachments ride on it.
+			req.Prompt = strings.Join(nonEmpty(req.Prompt, extra), "\n\n")
+		} else {
+			req.SystemPrompt = strings.Join(nonEmpty(req.SystemPrompt, extra), "\n\n")
+		}
 	}
 	return s.runAgent(ctx, req)
 }
