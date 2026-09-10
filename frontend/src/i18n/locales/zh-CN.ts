@@ -1112,7 +1112,6 @@ export default {
       model: '选择智能体使用的大语言模型',
       temperature: '控制输出的随机性，0 最确定，1 最随机',
       maxTokens: '模型生成回复的最大 Token 数。选「默认」时为 2048；选「自定义」后按你填的数保存。',
-      thinking: '思考模式',
       thinkingDefault: '默认（跟随模型）',
       thinkingOn: '开启',
       thinkingOff: '关闭',
