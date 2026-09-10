@@ -17,20 +17,6 @@
           <template #icon><t-icon name="layout" /></template>
           {{ $t('workflow.editor.autoLayout') }}
         </t-button>
-        <t-button variant="outline" @click="copySelectedNode" :disabled="!ready || !selectedNode">
-          <template #icon><t-icon name="copy" /></template>
-          {{ $t('workflow.editor.copyNode') }}
-        </t-button>
-        <t-button variant="outline" :disabled="!ready || !clipboard" @click="pasteClipboardNode">
-          <template #icon><t-icon name="file-paste" /></template>
-          {{ $t('workflow.editor.pasteNode') }}
-        </t-button>
-        <t-button variant="outline" :disabled="!ready || !canUndo" @click="undo()">
-          <template #icon><t-icon name="rollback" /></template>
-        </t-button>
-        <t-button variant="outline" :disabled="!ready || !canRedo" @click="redo()">
-          <template #icon><t-icon name="rollfront" /></template>
-        </t-button>
         <t-button variant="outline" @click="importDslFile?.click()">
           <template #icon><t-icon name="upload" /></template>
           {{ $t('workflow.editor.importDsl') }}
@@ -39,6 +25,7 @@
           <template #icon><t-icon name="download" /></template>
           {{ $t('workflow.editor.exportDsl') }}
         </t-button>
+        <span v-if="lastSavedAt" class="wf-editor-autosaved">{{ t('workflow.editor.autoSavedAt', { time: autoSavedTime }) }}</span>
         <t-button theme="primary" :loading="saving" :disabled="!ready" @click="doSave">
           {{ saveLabel }}
         </t-button>
@@ -1161,31 +1148,65 @@ async function load() {
   }
 }
 
-async function doSave(): Promise<boolean> {
+async function doSave(options: { silent?: boolean } = {}): Promise<boolean> {
+  const silent = options.silent === true
   const trimmed = name.value.trim()
   if (!trimmed) {
-    MessagePlugin.warning(t('workflow.nameRequired'))
+    if (!silent) MessagePlugin.warning(t('workflow.nameRequired'))
     return false
   }
-  if (!validateBeforeSave()) return false
+  // Silent (auto-)save skips validation toasts: drafts persist mid-edit, and
+  // publish/run do their own gating. Manual save keeps the loud checks.
+  if (!silent && !validateBeforeSave()) return false
   saving.value = true
   try {
     const response = await updateWorkflow(workflowId.value, { name: trimmed, dsl: currentDsl() })
     if (response?.success) {
       savedSignature = currentSignature()
       dirty.value = false
-      MessagePlugin.success(t('workflow.saved'))
+      if (silent) lastSavedAt.value = new Date()
+      else MessagePlugin.success(t('workflow.saved'))
       return true
     }
-    MessagePlugin.error(response?.message || t('workflow.editor.saveFailed'))
+    if (!silent) MessagePlugin.error(response?.message || t('workflow.editor.saveFailed'))
+    else console.warn('[workflow] auto-save rejected:', response?.message)
     return false
   } catch (error) {
-    MessagePlugin.error(error instanceof Error ? error.message : t('workflow.editor.saveFailed'))
+    if (!silent) MessagePlugin.error(error instanceof Error ? error.message : t('workflow.editor.saveFailed'))
+    else console.warn('[workflow] auto-save failed:', error)
     return false
   } finally {
     saving.value = false
   }
 }
+
+// ---- auto-save ------------------------------------------------------------
+// 3s after the last change that made the canvas dirty, persist silently.
+// Failures stay quiet and retry on the next dirty tick; the leave guards
+// naturally stop firing once auto-saved.
+const AUTO_SAVE_DELAY = 3000
+let autoSaveTimer: number | null = null
+const lastSavedAt = ref<Date | null>(null)
+const autoSavedTime = computed(() =>
+  lastSavedAt.value ? lastSavedAt.value.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+)
+
+function scheduleAutoSave() {
+  if (autoSaveTimer !== null) window.clearTimeout(autoSaveTimer)
+  if (!dirty.value || !ready.value) return
+  autoSaveTimer = window.setTimeout(() => {
+    autoSaveTimer = null
+    if (!dirty.value || !ready.value || saving.value) return
+    void doSave({ silent: true }).then((ok) => {
+      if (!ok) scheduleAutoSave()
+    })
+  }, AUTO_SAVE_DELAY)
+}
+
+watch(dirty, scheduleAutoSave)
+onUnmounted(() => {
+  if (autoSaveTimer !== null) window.clearTimeout(autoSaveTimer)
+})
 
 // Publish from the editor: unsaved changes are saved first (publish always
 // freezes what is on the canvas), then the snapshot endpoint runs.
@@ -1321,6 +1342,12 @@ load()
 
 .wf-editor-name {
   width: 260px;
+}
+
+.wf-editor-autosaved {
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
+  white-space: nowrap;
 }
 
 .wf-editor-file-input {

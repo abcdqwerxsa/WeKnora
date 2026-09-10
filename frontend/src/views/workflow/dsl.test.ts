@@ -19,9 +19,10 @@ test('validateGraph accepts a clean linear graph', () => {
   assert.deepEqual(issues, [])
 })
 
-test('validateGraph flags multiple entries, multiple terminals, stale refs and unreachable cycles', () => {
+test('validateGraph: unreachable cycles warn; floating nodes are not entries', () => {
   // x↔y is a disconnected cycle: every node in it is targeted (so not an
-  // "entry") yet unreachable from the real entries a/b.
+  // "entry") yet unreachable from the real entry a. b has no edges at all —
+  // floating, so it is neither an entry nor a hard error, just unreachable.
   const issues = validateGraph(
     [
       node('a', 'Start'),
@@ -37,16 +38,47 @@ test('validateGraph flags multiple entries, multiple terminals, stale refs and u
     ],
   )
   const keys = issues.map((i) => i.key)
-  assert.ok(keys.includes('multipleEntries'))
+  assert.ok(!keys.includes('multipleEntries'))
   // Multiple terminals are legal now (parallel fan-out) — must NOT be flagged.
   assert.ok(!keys.includes('multipleTerminals'))
-  // b, c, x, y all lack downstream edges → no noTerminal (each is a terminal)
   assert.ok(!keys.includes('noTerminal'))
   assert.deepEqual(
     issues.filter((i) => i.key === 'unreachable').map((i) => i.nodeId),
-    ['x', 'y'],
+    ['b', 'x', 'y'],
   )
   assert.ok(keys.includes('staleRef'))
+})
+
+test('validateGraph: floating nodes are not entries (do not block save)', () => {
+  const issues = validateGraph(
+    [
+      node('start', 'Start'),
+      node('llm', 'LLM', { prompt: '{start@query}' }),
+      node('loose', 'Code', { code: 'print(1)' }),
+    ],
+    [{ id: 'e1', source: 'start', target: 'llm' }],
+  )
+  const keys = issues.map((i) => i.key)
+  assert.ok(!keys.includes('multipleEntries'), `unexpected multipleEntries: ${keys}`)
+  assert.ok(keys.includes('unreachable'), 'isolated node should stay an unreachable warning')
+})
+
+test('validateGraph: multiple real flow entries still fail', () => {
+  const issues = validateGraph(
+    [
+      node('a', 'Start'),
+      node('b', 'Start'),
+      node('c', 'LLM'),
+      node('d', 'Template'),
+    ],
+    [
+      { id: 'e1', source: 'a', target: 'c' },
+      { id: 'e2', source: 'b', target: 'd' },
+    ],
+  )
+  const multiple = issues.find((i) => i.key === 'multipleEntries')
+  assert.ok(multiple, 'expected multipleEntries error')
+  assert.equal(multiple.values?.count, 2)
 })
 
 test('validateGraph reports no entry and no terminal on a pure cycle', () => {

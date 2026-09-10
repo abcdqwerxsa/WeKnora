@@ -380,7 +380,10 @@ export function validateGraph(nodes: WFNode[], edges: WFEdge[]): GraphIssue[] {
   const ids = new Set(nodes.map((n) => n.id))
 
   const targeted = new Set(edges.map((e) => e.target))
-  const entries = nodes.filter((n) => !targeted.has(n.id))
+  // An entry is an untargeted node that actually STARTS a flow (has an
+  // outgoing edge). A floating node (no edges at all) is not an entry —
+  // it is already covered by the `unreachable` warning below.
+  const entries = nodes.filter((n) => !targeted.has(n.id) && edges.some((e) => e.source === n.id))
   const terminals = nodes.filter((n) => !edges.some((e) => e.source === n.id))
 
   if (entries.length === 0) issues.push({ level: 'error', key: 'noEntry' })

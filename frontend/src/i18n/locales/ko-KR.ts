@@ -6889,6 +6889,7 @@ export default {
     editor: {
       back: '뒤로',
       save: '저장',
+      autoSavedAt: '자동 저장됨 {time}',
       saveFailed: '워크플로 저장 실패',
       importDsl: 'DSL 가져오기',
       exportDsl: 'DSL 내보내기',
@@ -6963,8 +6964,6 @@ export default {
       startProtected: '시작 노드는 삭제할 수 없습니다',
       startExists: '캔버스에 시작 노드가 이미 있습니다',
       autoLayout: '자동 레이아웃',
-      copyNode: '노드 복사',
-      pasteNode: '노드 붙여넣기',
       nodeCopied: '노드가 복사되었습니다',
       nodeOutputs: '노드 출력 보기',
       unsavedTitle: '저장되지 않은 변경 사항',

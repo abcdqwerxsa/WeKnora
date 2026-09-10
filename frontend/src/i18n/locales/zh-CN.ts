@@ -6890,6 +6890,7 @@ export default {
     editor: {
       back: '返回',
       save: '保存',
+      autoSavedAt: '已自动保存 {time}',
       saveFailed: '保存工作流失败',
       importDsl: '导入 DSL',
       exportDsl: '导出 DSL',
@@ -6964,8 +6965,6 @@ export default {
       startProtected: '开始节点不可删除',
       startExists: '画布上已存在开始节点',
       autoLayout: '自动布局',
-      copyNode: '复制节点',
-      pasteNode: '粘贴节点',
       nodeCopied: '节点已复制',
       nodeOutputs: '查看节点输出',
       unsavedTitle: '有未保存的修改',

@@ -6889,6 +6889,7 @@ publishConfirm: 'Опубликовать «{name}»? Запуски испол�
     editor: {
       back: 'Назад',
       save: 'Сохранить',
+      autoSavedAt: 'Автосохранение в {time}',
       saveFailed: 'Не удалось сохранить процесс',
       importDsl: 'Импорт DSL',
       exportDsl: 'Экспорт DSL',
@@ -6963,8 +6964,6 @@ publishConfirm: 'Опубликовать «{name}»? Запуски испол�
       startProtected: 'Стартовый узел нельзя удалить',
       startExists: 'Стартовый узел уже есть на холсте',
       autoLayout: 'Авторазметка',
-      copyNode: 'Копировать узел',
-      pasteNode: 'Вставить узел',
       nodeCopied: 'Узел скопирован',
       nodeOutputs: 'Просмотр выходных данных узла',
       unsavedTitle: 'Несохранённые изменения',

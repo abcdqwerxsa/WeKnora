@@ -6888,6 +6888,7 @@ export default {
     editor: {
       back: 'Back',
       save: 'Save',
+      autoSavedAt: 'Auto-saved {time}',
       saveFailed: 'Failed to save workflow',
       importDsl: 'Import DSL',
       exportDsl: 'Export DSL',
@@ -6962,8 +6963,6 @@ export default {
       startProtected: 'The Start node cannot be deleted',
       startExists: 'A Start node already exists on the canvas',
       autoLayout: 'Auto layout',
-      copyNode: 'Copy node',
-      pasteNode: 'Paste node',
       nodeCopied: 'Node copied',
       nodeOutputs: 'Inspect node outputs',
       unsavedTitle: 'Unsaved changes',
