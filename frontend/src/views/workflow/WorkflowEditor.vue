@@ -84,7 +84,7 @@
             :title="`${t('workflow.editor.modeHand')} (H · Space)`"
             @click="setMode('hand')"
           >
-            <t-icon name="hand" />
+            <t-icon name="drag-move" />
           </button>
           <button
             type="button"
