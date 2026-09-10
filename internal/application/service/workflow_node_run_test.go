@@ -103,6 +103,23 @@ func TestRunWorkflowNode_NodeGuards(t *testing.T) {
 	_, err = svc.RunWorkflowNode(ctx, "wf-node", "start", &types.RunWorkflowNodeRequest{})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrWorkflowNodeNotRunnable)
+
+	// Iteration node: needs its loop body context — not runnable in isolation.
+	var saved map[string]any
+	require.NoError(t, json.Unmarshal(wf.DSL, &saved))
+	comps := saved["components"].(map[string]any)
+	comps["iter"] = map[string]any{
+		"obj":        map[string]any{"component_name": "Iteration", "params": map[string]any{"items": "", "item_var": "item", "index_var": "index", "output_ref": "", "output_var": "results"}},
+		"upstream":   []any{},
+		"downstream": []any{},
+	}
+	iterDSL, err := json.Marshal(saved)
+	require.NoError(t, err)
+	wf.DSL = types.JSON(iterDSL)
+
+	_, err = svc.RunWorkflowNode(ctx, "wf-node", "iter", &types.RunWorkflowNodeRequest{})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrWorkflowNodeNotRunnable)
 }
 
 func TestRunWorkflowNode_DraftGate(t *testing.T) {
