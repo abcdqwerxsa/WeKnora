@@ -980,7 +980,13 @@ const switchCases = typedListParam<SwitchCaseGroup>('cases')
 const startFields = typedListParam<StartField>('fields')
 
 function addField() {
-  startFields.value.push({ name: '', type: 'text', required: false, default: '', label: '', options: [] })
+  // Auto-name the new field (field1, field2, … first free slot) so an
+  // untouched row never saves an empty-name field; the engine skips those
+  // at run time, but a named field is addressable in {start@name} refs.
+  const taken = new Set(startFields.value.map((f) => f.name))
+  let i = 1
+  while (taken.has(`field${i}`)) i++
+  startFields.value.push({ name: `field${i}`, type: 'text', required: false, default: '', label: '', options: [] })
 }
 
 const classifierClasses = typedListParam<ClassifierClass>('classes')

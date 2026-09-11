@@ -140,8 +140,13 @@ func startFields(params map[string]any) ([]StartField, error) {
 				}
 			}
 		}
+		// An empty-name field carries nothing addressable ({start@name} has
+		// no target): skip it instead of failing the whole run — Invoke has
+		// always tolerated these, and editors have historically saved them
+		// (e.g. an untouched “add field” row), so hard-failing here strands
+		// otherwise-runnable drafts.
 		if f.Name == "" {
-			return nil, fmt.Errorf("workflow Start: fields[%d] has an empty \"name\"", i)
+			continue
 		}
 		out = append(out, f)
 	}
