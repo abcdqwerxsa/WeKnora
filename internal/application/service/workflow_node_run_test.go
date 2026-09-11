@@ -45,6 +45,61 @@ func nodeRunWorkflow() *types.Workflow {
 	}
 }
 
+// Regression (prod report): a node run with NO upstream inputs must still
+// resolve {start@query} — the Start seed synthesis fills query/defaults.
+// Also covers field defaults: the DSL's start has no fields, so the seed
+// is just query=""; the template renders it instead of failing unresolved.
+func TestRunWorkflowNode_EmptyInputsStillResolveStartRefs(t *testing.T) {
+	wf := nodeRunWorkflow()
+	repo := newRunRepoStub(wf)
+	svc := NewWorkflowService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ctx := draftCtx(t, 10001, "creator-1")
+
+	run, err := svc.RunWorkflowNode(ctx, "wf-node", "ans", &types.RunWorkflowNodeRequest{
+		Inputs: map[string]any{"start": map[string]any{}},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, run)
+	assert.Equal(t, types.WorkflowRunStatusSucceeded, run.Status)
+	var trace []types.WorkflowRunTraceEntry
+	require.NoError(t, json.Unmarshal(run.Trace, &trace))
+	require.Len(t, trace, 1)
+	assert.Equal(t, "got: ", trace[0].Outputs["answer"])
+}
+
+// Field defaults declared on the Start node surface in the synthesized
+// seed (mirrors a full run's Start output shape).
+func TestRunWorkflowNode_StartSeedFillsFieldDefaults(t *testing.T) {
+	wf := nodeRunWorkflow()
+	var saved map[string]any
+	require.NoError(t, json.Unmarshal(wf.DSL, &saved))
+	comps := saved["components"].(map[string]any)
+	start := comps["start"].(map[string]any)
+	start["obj"] = map[string]any{
+		"component_name": "Start",
+		"params": map[string]any{"fields": []any{map[string]any{
+			"name": "topic", "type": "text", "default": "默认题",
+		}}},
+	}
+	ans := comps["ans"].(map[string]any)
+	ans["obj"] = map[string]any{"component_name": "Answer", "params": map[string]any{"template": "got: {start@topic}"}}
+	dsl, err := json.Marshal(saved)
+	require.NoError(t, err)
+	wf.DSL = types.JSON(dsl)
+
+	repo := newRunRepoStub(wf)
+	svc := NewWorkflowService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ctx := draftCtx(t, 10001, "creator-1")
+
+	run, rerr := svc.RunWorkflowNode(ctx, "wf-node", "ans", &types.RunWorkflowNodeRequest{})
+	require.NoError(t, rerr)
+	assert.Equal(t, types.WorkflowRunStatusSucceeded, run.Status)
+	var trace []types.WorkflowRunTraceEntry
+	require.NoError(t, json.Unmarshal(run.Trace, &trace))
+	require.Len(t, trace, 1)
+	assert.Equal(t, "got: 默认题", trace[0].Outputs["answer"])
+}
+
 func TestRunWorkflowNode_SucceedsWithInjectedState(t *testing.T) {
 	wf := nodeRunWorkflow()
 	repo := newRunRepoStub(wf)
@@ -72,20 +127,33 @@ func TestRunWorkflowNode_SucceedsWithInjectedState(t *testing.T) {
 }
 
 func TestRunWorkflowNode_FailedRunSurfacesUnresolvedRef(t *testing.T) {
-	// No injection for {start@query}: the node fails. The sync contract is
-	// the established RunWorkflow one — the failed run row is persisted AND
-	// the execution error is returned; the handler maps it to 200 + run.
+	// A ref to a param the Start seed never synthesizes (unknown field):
+	// the node fails. The sync contract is the established RunWorkflow one
+	// — the failed run row is persisted AND the execution error is returned;
+	// the handler maps it to 200 + run. (Before seed synthesis this test
+	// used {start@query}; that ref now resolves via the synthesized seed.)
 	wf := nodeRunWorkflow()
+	var saved map[string]any
+	require.NoError(t, json.Unmarshal(wf.DSL, &saved))
+	comps := saved["components"].(map[string]any)
+	comps["ans"] = map[string]any{
+		"obj":        map[string]any{"component_name": "Answer", "params": map[string]any{"template": "got: {start@ghost}"}},
+		"upstream":   []any{"start"},
+		"downstream": []any{},
+	}
+	dsl, err := json.Marshal(saved)
+	require.NoError(t, err)
+	wf.DSL = types.JSON(dsl)
 	repo := newRunRepoStub(wf)
 	svc := NewWorkflowService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	ctx := draftCtx(t, 10001, "creator-1")
 
-	run, err := svc.RunWorkflowNode(ctx, "wf-node", "ans", &types.RunWorkflowNodeRequest{})
-	require.Error(t, err)
+	run, rerr := svc.RunWorkflowNode(ctx, "wf-node", "ans", &types.RunWorkflowNodeRequest{})
+	require.Error(t, rerr)
 	require.NotNil(t, run)
 	assert.Equal(t, types.WorkflowRunStatusFailed, run.Status)
 	require.NotEmpty(t, run.Trace)
-	assert.Contains(t, string(run.Trace), "start@query")
+	assert.Contains(t, string(run.Trace), "start@ghost")
 }
 
 func TestRunWorkflowNode_NodeGuards(t *testing.T) {

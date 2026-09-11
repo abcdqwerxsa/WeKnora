@@ -607,6 +607,59 @@ func (s *workflowService) RunWorkflow(ctx context.Context, id string, req *types
 // {upstream@param} template refs resolve without executing the upstreams.
 // Runs synchronously and persists a workflow_runs row like RunWorkflow —
 // the trace/SSE/history machinery then applies unchanged.
+// synthesizeStartSeeds backfills seed entries for Start components so
+// {start@query}-style refs resolve in single-node runs. In a full run the
+// Start node echoes the request (query/files) plus field defaults; in a
+// node run it never executes, so an editor that sends no (or partial)
+// upstream inputs would leave every Start ref unresolved. The synthesis
+// mirrors startNode.Invoke minus the live request: query/files get neutral
+// empty values, declared fields fall back to their defaults. User-supplied
+// seed values always win (only missing keys are filled).
+func synthesizeStartSeeds(dsl *wfengine.DSL, seed map[string]map[string]any) {
+	for id, comp := range dsl.Components {
+		if comp == nil || !strings.EqualFold(comp.Obj.ComponentName, nodes.ComponentStart) {
+			continue
+		}
+		out := seed[id]
+		if out == nil {
+			out = map[string]any{}
+			seed[id] = out
+		}
+		if _, ok := out["query"]; !ok {
+			out["query"] = ""
+		}
+		if _, ok := out["files"]; !ok {
+			out["files"] = []any{}
+		}
+		for _, f := range parseStartFields(comp.Obj.Params) {
+			if f.Name == "" || f.Default == "" {
+				continue
+			}
+			if _, ok := out[f.Name]; !ok {
+				out[f.Name] = f.Default
+			}
+		}
+	}
+}
+
+// parseStartFields decodes params.fields into the engine's StartField shape
+// via a JSON round-trip (params arrive as generic maps from the DSL doc).
+func parseStartFields(params map[string]any) []nodes.StartField {
+	raw, ok := params["fields"]
+	if !ok || raw == nil {
+		return nil
+	}
+	blob, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var fields []nodes.StartField
+	if err := json.Unmarshal(blob, &fields); err != nil {
+		return nil
+	}
+	return fields
+}
+
 func (s *workflowService) RunWorkflowNode(ctx context.Context, id, nodeID string, req *types.RunWorkflowNodeRequest) (*types.WorkflowRun, error) {
 	tenantID, ok := types.TenantIDFromContext(ctx)
 	if !ok || tenantID == 0 {
@@ -658,6 +711,7 @@ func (s *workflowService) RunWorkflowNode(ctx context.Context, id, nodeID string
 			seed[upstreamID] = m
 		}
 	}
+	synthesizeStartSeeds(normalized, seed)
 
 	inputDoc, _ := json.Marshal(map[string]any{"node_id": nodeID, "inputs": req.Inputs})
 	run := &types.WorkflowRun{

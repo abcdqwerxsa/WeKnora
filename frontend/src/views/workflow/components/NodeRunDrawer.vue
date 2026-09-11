@@ -60,6 +60,9 @@ export interface NodeRunUpstream {
   kind: WorkflowNodeType
   /** Last-known outputs (previous run) prefilled as the editable input. */
   outputs?: Record<string, unknown> | null
+  /** Shape hint for Start upstreams (query key + field defaults) so the
+   * user sees what to fill instead of an empty {} textarea. */
+  seed?: Record<string, unknown> | null
 }
 
 const props = defineProps<{
@@ -106,7 +109,7 @@ watch(
     if (!visible) return
     drafts.clear()
     for (const up of props.upstreams) {
-      drafts.set(up.id, { draft: JSON.stringify(up.outputs ?? {}, null, 2), parseError: '' })
+      drafts.set(up.id, { draft: JSON.stringify(up.outputs ?? up.seed ?? {}, null, 2), parseError: '' })
     }
     runError.value = ''
     inputShown.value = null

@@ -618,11 +618,32 @@ async function onRunNode(nodeId: string) {
       .filter((edge) => edge.target === nodeId)
       .map((edge) => edge.source)
       .filter((id, index, all) => all.indexOf(id) === index)
-      .map((id) => ({ id, kind: kindOf(id), outputs: runNodeOutputs.value[id] ?? null }))
+      .map((id) => ({ id, kind: kindOf(id), outputs: runNodeOutputs.value[id] ?? null, seed: startSeedOf(id) }))
     nodeRunVisible.value = true
   } finally {
     nodeRunLoading.value = null
   }
+}
+
+// startSeedOf sketches what a Start node would output ({query: ''} plus
+// declared field defaults) so the debug drawer's JSON textarea shows the
+// expected shape instead of an opaque {}. The backend synthesizes the same
+// fallback at run time; this is only a UX hint.
+function startSeedOf(id: string): Record<string, unknown> | null {
+  const node = canvasNodes.value.find((n) => n.id === id)
+  const kind = (node?.data as { kind?: WorkflowNodeType } | undefined)?.kind
+  if (kind !== 'Start') return null
+  const fields = ((node?.data as { params?: { fields?: unknown } } | undefined)?.params?.fields ?? []) as Array<{
+    name?: unknown
+    default?: unknown
+  }>
+  const seed: Record<string, unknown> = { query: '' }
+  for (const f of Array.isArray(fields) ? fields : []) {
+    const name = typeof f?.name === 'string' ? f.name : ''
+    const def = typeof f?.default === 'string' ? f.default : ''
+    if (name && def && !(name in seed)) seed[name] = def
+  }
+  return seed
 }
 
 // ---- undo / redo ---------------------------------------------------------
