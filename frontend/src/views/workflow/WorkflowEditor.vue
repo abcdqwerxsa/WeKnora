@@ -462,10 +462,6 @@ function removeEdge(edgeId: string) {
 function removeNode(nodeId: string) {
   const node = canvasNodes.value.find((item) => item.id === nodeId)
   if (!node) return
-  if ((node.data?.kind as WorkflowNodeType) === 'Start') {
-    MessagePlugin.warning(t('workflow.editor.startProtected'))
-    return
-  }
   canvasNodes.value = canvasNodes.value.filter((item) => item.id !== nodeId)
   canvasEdges.value = canvasEdges.value.filter((edge) => edge.source !== nodeId && edge.target !== nodeId)
   if (selectedNodeId.value === nodeId) selectedNodeId.value = null
@@ -564,12 +560,11 @@ function onKeyDown(event: KeyboardEvent) {
     removeNode(selectedNodeId.value)
     return
   }
-  // Box multi-select delete: remove every selected node (Start stays).
+  // Box multi-select delete: remove every selected node.
   const selected = canvasNodes.value.filter((node) => (node as { selected?: boolean }).selected)
-  const removable = selected.filter((node) => (node.data?.kind as WorkflowNodeType) !== 'Start')
-  if (removable.length > 0) {
+  if (selected.length > 0) {
     event.preventDefault()
-    for (const node of removable) removeNode(node.id)
+    for (const node of selected) removeNode(node.id)
   }
 }
 

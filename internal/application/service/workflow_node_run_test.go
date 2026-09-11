@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	wfengine "github.com/Tencent/WeKnora/internal/agent/workflow"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -98,6 +99,58 @@ func TestRunWorkflowNode_StartSeedFillsFieldDefaults(t *testing.T) {
 	require.NoError(t, json.Unmarshal(run.Trace, &trace))
 	require.Len(t, trace, 1)
 	assert.Equal(t, "got: 默认题", trace[0].Outputs["answer"])
+}
+
+// Floating top-level nodes (no edges either way) are dropped on the full
+// run path: a stray node on the canvas must not turn into a second graph
+// entry ("multiple entries" run failure). Iterations stay (their body is
+// the runnable part).
+func TestDropFloatingComponents(t *testing.T) {
+	dsl := &wfengine.DSL{Version: 1, Components: map[string]*wfengine.Component{
+		"start":    {Obj: wfengine.ComponentObj{ComponentName: "Start"}, Downstream: []string{"ans"}},
+		"ans":      {Obj: wfengine.ComponentObj{ComponentName: "Answer", Params: map[string]any{"template": "ok"}}, Upstream: []string{"start"}},
+		"stray":    {Obj: wfengine.ComponentObj{ComponentName: "LLM", Params: map[string]any{"prompt": "x", "model": "m"}}},
+		"iter":     {Obj: wfengine.ComponentObj{ComponentName: "Iteration", Params: map[string]any{"items": "[]", "item_var": "item", "index_var": "index", "output_ref": "", "output_var": "results"}}},
+		"llm_body": {Obj: wfengine.ComponentObj{ComponentName: "LLM", Params: map[string]any{"prompt": "x", "model": "m"}}, Parent: "iter"},
+	}}
+	dropFloatingComponents(dsl)
+	if _, ok := dsl.Components["stray"]; ok {
+		t.Error("floating stray node must be dropped")
+	}
+	if _, ok := dsl.Components["start"]; !ok {
+		t.Error("wired start must stay")
+	}
+	if _, ok := dsl.Components["ans"]; !ok {
+		t.Error("wired ans must stay")
+	}
+	if _, ok := dsl.Components["iter"]; !ok {
+		t.Error("outer-floating Iteration must stay (its body is runnable)")
+	}
+	if _, ok := dsl.Components["llm_body"]; !ok {
+		t.Error("single-node loop body member must stay (legal body shape)")
+	}
+}
+
+// Regression (review): a full run of an iteration workflow with a
+// single-node body must survive the floating-component drop and compile.
+func TestRunWorkflow_IterationSingleNodeBodySurvivesFloatingDrop(t *testing.T) {
+	dsl := `{
+  "version": 1,
+  "components": {
+    "iter": {"obj": {"component_name": "Iteration", "params": {"items": "[1,2]", "item_var": "item", "index_var": "index", "output_ref": "{body@content}", "output_var": "results"}}, "upstream": [], "downstream": ["ans"], "parent": ""},
+    "body": {"obj": {"component_name": "LLM", "params": {"prompt": "n={item}", "model": "m"}}, "upstream": [], "downstream": [], "parent": "iter"},
+    "ans":  {"obj": {"component_name": "Answer", "params": {"template": "done"}}, "upstream": ["iter"], "downstream": [], "parent": ""},
+    "stray": {"obj": {"component_name": "LLM", "params": {"prompt": "x", "model": "m"}}, "upstream": [], "downstream": [], "parent": ""}
+  }
+}`
+	wf := &types.Workflow{ID: "wf-iter", TenantID: 10001, Name: "wf", CreatorID: "creator-1", DSL: types.JSON(dsl), Status: types.WorkflowStatusPublished}
+	repo := newRunRepoStub(wf)
+	svc := NewWorkflowService(repo, &wfStubModelSvc{reply: "llm-answer"}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil).(*workflowService)
+	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(10001))
+
+	run, err := svc.RunWorkflow(ctx, "wf-iter", &types.RunWorkflowRequest{Query: "q"})
+	require.NoError(t, err)
+	assert.Equal(t, types.WorkflowRunStatusSucceeded, run.Status, "run error: %s", run.Error)
 }
 
 func TestRunWorkflowNode_SucceedsWithInjectedState(t *testing.T) {

@@ -201,11 +201,19 @@ export function componentsFromGraph(nodes: WFNode[], edges: WFEdge[]): Record<st
   // Floating (unwired) nodes must NOT reach the execution view: the engine
   // compiles components and every node with empty upstream counts as an
   // entry, so a stray node would fail the run with "multiple entries".
-  // Isolated = no incoming AND no outgoing edges AND not an iteration body.
+  // Isolated = no incoming AND no outgoing edges AND not an iteration body
+  // AND not an Iteration node itself (a floating Iteration still runs its
+  // nested body — dropping it would orphan the body members whose parent
+  // names it, mirroring the backend dropFloatingComponents exemptions).
   // If that exclusion would empty the view, keep everything (still saves).
   const isolated = Object.keys(components).filter((id) => {
     const comp = components[id]
-    return comp.upstream.length === 0 && comp.downstream.length === 0 && !comp.parent
+    return (
+      comp.upstream.length === 0 &&
+      comp.downstream.length === 0 &&
+      !comp.parent &&
+      comp.obj.component_name !== 'Iteration'
+    )
   })
   if (isolated.length > 0 && isolated.length < Object.keys(components).length) {
     for (const id of isolated) delete components[id]
@@ -400,7 +408,10 @@ export function validateGraph(nodes: WFNode[], edges: WFEdge[]): GraphIssue[] {
 
   if (entries.length === 0) issues.push({ level: 'error', key: 'noEntry' })
   if (entries.length > 1) {
-    issues.push({ level: 'error', key: 'multipleEntries', values: { count: entries.length, names: entries.map((n) => n.id).join(', ') } })
+    // n8n semantics: a forked start does not block saving. The run engine
+    // still requires exactly one entry and fails with a clear error naming
+    // them; floating nodes are already dropped on the run path.
+    issues.push({ level: 'warning', key: 'multipleEntries', values: { count: entries.length, names: entries.map((n) => n.id).join(', ') } })
   }
   if (terminals.length === 0) issues.push({ level: 'error', key: 'noTerminal' })
   // Multiple terminals are legal (parallel branches need not converge).

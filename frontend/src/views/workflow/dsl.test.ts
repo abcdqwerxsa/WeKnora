@@ -63,7 +63,7 @@ test('validateGraph: floating nodes are not entries (do not block save)', () => 
   assert.ok(keys.includes('unreachable'), 'isolated node should stay an unreachable warning')
 })
 
-test('validateGraph: multiple real flow entries still fail', () => {
+test('validateGraph: multiple real flow entries warn (n8n: saving allowed, run gates)', () => {
   const issues = validateGraph(
     [
       node('a', 'Start'),
@@ -77,8 +77,9 @@ test('validateGraph: multiple real flow entries still fail', () => {
     ],
   )
   const multiple = issues.find((i) => i.key === 'multipleEntries')
-  assert.ok(multiple, 'expected multipleEntries error')
+  assert.ok(multiple, 'expected multipleEntries warning')
   assert.equal(multiple.values?.count, 2)
+  assert.equal(multiple.level, 'warning')
 })
 
 test('validateGraph reports no entry and no terminal on a pure cycle', () => {

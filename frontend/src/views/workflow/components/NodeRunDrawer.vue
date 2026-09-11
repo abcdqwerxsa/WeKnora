@@ -1,51 +1,56 @@
 <template>
-  <t-drawer
+  <t-dialog
     :visible="visible"
     :header="t('workflow.editor.runNodeTitle', { name: nodeLabel })"
-    size="440px"
+    width="880px"
     :footer="false"
     :close-btn="true"
-    :show-overlay="false"
+    :close-on-overlay-click="false"
     @update:visible="emit('update:visible', $event)"
   >
     <div class="wf-node-run">
-      <p class="wf-node-run-hint">{{ t('workflow.editor.runNodeHint') }}</p>
-
-      <div v-if="upstreamList.length === 0" class="wf-node-run-empty">
-        {{ t('workflow.editor.runNodeNoUpstream') }}
-      </div>
-      <div v-for="up in upstreamList" :key="up.id" class="wf-node-run-up">
-        <p class="wf-node-run-up-title">
-          <span class="wf-node-run-dot" :style="{ background: up.color }" />
-          {{ up.label }}
-          <span class="wf-node-run-up-id">{{ up.id }}</span>
-        </p>
-        <textarea
-          class="wf-node-run-json"
-          rows="4"
-          spellcheck="false"
-          :value="draftOf(up.id).draft"
-          :placeholder="t('workflow.editor.runNodeJsonPlaceholder')"
-          @input="setDraft(up.id, ($event.target as HTMLTextAreaElement).value)"
-        />
-        <p v-if="draftOf(up.id).parseError" class="wf-node-run-err">{{ draftOf(up.id).parseError }}</p>
+      <div class="wf-node-run-toolbar">
+        <p class="wf-node-run-hint">{{ t('workflow.editor.runNodeHint') }}</p>
+        <t-button theme="primary" :loading="running" @click="run">
+          {{ t('workflow.editor.runNodeGo') }}
+        </t-button>
       </div>
 
-      <t-button theme="primary" block :loading="running" @click="run">
-        {{ t('workflow.editor.runNodeGo') }}
-      </t-button>
+      <div class="wf-node-run-cols">
+        <!-- Left: INPUT — direct upstream outputs, editable JSON. -->
+        <div class="wf-node-run-col">
+          <p class="wf-node-run-col-title">{{ t('workflow.editor.nodeInputs') }}</p>
+          <div v-if="upstreamList.length === 0" class="wf-node-run-empty">
+            {{ t('workflow.editor.runNodeNoUpstream') }}
+          </div>
+          <div v-for="up in upstreamList" :key="up.id" class="wf-node-run-up">
+            <p class="wf-node-run-up-title">
+              <span class="wf-node-run-dot" :style="{ background: up.color }" />
+              {{ up.label }}
+              <span class="wf-node-run-up-id">{{ up.id }}</span>
+            </p>
+            <textarea
+              class="wf-node-run-json"
+              rows="8"
+              spellcheck="false"
+              :value="draftOf(up.id).draft"
+              :placeholder="t('workflow.editor.runNodeJsonPlaceholder')"
+              @input="setDraft(up.id, ($event.target as HTMLTextAreaElement).value)"
+            />
+            <p v-if="draftOf(up.id).parseError" class="wf-node-run-err">{{ draftOf(up.id).parseError }}</p>
+          </div>
+        </div>
 
-      <template v-if="inputShown !== null">
-        <p class="wf-node-run-sec">{{ t('workflow.editor.nodeInputs') }}</p>
-        <pre class="wf-node-run-json-out">{{ inputShown }}</pre>
-      </template>
-      <template v-if="outputShown !== null">
-        <p class="wf-node-run-sec">{{ t('workflow.editor.nodeOutputs') }}</p>
-        <pre class="wf-node-run-json-out" :class="{ 'wf-node-run-json-out--err': failed }">{{ outputShown }}</pre>
-      </template>
-      <p v-if="runError" class="wf-node-run-err">{{ runError }}</p>
+        <!-- Right: OUTPUT — this node's execution result (n8n-style panel). -->
+        <div class="wf-node-run-col">
+          <p class="wf-node-run-col-title">{{ t('workflow.editor.nodeOutputs') }}</p>
+          <pre v-if="outputShown !== null" class="wf-node-run-json-out" :class="{ 'wf-node-run-json-out--err': failed }">{{ outputShown }}</pre>
+          <div v-else class="wf-node-run-empty">{{ t('workflow.editor.runNodeNoOutput') }}</div>
+          <p v-if="runError" class="wf-node-run-err">{{ runError }}</p>
+        </div>
+      </div>
     </div>
-  </t-drawer>
+  </t-dialog>
 </template>
 
 <script setup lang="ts">
@@ -78,7 +83,6 @@ const emit = defineEmits<{ 'update:visible': [value: boolean] }>()
 const { t } = useI18n()
 const running = ref(false)
 const runError = ref('')
-const inputShown = ref<string | null>(null)
 const outputShown = ref<string | null>(null)
 const failed = ref(false)
 
@@ -102,7 +106,7 @@ function setDraft(id: string, value: string) {
   drafts.set(id, { draft: value, parseError: prev?.parseError ?? '' })
 }
 
-// Re-seed the editable inputs every time the drawer opens for a node.
+// Re-seed the editable inputs every time the dialog opens for a node.
 watch(
   () => [props.visible, props.nodeId] as const,
   ([visible]) => {
@@ -112,7 +116,6 @@ watch(
       drafts.set(up.id, { draft: JSON.stringify(up.outputs ?? up.seed ?? {}, null, 2), parseError: '' })
     }
     runError.value = ''
-    inputShown.value = null
     outputShown.value = null
     failed.value = false
   },
@@ -143,7 +146,6 @@ async function run() {
 
   running.value = true
   runError.value = ''
-  inputShown.value = pretty(inputs)
   outputShown.value = null
   failed.value = false
   try {
@@ -173,31 +175,67 @@ async function run() {
 .wf-node-run {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
+}
+
+.wf-node-run-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
 }
 
 .wf-node-run-hint {
   margin: 0;
   font-size: 12px;
+  color: var(--td-text-color-secondary);
+}
+
+.wf-node-run-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  min-height: 260px;
+}
+
+.wf-node-run-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.wf-node-run-col-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
   color: var(--td-text-color-placeholder);
 }
 
 .wf-node-run-empty {
-  padding: 10px;
-  border-radius: 8px;
-  background: var(--td-bg-color-secondarycontainer);
+  padding: 24px 12px;
+  text-align: center;
   font-size: 12px;
-  color: var(--td-text-color-secondary);
+  color: var(--td-text-color-placeholder);
+  border: 1px dashed var(--td-component-stroke);
+  border-radius: var(--td-radius-medium);
+}
+
+.wf-node-run-up {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .wf-node-run-up-title {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin: 0 0 4px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--td-text-color-primary);
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .wf-node-run-dot {
@@ -208,44 +246,48 @@ async function run() {
 }
 
 .wf-node-run-up-id {
-  font-weight: 400;
-  color: var(--td-text-color-placeholder);
-}
-
-.wf-node-run-json,
-.wf-node-run-json-out {
-  width: 100%;
-  margin: 0;
-  padding: 8px;
-  border-radius: 8px;
-  background: var(--td-bg-color-secondarycontainer);
-  border: 1px solid var(--td-component-stroke);
-  font-family: var(--td-font-family, monospace);
   font-size: 11px;
-  line-height: 1.5;
-  color: var(--td-text-color-primary);
-  white-space: pre-wrap;
-  word-break: break-word;
+  color: var(--td-text-color-placeholder);
+  font-family: var(--td-font-family-code);
 }
 
 .wf-node-run-json {
+  width: 100%;
+  box-sizing: border-box;
   resize: vertical;
-  outline: none;
+  font-family: var(--td-font-family-code);
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 8px 10px;
+  border-radius: var(--td-radius-medium);
+  border: 1px solid var(--td-component-stroke);
+  background: var(--td-bg-color-container);
+  color: var(--td-text-color-primary);
 }
 
 .wf-node-run-json:focus {
+  outline: none;
   border-color: var(--td-brand-color);
 }
 
-.wf-node-run-json-out--err {
-  color: var(--td-error-color);
+.wf-node-run-json-out {
+  margin: 0;
+  flex: 1;
+  overflow: auto;
+  max-height: 340px;
+  font-family: var(--td-font-family-code);
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 10px 12px;
+  border-radius: var(--td-radius-medium);
+  border: 1px solid var(--td-component-stroke);
+  background: var(--td-bg-color-graycontainer);
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
-.wf-node-run-sec {
-  margin: 6px 0 0;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--td-text-color-primary);
+.wf-node-run-json-out--err {
+  border-color: var(--td-error-color);
 }
 
 .wf-node-run-err {
@@ -253,6 +295,6 @@ async function run() {
   font-size: 12px;
   color: var(--td-error-color);
   white-space: pre-wrap;
-  word-break: break-word;
+  word-break: break-all;
 }
 </style>

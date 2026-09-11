@@ -549,6 +549,7 @@ func (s *workflowService) RunWorkflow(ctx context.Context, id string, req *types
 	if err != nil {
 		return nil, err
 	}
+	dropFloatingComponents(normalized)
 	if verr := validateRunInputs(normalized, req); verr != nil {
 		return nil, verr
 	}
@@ -798,7 +799,54 @@ func (s *workflowService) normalizeDSLBytes(raw types.JSON) (*wfengine.DSL, erro
 // normalizeWorkflowDSL unmarshals and normalizes the stored DSL document.
 // Shape errors are ErrWorkflowInvalidDSL (400 semantics, no run row).
 func (s *workflowService) normalizeWorkflowDSL(wf *types.Workflow) (*wfengine.DSL, error) {
-	return s.normalizeDSLBytes(dslForRun(wf))
+	normalized, err := s.normalizeDSLBytes(dslForRun(wf))
+	if err != nil {
+		return nil, err
+	}
+	// Full-graph view: stray floating nodes are dropped so they neither
+	// block validation nor dangle in a compiled graph. Consumed by the async
+	// run handler and publish checks; node-run sub-DSLs bypass this.
+	dropFloatingComponents(normalized)
+	return normalized, nil
+}
+
+// dropFloatingComponents removes top-level components with no incoming
+// and no outgoing edges (a stray node left on the canvas) so they neither
+// count as graph entries nor dangle unreachable inside the compiled eino
+// graph. Iteration components and loop-body members (Parent set) are
+// exempt — a floating Iteration still runs its nested body, and a
+// single-node body is the legal "one entry + one terminal" shape inside
+// its parent. Node-run sub-DSLs never pass through here: their single node
+// IS the floating shape by construction.
+func dropFloatingComponents(dsl *wfengine.DSL) {
+	if dsl == nil {
+		return
+	}
+	targeted := map[string]bool{}
+	for _, comp := range dsl.Components {
+		if comp == nil {
+			continue
+		}
+		for _, d := range comp.Downstream {
+			targeted[d] = true
+		}
+	}
+	for id, comp := range dsl.Components {
+		if comp == nil {
+			delete(dsl.Components, id)
+			continue
+		}
+		// Iteration components are exempt — their executable body lives in
+		// the nested graph, so an outer-floating Iteration is still runnable.
+		// Body members (Parent set) are exempt too — a single-node body is
+		// the legal "one entry + one terminal" shape inside its parent.
+		if comp.Parent != "" || strings.EqualFold(comp.Obj.ComponentName, nodes.ComponentIteration) {
+			continue
+		}
+		if !targeted[id] && len(comp.Downstream) == 0 {
+			delete(dsl.Components, id)
+		}
+	}
 }
 
 // answerStreamSource reports the node id whose LLM deltas are the live
