@@ -740,11 +740,48 @@ func (s *workflowService) RunWorkflowNode(ctx context.Context, id, nodeID string
 			if q, _ := m["query"].(string); q != "" {
 				runReq.Query = q
 			}
+			runReq.Files = stringSlice(m["files"])
 			runReq.Inputs = m
 		}
 		seed = nil
+	} else {
+		// Downstream test steps inherit the Start fixture's attachments: a
+		// materialised (or pinned) START node's files array carries the ready
+		// attachment ids, and the LLM adapters only build attachment context
+		// when the run request itself carries files. Gated on Start-kind
+		// upstreams so a non-Start node that happens to emit a top-level
+		// files string array is not mistaken for attachment ids.
+		for upID, params := range seed {
+			up := normalized.Components[upID]
+			if up == nil || !strings.EqualFold(up.Obj.ComponentName, nodes.ComponentStart) {
+				continue
+			}
+			if files := stringSlice(params["files"]); len(files) > 0 {
+				runReq.Files = files
+				break
+			}
+		}
 	}
 	return run, s.executeWorkflowRun(ctx, run, wf, sub, runReq, seed)
+}
+
+// stringSlice coerces a JSON-decoded value into []string (attachment ids
+// arrive as []any from the editor fixture).
+func stringSlice(v any) []string {
+	list, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(list))
+	for _, item := range list {
+		if s, ok := item.(string); ok {
+			out = append(out, s)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // ProcessWorkflowRun is the asynq handler for types.TypeWorkflowRun.

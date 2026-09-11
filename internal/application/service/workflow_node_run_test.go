@@ -284,3 +284,58 @@ func TestCompile_IgnoresGraphOnlyFloatingNodes(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, types.WorkflowRunStatusSucceeded, run.Status)
 }
+
+// Start's test step with attachments: the fixture's files array is
+// promoted to the run request and echoes back through Start.Invoke.
+func TestRunWorkflowNode_StartFixtureFilesEcho(t *testing.T) {
+	wf := nodeRunWorkflow()
+	repo := newRunRepoStub(wf)
+	svc := NewWorkflowService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ctx := draftCtx(t, 10001, "creator-1")
+
+	run, err := svc.RunWorkflowNode(ctx, "wf-node", "start", &types.RunWorkflowNodeRequest{
+		Inputs: map[string]any{"start": map[string]any{
+			"query": "q",
+			"files": []any{"att-1", "att-2"},
+		}},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, types.WorkflowRunStatusSucceeded, run.Status)
+	var trace []types.WorkflowRunTraceEntry
+	require.NoError(t, json.Unmarshal(run.Trace, &trace))
+	require.Len(t, trace, 1)
+	files, ok := trace[0].Outputs["files"].([]any)
+	require.True(t, ok, "files = %#v", trace[0].Outputs["files"])
+	assert.Equal(t, []any{"att-1", "att-2"}, files)
+}
+
+// Downstream test steps inherit the Start fixture's files: the seed scan
+// promotes them to the run request, visible via {sys.files} rendering.
+func TestRunWorkflowNode_DownstreamInheritsStartFiles(t *testing.T) {
+	wf := nodeRunWorkflow()
+	var saved map[string]any
+	require.NoError(t, json.Unmarshal(wf.DSL, &saved))
+	comps := saved["components"].(map[string]any)
+	comps["ans"] = map[string]any{
+		"obj":        map[string]any{"component_name": "Answer", "params": map[string]any{"template": "files={sys.files}"}},
+		"upstream":   []any{"start"},
+		"downstream": []any{},
+	}
+	dsl, err := json.Marshal(saved)
+	require.NoError(t, err)
+	wf.DSL = types.JSON(dsl)
+
+	repo := newRunRepoStub(wf)
+	svc := NewWorkflowService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	ctx := draftCtx(t, 10001, "creator-1")
+
+	run, rerr := svc.RunWorkflowNode(ctx, "wf-node", "ans", &types.RunWorkflowNodeRequest{
+		Inputs: map[string]any{"start": map[string]any{"files": []any{"att-1"}}},
+	})
+	require.NoError(t, rerr)
+	assert.Equal(t, types.WorkflowRunStatusSucceeded, run.Status)
+	var trace []types.WorkflowRunTraceEntry
+	require.NoError(t, json.Unmarshal(run.Trace, &trace))
+	require.Len(t, trace, 1)
+	assert.Contains(t, trace[0].Outputs["answer"], "att-1")
+}

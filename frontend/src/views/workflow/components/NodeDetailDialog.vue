@@ -68,6 +68,7 @@
               :autosize="{ minRows: 2, maxRows: 4 }"
               :placeholder="t('workflow.run.queryPlaceholder')"
             />
+            <RunAttachmentsField v-model="startAttachments" :workflow-id="workflowId" />
             <t-form label-align="top" size="small">
               <t-form-item
                 v-for="field in startFields"
@@ -131,6 +132,13 @@
             <span class="wf-detail-view-toggle">
               <button
                 type="button"
+                :class="['wf-detail-view-btn', { 'is-active': viewMode === 'schema' }]"
+                @click="viewMode = 'schema'"
+              >
+                {{ t('workflow.editor.outputViewSchema') }}
+              </button>
+              <button
+                type="button"
                 :class="['wf-detail-view-btn', { 'is-active': viewMode === 'table' }]"
                 :disabled="!tableable"
                 @click="viewMode = 'table'"
@@ -154,7 +162,11 @@
             </span>
           </div>
           <p v-if="copiedRef" class="wf-detail-copied">{{ t('workflow.editor.refCopied', { ref: copiedRef }) }}</p>
-          <template v-if="viewMode === 'table'">
+          <template v-if="viewMode === 'schema'">
+            <OutputSchemaView v-if="outputValue !== null && typeof outputValue === 'object'" :value="outputValue" />
+            <div v-else class="wf-detail-empty">{{ t('workflow.editor.runNodeNoOutput') }}</div>
+          </template>
+          <template v-else-if="viewMode === 'table'">
             <OutputTableView :value="outputValue" />
           </template>
           <template v-else-if="viewMode === 'tree'">
@@ -183,6 +195,9 @@ import { runWorkflowNode, type WorkflowRunTraceEntry, type WorkflowNodeType } fr
 import { NODE_COLORS } from '../nodeMeta'
 import JsonTreeView from './JsonTreeView.vue'
 import OutputTableView from './OutputTableView.vue'
+import OutputSchemaView from './OutputSchemaView.vue'
+import RunAttachmentsField from './RunAttachmentsField.vue'
+import type { WorkflowRunAttachment } from '@/api/workflow'
 
 /** One upstream node for the INPUT pane. */
 export interface DetailUpstream {
@@ -227,7 +242,7 @@ const running = ref(false)
 const runError = ref('')
 const outputShown = ref<string | null>(null)
 const failed = ref(false)
-const viewMode = ref<'table' | 'tree' | 'json'>('tree')
+const viewMode = ref<'schema' | 'table' | 'tree' | 'json'>('schema')
 const copiedRef = ref('')
 const activeUpstreamId = ref<string | null>(null)
 let copiedTimer: number | null = null
@@ -237,6 +252,7 @@ const isStart = computed(() => props.nodeKind === 'Start')
 // The Start node's INPUT pane is a form (query + declared fields); running
 // the node materialises it as the entry fixture for downstream debugging.
 const startForm = ref<{ query: string; values: Record<string, string | number | undefined> }>({ query: '', values: {} })
+const startAttachments = ref<WorkflowRunAttachment[]>([])
 watch(
   () => [props.visible, props.nodeId] as const,
   ([visible]) => {
@@ -288,9 +304,10 @@ const tableable = computed(() => {
 })
 
 // Prefer table automatically for array-ish outputs (n8n default for item
-// lists); tree otherwise. Re-evaluated when a new output arrives.
+// lists); schema for object payloads, tree otherwise. Re-evaluated when a
+// new output arrives.
 watch(outputShown, () => {
-  viewMode.value = tableable.value ? 'table' : 'tree'
+  viewMode.value = tableable.value ? 'table' : outputValue.value !== null && typeof outputValue.value === 'object' ? 'schema' : 'tree'
 })
 
 // ---- pane widths (n8n PanelDragButton semantics): drag the separators,
@@ -396,7 +413,7 @@ watch(
     failed.value = false
     // Pinned nodes show their frozen fixture, not a stale run output.
     outputShown.value = props.pinned && Object.keys(props.pinned).length > 0 ? JSON.stringify(props.pinned, null, 2) : null
-    viewMode.value = tableable.value ? 'table' : 'tree'
+    viewMode.value = tableable.value ? 'table' : props.pinned && Object.keys(props.pinned).length > 0 ? 'schema' : 'tree'
   },
   { immediate: true },
 )
@@ -417,6 +434,8 @@ async function run() {
     for (const [k, v] of Object.entries(startForm.value.values)) {
       if (v !== undefined && String(v) !== '') fixture[k] = v
     }
+    const readyFiles = startAttachments.value.filter((a) => a.status === 'ready').map((a) => a.id)
+    if (readyFiles.length > 0) fixture.files = readyFiles
     inputs[props.nodeId] = fixture
   } else {
     // Parse every upstream draft first — abort on the first syntax error.

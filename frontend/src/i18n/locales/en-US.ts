@@ -52,6 +52,7 @@ export default {
       user: 'User',
       assistant: 'Assistant',
       attachments: 'Attachments',
+      attachHint: 'Attachments are parsed into LLM context (platform document formats: PDF/Word/Excel/PPT/images…)',
       references: 'References'
     }
   },
@@ -6894,6 +6895,8 @@ export default {
       runNodeNoUpstream: 'This node has no upstream nodes — it will run without injected inputs.',
       runNodeNoOutput: 'Run to see this node output here.',
       outputViewTree: 'Tree',
+      outputViewSchema: 'Schema',
+      schemaEmpty: 'No derivable field structure yet.',
       pin: 'Pin data',
       unpin: 'Unpin',
       pinHint: 'Pinned: full runs skip this node and replay this frozen output',
