@@ -6897,6 +6897,7 @@ export default {
       pin: 'Pin data',
       unpin: 'Unpin',
       pinHint: 'Pinned: full runs skip this node and replay this frozen output',
+      startFormHint: 'Fill the form and run: the values materialise as this Start node output for downstream debugging',
       pinnedBadge: 'Output pinned (full runs skip this node)',
       outputViewTable: 'Table',
       outputTableRows: '{count} rows',

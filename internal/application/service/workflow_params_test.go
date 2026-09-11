@@ -336,3 +336,24 @@ func TestWorkflowAttachmentScopeFitsColumn(t *testing.T) {
 	assert.Len(t, scope, 35, "wf- + 32 hex chars")
 	assert.True(t, strings.HasPrefix(scope, "wf-"))
 }
+
+// Empty rendered prompts fail fast with a clear message instead of an
+// opaque downstream provider 400 (messages[].content invalid).
+func TestRunLLMEmptyPromptFailsFast(t *testing.T) {
+	svc := NewWorkflowService(nil, &wfStubModelSvc{reply: "x"}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil).(*workflowService)
+	for name, call := range map[string]func() error{
+		"llm": func() error {
+			_, err := svc.runLLM(context.Background(), nodes.LLMRequest{Prompt: "   ", Model: "m"})
+			return err
+		},
+		"stream": func() error {
+			_, err := svc.runLLMStream(context.Background(), nodes.LLMRequest{Prompt: "", Model: "m"}, nil)
+			return err
+		},
+	} {
+		err := call()
+		if err == nil || !strings.Contains(err.Error(), "rendered prompt is empty") {
+			t.Errorf("%s: err = %v, want empty-prompt error", name, err)
+		}
+	}
+}

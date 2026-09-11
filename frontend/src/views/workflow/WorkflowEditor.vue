@@ -182,8 +182,10 @@
       :workflow-id="workflowId"
       :node-id="selectedNodeId ?? ''"
       :node-label="t(`workflow.nodes.${selectedKind}`)"
+      :node-kind="selectedKind"
       :runnable="detailRunnable"
       :upstreams="detailUpstreams"
+      :start-fields="startFields"
       :pinned="selectedNodeId !== null ? (pinnedOutputs[selectedNodeId] ?? null) : null"
       @node-output="onDetailNodeOutput"
       @set-pinned="setNodePinned"
@@ -632,8 +634,9 @@ const detailUpstreams = computed<DetailUpstream[]>(() => {
     }))
 })
 
-// Start / Iteration cannot run in isolation (backend guard).
-const detailRunnable = computed(() => selectedKind.value !== 'Start' && selectedKind.value !== 'Iteration')
+// Iteration cannot run in isolation (backend guard). Start CAN: its
+// test-step materialises the entry form as the downstream fixture.
+const detailRunnable = computed(() => selectedKind.value !== 'Iteration')
 
 function onDetailNodeOutput(nodeId: string, outputs: Record<string, unknown>) {
   runNodeOutputs.value = { ...runNodeOutputs.value, [nodeId]: outputs }

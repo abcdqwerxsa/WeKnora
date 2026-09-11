@@ -220,10 +220,18 @@ func TestRunWorkflowNode_NodeGuards(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrWorkflowNodeNotRunnable)
 
-	// Start node: nothing to debug.
-	_, err = svc.RunWorkflowNode(ctx, "wf-node", "start", &types.RunWorkflowNodeRequest{})
-	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrWorkflowNodeNotRunnable)
+	// Start node (changed contract): runnable in isolation — the filled form
+	// is promoted to the run request (query + inputs) and the node's echo
+	// materialises it as outputs.
+	run, serr := svc.RunWorkflowNode(ctx, "wf-node", "start", &types.RunWorkflowNodeRequest{
+		Inputs: map[string]any{"start": map[string]any{"query": "你好"}},
+	})
+	require.NoError(t, serr)
+	assert.Equal(t, types.WorkflowRunStatusSucceeded, run.Status)
+	var trace []types.WorkflowRunTraceEntry
+	require.NoError(t, json.Unmarshal(run.Trace, &trace))
+	require.Len(t, trace, 1)
+	assert.Equal(t, "你好", trace[0].Outputs["query"], "seeded form values materialise as Start outputs")
 
 	// Iteration node: needs its loop body context — not runnable in isolation.
 	var saved map[string]any
