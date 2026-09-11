@@ -10,14 +10,14 @@
         <span class="wf-node-kind">{{ title }}</span>
         <span class="wf-node-subtitle">{{ subtitle || desc }}</span>
       </div>
-      <!-- n8n-style step run: visible on hover for non-Start nodes;
-           click.stop keeps canvas selection/drawer out of the way. -->
+      <!-- n8n-style run affordance: Start opens the run form (Execute
+           workflow semantics — the trigger runs the flow); other nodes open
+           the detail dialog's test-step. -->
       <button
-        v-if="kind !== 'Start'"
         type="button"
         class="wf-node-run-btn"
         :disabled="runNodeLoading"
-        :title="t('workflow.editor.runNode')"
+        :title="kind === 'Start' ? t('workflow.run.title') : t('workflow.editor.runNode')"
         @click.stop="$emit('run-node')"
       >
         <t-icon :name="runNodeLoading ? 'loading' : 'play'" :class="{ 'wf-spin': runNodeLoading }" />

@@ -639,12 +639,20 @@ function onDetailNodeOutput(nodeId: string, outputs: Record<string, unknown>) {
   runNodeOutputs.value = { ...runNodeOutputs.value, [nodeId]: outputs }
 }
 
-// Card ▶ button: open the detail dialog on that node (the test-step run
-// lives inside it, n8n-style).
+// Card ▶ button. n8n semantics: Start is the trigger — running it opens
+// the run form (Execute workflow); every other node opens the detail
+// dialog with the test-step run inside.
 async function onRunNode(nodeId: string) {
   if (nodeRunLoading.value) return
   const node = canvasNodes.value.find((item) => item.id === nodeId)
   if (!node) return
+  if ((node.data?.kind as WorkflowNodeType) === 'Start') {
+    // The run executes the SAVED DSL — flush pending edits, then surface
+    // the shared run form (same entry as the toolbar run button).
+    if (dirty.value && !(await doSave({ silent: true }))) return
+    runDrawerVisible.value = true
+    return
+  }
   nodeRunLoading.value = nodeId
   try {
     // The server executes the SAVED draft — flush pending edits first.
