@@ -73,57 +73,80 @@ export const NODE_ICONS: Record<WorkflowNodeType, string> = {
   MCPTool: 'server',
 }
 
-/** Upstream output params a reference picker may offer for a node kind. */
-export function outputParamsOf(kind: WorkflowNodeType, params?: Record<string, unknown>): string[] {
+/** One declared output of a node kind: the single source of truth for
+ * what a node emits (mirrors the engine's Invoke return shape). Type is
+ * informational — the engine's runtime values always win. */
+export interface OutputDecl {
+  name: string
+  type: 'string' | 'number' | 'boolean' | 'object' | 'array' | 'any'
+  desc?: string
+}
+
+const DECL = (name: string, type: OutputDecl['type'], desc?: string): OutputDecl => ({ name, type, desc })
+
+/** Declared outputs per node kind (params resolves dynamic names/types). */
+export function outputDeclsOf(kind: WorkflowNodeType, params?: Record<string, unknown>): OutputDecl[] {
   switch (kind) {
     case 'Start': {
       // Declared form fields are materialised into Start outputs by name.
       const fields = params?.fields
-      const names = Array.isArray(fields)
-        ? fields.map((f) => String((f as { name?: unknown })?.name ?? '')).filter(Boolean)
+      const dynamic = Array.isArray(fields)
+        ? (fields as Array<{ name?: unknown; type?: unknown }>).filter((f) => String(f?.name ?? '')).map((f) => {
+            const t = typeof f?.type === 'string' ? f.type : 'text'
+            const declType: OutputDecl['type'] = t === 'number' ? 'number' : 'string'
+            return DECL(String(f.name), declType)
+          })
         : []
-      return ['query', ...names]
+      return [DECL('query', 'string'), DECL('files', 'array', 'run attachment ids'), ...dynamic]
     }
     case 'LLM':
-      return ['content']
+      return [DECL('content', 'string', 'generated text')]
     case 'Retrieval':
-      return ['chunks', 'doc_aggs']
+      return [DECL('chunks', 'array', 'retrieved chunk objects (index with .0, .1, …)'), DECL('doc_aggs', 'array', 'per-document aggregates')]
     case 'Template':
-      return ['text']
+      return [DECL('text', 'string')]
+    case 'Answer':
+      return [DECL('answer', 'string')]
     case 'HTTP':
-      return ['status_code', 'body', 'headers']
+      return [DECL('status_code', 'number'), DECL('body', 'string'), DECL('headers', 'object')]
     case 'DataOps':
-      return ['columns', 'rows', 'row_count']
+      return [DECL('columns', 'array', 'column names'), DECL('rows', 'array', 'row objects'), DECL('row_count', 'number')]
+    case 'Code':
+      // Script-defined: the keys of the last printed JSON object become
+      // outputs verbatim — nothing static to declare.
+      return []
     case 'WebSearch':
-      return ['results', 'result_count']
+      return [DECL('results', 'array', 'search result objects'), DECL('result_count', 'number')]
     case 'QuestionClassifier':
-      return ['class']
+      return [DECL('class', 'string', 'matched class name')]
     case 'ParameterExtractor': {
       const decls = params?.parameters
       return Array.isArray(decls)
-        ? decls.map((p) => String((p as { name?: unknown })?.name ?? '')).filter(Boolean)
+        ? (decls as Array<{ name?: unknown }>).filter((p) => String(p?.name ?? '')).map((p) => DECL(String(p.name), 'any'))
         : []
     }
     case 'Iteration': {
       const vars = params
       const out = typeof vars?.output_var === 'string' && vars.output_var ? vars.output_var : 'results'
-      return [out, 'count']
+      return [DECL(out, 'array', 'collected per-item outputs'), DECL('count', 'number')]
     }
     case 'Agent':
-      return ['answer']
+      return [DECL('answer', 'string')]
     case 'MCPTool':
-      return ['result', 'result_text']
+      return [DECL('result', 'any', 'raw MCP content'), DECL('result_text', 'string', 'textual rendering')]
     case 'VariableAggregator': {
-      // Outputs are the user-declared variable names.
-      const vars = params?.variables
-      if (Array.isArray(vars)) {
-        return vars.map((v) => String((v as { name?: unknown })?.name ?? '')).filter(Boolean)
-      }
-      return []
+      // The engine returns {values: map, collected: n} — members are
+      // addressed as values.<name> (see template_test / e2e notes).
+      return [DECL('values', 'object', 'address members as values.<name>'), DECL('collected', 'number')]
     }
     default:
       return []
   }
+}
+
+/** Upstream output params a reference picker may offer for a node kind. */
+export function outputParamsOf(kind: WorkflowNodeType, params?: Record<string, unknown>): string[] {
+  return outputDeclsOf(kind, params).map((d) => d.name)
 }
 
 // ---- upstream reference suggestions (shared by RefTextarea / picker) ----

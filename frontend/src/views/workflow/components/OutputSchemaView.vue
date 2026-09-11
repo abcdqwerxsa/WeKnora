@@ -1,15 +1,18 @@
 <template>
   <div class="wf-schema">
-    <div v-for="row in rows" :key="row.path" class="wf-schema-row" :style="{ paddingLeft: `${4 + row.depth * 12}px` }">
-      <span class="wf-schema-toggle">{{ row.leaf ? '·' : (collapsed.has(row.path) ? '▸' : '▾') }}</span>
-      <span
-        class="wf-schema-toggle-btn"
-        @click="!row.leaf && toggle(row.path)"
-      >{{ row.key }}</span>
-      <span class="wf-schema-type" :class="`wf-schema-type--${row.type}`">{{ row.type }}</span>
-      <span v-if="row.sample !== null" class="wf-schema-sample" :title="row.sample">{{ row.sample }}</span>
-    </div>
+    <template v-if="rows.length > 0">
+      <div v-for="row in rows" :key="row.path" class="wf-schema-row" :style="{ paddingLeft: `${4 + row.depth * 12}px` }">
+        <span class="wf-schema-toggle">{{ row.leaf ? '·' : (collapsed.has(row.path) ? '▸' : '▾') }}</span>
+        <span
+          class="wf-schema-toggle-btn"
+          @click="!row.leaf && toggle(row.path)"
+        >{{ row.key }}</span>
+        <span class="wf-schema-type" :class="`wf-schema-type--${row.type}`">{{ row.type }}</span>
+        <span v-if="row.sample !== null" class="wf-schema-sample" :title="row.sample">{{ row.sample }}</span>
+      </div>
+    </template>
     <p v-if="rows.length === 0" class="wf-schema-empty">{{ t('workflow.editor.schemaEmpty') }}</p>
+    <p v-else-if="declarationMode" class="wf-schema-note">{{ t('workflow.editor.schemaNoOutputYet') }}</p>
   </div>
 </template>
 
@@ -18,14 +21,23 @@ import { computed, reactive } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 /**
- * n8n RunData Schema semantics: a compact field inventory over the output —
- * name, inferred type, sample value. Same JSON underneath; a reading aid
- * for "what does this node emit" before wiring references.
+ * n8n RunData Schema semantics: a compact field inventory — name, inferred
+ * type, sample value. Same JSON underneath; a reading aid for "what does
+ * this node emit" before wiring references. In declaration mode (no run
+ * output yet) the declared outputs render with their static types.
  */
-const props = defineProps<{ value: unknown }>()
+const props = defineProps<{
+  value?: unknown
+  /** Declared outputs (outputDeclsOf): rendered when there is no value. */
+  decls?: Array<{ name: string; type: string; desc?: string }>
+}>()
 
 const { t } = useI18n()
 const collapsed = reactive(new Set<string>())
+
+const declarationMode = computed(
+  () => (props.value === null || props.value === undefined) && (props.decls?.length ?? 0) > 0,
+)
 
 interface SchemaRow {
   key: string
@@ -70,6 +82,17 @@ function walk(value: unknown, key: string, prefix: string, depth: number, out: S
 }
 
 const rows = computed<SchemaRow[]>(() => {
+  // Declaration mode: no run output — the declared structure stands in.
+  if (declarationMode.value) {
+    return (props.decls ?? []).map((d) => ({
+      key: d.name,
+      path: d.name,
+      depth: 0,
+      leaf: d.type !== 'object',
+      type: d.type,
+      sample: d.desc ?? null,
+    }))
+  }
   const out: SchemaRow[] = []
   if (props.value !== null && typeof props.value === 'object') {
     const entries = Array.isArray(props.value)
@@ -149,6 +172,14 @@ function toggle(path: string) {
 }
 
 .wf-schema-empty {
+  color: var(--td-text-color-placeholder);
+  font-size: 11px;
+}
+
+.wf-schema-note {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--td-component-stroke);
   color: var(--td-text-color-placeholder);
   font-size: 11px;
 }

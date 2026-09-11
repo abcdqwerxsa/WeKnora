@@ -4,12 +4,12 @@
         v-for="row in rows"
         :key="row.path"
         class="wf-json-row"
-        :class="{ 'wf-json-row--leaf': row.isLeaf && row.addressable }"
+        :class="{ 'wf-json-row--leaf': row.isLeaf }"
         :style="{ paddingLeft: `${8 + row.depth * 14}px` }"
-        :title="row.isLeaf && row.addressable ? refHint(row) : ''"
-        :draggable="row.isLeaf && row.addressable"
+        :title="row.isLeaf ? refHint(row) : ''"
+        :draggable="row.isLeaf"
         @dragstart="onDragStart($event, row)"
-        @click="row.isLeaf && row.addressable && copyRef(row)"
+        @click="row.isLeaf && copyRef(row)"
       >
         <span
           v-if="!row.isLeaf"
@@ -28,7 +28,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 /**
  * Collapsible JSON tree for the node-detail OUTPUT pane (n8n RunDataJson
@@ -47,6 +48,7 @@ const emit = defineEmits<{
   'copied': [ref: string]
 }>()
 
+const { t } = useI18n()
 const collapsed = reactive(new Set<string>())
 
 interface TreeRow {
@@ -54,9 +56,6 @@ interface TreeRow {
   path: string // dotted path relative to the node output param
   depth: number
   isLeaf: boolean
-  // Only map-key paths are engine-addressable ({id@param.key.sub} walks
-  // map[string]any hops); a path that crosses an array index is display-only.
-  addressable: boolean
   value?: unknown
   summary?: string
 }
@@ -70,26 +69,25 @@ function display(value: unknown): string {
 }
 
 function summarize(value: unknown): string {
-  if (Array.isArray(value)) return `${value.length} 项`
-  if (value !== null && typeof value === 'object') return `${Object.keys(value).length} 字段`
+  if (Array.isArray(value)) return t('workflow.editor.treeCountItems', { n: value.length })
+  if (value !== null && typeof value === 'object') return t('workflow.editor.treeCountFields', { n: Object.keys(value).length })
   return ''
 }
 
-function walk(value: unknown, key: string, prefix: string, depth: number, addressable: boolean, out: TreeRow[]) {
+function walk(value: unknown, key: string, prefix: string, depth: number, out: TreeRow[]) {
   const path = prefix ? `${prefix}.${key}` : key
   const branch = value !== null && typeof value === 'object'
   if (!branch || depth >= MAX_DEPTH) {
-    out.push({ key, path, depth, isLeaf: true, addressable, value })
+    out.push({ key, path, depth, isLeaf: true, value })
     return
   }
-  out.push({ key, path, depth, isLeaf: false, addressable, summary: summarize(value) })
+  out.push({ key, path, depth, isLeaf: false, summary: summarize(value) })
   if (collapsed.has(path)) return
   const entries = Array.isArray(value)
     ? value.map((v, i) => [String(i), v] as const)
     : Object.entries(value as Record<string, unknown>)
-  const childAddressable = addressable && !Array.isArray(value)
   for (const [k, v] of entries) {
-    walk(v, k, path, depth + 1, childAddressable, out)
+    walk(v, k, path, depth + 1, out)
   }
 }
 
@@ -99,9 +97,9 @@ const rows = computed<TreeRow[]>(() => {
     const entries = Array.isArray(props.value)
       ? props.value.map((v, i) => [String(i), v] as const)
       : Object.entries(props.value as Record<string, unknown>)
-    for (const [k, v] of entries) walk(v, k, '', 0, true, out)
+    for (const [k, v] of entries) walk(v, k, '', 0, out)
   } else {
-    out.push({ key: 'value', path: '', depth: 0, isLeaf: true, addressable: false, value: props.value })
+    out.push({ key: 'value', path: '', depth: 0, isLeaf: true, value: props.value })
   }
   return out
 })
@@ -116,7 +114,7 @@ function refOf(row: TreeRow): string {
 }
 
 function refHint(row: TreeRow): string {
-  return `${refOf(row)}  (点击复制)`
+  return `${refOf(row)}  ${t('workflow.editor.refCopyHint')}`
 }
 
 async function copyRef(row: TreeRow) {
@@ -138,7 +136,7 @@ async function copyRef(row: TreeRow) {
 // n8n drag-to-expression: the leaf carries its reference as drag payload;
 // RefTextarea inputs accept the drop and insert it at the caret.
 function onDragStart(e: DragEvent, row: TreeRow) {
-  if (!row.isLeaf || !row.addressable) return
+  if (!row.isLeaf) return
   e.dataTransfer?.setData('text/plain', refOf(row))
   if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copy'
 }
@@ -168,15 +166,6 @@ function onDragStart(e: DragEvent, row: TreeRow) {
   outline: 1px dashed var(--td-brand-color);
 }
 
-/* Array-indexed paths are display-only (the engine cannot address them). */
-.wf-json-row:not(.wf-json-row--leaf) .wf-json-value,
-.wf-json-row .wf-json-value {
-  cursor: default;
-}
-
-.wf-json-row--leaf .wf-json-value {
-  cursor: copy;
-}
 
 .wf-json-toggle {
   flex: none;
