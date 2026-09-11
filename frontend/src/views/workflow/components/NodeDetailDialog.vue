@@ -24,7 +24,7 @@
         </t-button>
       </div>
 
-      <div class="wf-detail-cols">
+      <div class="wf-detail-cols" :style="colsStyle">
         <!-- Left: INPUT — direct upstream outputs, editable JSON (n8n pinned-data style). -->
         <aside class="wf-detail-pane">
           <p class="wf-detail-pane-title">{{ t('workflow.editor.nodeInputs') }}</p>
@@ -49,15 +49,58 @@
           </div>
         </aside>
 
+        <span
+          class="wf-detail-resize"
+          role="separator"
+          aria-orientation="vertical"
+          @mousedown="startResize('left', $event)"
+        />
+
         <!-- Middle: the node's property form (the old right-side drawer body). -->
         <section class="wf-detail-main">
           <slot />
         </section>
 
+        <span
+          class="wf-detail-resize"
+          role="separator"
+          aria-orientation="vertical"
+          @mousedown="startResize('right', $event)"
+        />
+
         <!-- Right: OUTPUT — this node's execution result. -->
         <aside class="wf-detail-pane">
-          <p class="wf-detail-pane-title">{{ t('workflow.editor.nodeOutputs') }}</p>
-          <pre v-if="outputShown !== null" class="wf-detail-json-out" :class="{ 'wf-detail-json-out--err': failed }">{{ outputShown }}</pre>
+          <div class="wf-detail-pane-head">
+            <p class="wf-detail-pane-title">{{ t('workflow.editor.nodeOutputs') }}</p>
+            <span class="wf-detail-view-toggle">
+              <button
+                type="button"
+                :class="['wf-detail-view-btn', { 'is-active': viewMode === 'tree' }]"
+                @click="viewMode = 'tree'"
+              >
+                {{ t('workflow.editor.outputViewTree') }}
+              </button>
+              <button
+                type="button"
+                :class="['wf-detail-view-btn', { 'is-active': viewMode === 'json' }]"
+                @click="viewMode = 'json'"
+              >
+                {{ t('workflow.editor.outputViewJson') }}
+              </button>
+            </span>
+          </div>
+          <p v-if="copiedRef" class="wf-detail-copied">{{ t('workflow.editor.refCopied', { ref: copiedRef }) }}</p>
+          <template v-if="viewMode === 'tree'">
+            <JsonTreeView
+              v-if="outputValue !== null && typeof outputValue === 'object'"
+              :value="outputValue"
+              :node-id="nodeId"
+              @copied="flashCopied"
+            />
+            <pre v-else-if="outputShown !== null" class="wf-detail-json-out" :class="{ 'wf-detail-json-out--err': failed }">{{ outputShown }}</pre>
+            <div v-else class="wf-detail-empty">{{ t('workflow.editor.runNodeNoOutput') }}</div>
+          </template>
+          <pre v-else-if="outputShown !== null" class="wf-detail-json-out" :class="{ 'wf-detail-json-out--err': failed }">{{ outputShown }}</pre>
           <div v-else class="wf-detail-empty">{{ t('workflow.editor.runNodeNoOutput') }}</div>
           <p v-if="runError" class="wf-detail-err">{{ runError }}</p>
         </aside>
@@ -67,10 +110,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { runWorkflowNode, type WorkflowRunTraceEntry, type WorkflowNodeType } from '@/api/workflow'
 import { NODE_COLORS } from '../nodeMeta'
+import JsonTreeView from './JsonTreeView.vue'
 
 /** One upstream node for the INPUT pane. */
 export interface DetailUpstream {
@@ -105,6 +149,76 @@ const running = ref(false)
 const runError = ref('')
 const outputShown = ref<string | null>(null)
 const failed = ref(false)
+const viewMode = ref<'tree' | 'json'>('tree')
+const copiedRef = ref('')
+let copiedTimer: number | null = null
+
+// ---- pane widths (n8n PanelDragButton semantics): drag the separators,
+// remember per browser. ----
+const PANE_MIN = 220
+const PANE_MAX = 520
+const leftWidth = ref(clampPane(Number(localStorage.getItem('wf.ndv.leftW')) || 290))
+const rightWidth = ref(clampPane(Number(localStorage.getItem('wf.ndv.rightW')) || 290))
+const colsStyle = computed(() => ({
+  gridTemplateColumns: `${leftWidth.value}px 7px minmax(0, 1fr) 7px ${rightWidth.value}px`,
+}))
+
+function persistWidths() {
+  localStorage.setItem('wf.ndv.leftW', String(leftWidth.value))
+  localStorage.setItem('wf.ndv.rightW', String(rightWidth.value))
+}
+
+function clampPane(w: number): number {
+  return Math.min(PANE_MAX, Math.max(PANE_MIN, w))
+}
+
+function onResizeMove(which: 'left' | 'right', startX: number, startW: number, e: MouseEvent) {
+  const dx = which === 'left' ? e.clientX - startX : startX - e.clientX
+  const w = clampPane(startW + dx)
+  if (which === 'left') leftWidth.value = w
+  else rightWidth.value = w
+}
+
+let stopResize: (() => void) | null = null
+
+function startResize(which: 'left' | 'right', down: MouseEvent) {
+  const startX = down.clientX
+  const startW = which === 'left' ? leftWidth.value : rightWidth.value
+  const move = (e: MouseEvent) => onResizeMove(which, startX, startW, e)
+  const up = () => {
+    window.removeEventListener('mousemove', move)
+    window.removeEventListener('mouseup', up)
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+    persistWidths()
+    stopResize = null
+  }
+  document.body.style.cursor = 'ew-resize'
+  document.body.style.userSelect = 'none'
+  window.addEventListener('mousemove', move)
+  window.addEventListener('mouseup', up)
+  stopResize = up
+}
+onBeforeUnmount(() => {
+  if (copiedTimer !== null) window.clearTimeout(copiedTimer)
+  stopResize?.()
+})
+
+function flashCopied(refStr: string) {
+  copiedRef.value = refStr
+  if (copiedTimer !== null) window.clearTimeout(copiedTimer)
+  copiedTimer = window.setTimeout(() => (copiedRef.value = ''), 1500)
+}
+
+// Tree view renders the parsed output; raw pre falls back for primitives.
+const outputValue = computed<unknown>(() => {
+  if (outputShown.value === null) return null
+  try {
+    return JSON.parse(outputShown.value)
+  } catch {
+    return null
+  }
+})
 
 // One editable JSON draft per upstream (nodeId -> {draft, parseError}).
 const drafts = reactive(new Map<string, { draft: string; parseError: string }>())
@@ -217,9 +331,60 @@ async function run() {
 
 .wf-detail-cols {
   display: grid;
-  grid-template-columns: 290px minmax(0, 1fr) 290px;
-  gap: 14px;
+  grid-template-columns: 290px 7px minmax(0, 1fr) 7px 290px;
+  gap: 0;
   height: min(66vh, 640px);
+}
+
+.wf-detail-resize {
+  width: 7px;
+  cursor: ew-resize;
+  border-radius: 3px;
+  background: transparent;
+  transition: background 0.15s;
+  align-self: stretch;
+}
+
+.wf-detail-resize:hover,
+.wf-detail-resize:active {
+  background: var(--td-component-stroke);
+}
+
+.wf-detail-pane-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: none;
+}
+
+.wf-detail-view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: var(--td-radius-medium);
+  overflow: hidden;
+}
+
+.wf-detail-view-btn {
+  border: none;
+  background: transparent;
+  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--td-text-color-secondary);
+  cursor: pointer;
+}
+
+.wf-detail-view-btn.is-active {
+  background: var(--td-brand-color);
+  color: var(--td-text-color-anti);
+}
+
+.wf-detail-copied {
+  margin: 0 0 4px;
+  font-size: 11px;
+  color: var(--td-success-color);
+  font-family: var(--td-font-family-code);
+  word-break: break-all;
 }
 
 .wf-detail-pane {
