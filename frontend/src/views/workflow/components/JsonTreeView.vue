@@ -7,6 +7,8 @@
         :class="{ 'wf-json-row--leaf': row.isLeaf && row.addressable }"
         :style="{ paddingLeft: `${8 + row.depth * 14}px` }"
         :title="row.isLeaf && row.addressable ? refHint(row) : ''"
+        :draggable="row.isLeaf && row.addressable"
+        @dragstart="onDragStart($event, row)"
         @click="row.isLeaf && row.addressable && copyRef(row)"
       >
         <span
@@ -131,6 +133,14 @@ async function copyRef(row: TreeRow) {
     ta.remove()
   }
   emit('copied', ref)
+}
+
+// n8n drag-to-expression: the leaf carries its reference as drag payload;
+// RefTextarea inputs accept the drop and insert it at the caret.
+function onDragStart(e: DragEvent, row: TreeRow) {
+  if (!row.isLeaf || !row.addressable) return
+  e.dataTransfer?.setData('text/plain', refOf(row))
+  if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copy'
 }
 </script>
 

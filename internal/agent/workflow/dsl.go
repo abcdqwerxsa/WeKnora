@@ -26,6 +26,10 @@ type DSL struct {
 	Graph      *GraphView            `json:"graph,omitempty"`
 	Components map[string]*Component `json:"components"`
 	Variables  map[string]any        `json:"variables,omitempty"`
+	// Pinned carries editor-frozen node outputs (n8n pinned-data): a node
+	// with an entry here never executes — runs short-circuit to these
+	// outputs so downstream development works off stable fixtures.
+	Pinned map[string]map[string]any `json:"pinned,omitempty"`
 }
 
 // GraphView is the canvas (React-Flow / vue-flow style) projection.
@@ -98,6 +102,7 @@ func Normalize(dsl *DSL) (*DSL, error) {
 	out := &DSL{
 		Version:   dsl.Version,
 		Variables: copyVars(dsl.Variables),
+		Pinned:    copyPinned(dsl.Pinned),
 	}
 	if out.Version == 0 {
 		out.Version = DSLVersion
@@ -312,6 +317,19 @@ func copyGraph(in *GraphView) *GraphView {
 
 func copyVars(in map[string]any) map[string]any {
 	out := map[string]any{}
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+// copyPinned shallow-copies the pinned-output map (values are JSON-decoded
+// fixtures; runs treat them as immutable).
+func copyPinned(in map[string]map[string]any) map[string]map[string]any {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]map[string]any, len(in))
 	for k, v := range in {
 		out[k] = v
 	}

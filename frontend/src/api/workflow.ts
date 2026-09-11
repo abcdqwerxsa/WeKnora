@@ -124,6 +124,9 @@ export interface WorkflowDSL {
   }
   components: Record<string, WFComponent>
   variables?: Record<string, unknown>
+  /** Editor-frozen node outputs (n8n pinned data): nodes with an entry
+   * never execute — runs short-circuit to these values. */
+  pinned?: Record<string, Record<string, unknown>>
 }
 
 export interface Workflow {

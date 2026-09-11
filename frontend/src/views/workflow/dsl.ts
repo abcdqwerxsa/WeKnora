@@ -234,6 +234,7 @@ export function normalizeDsl(input: unknown): WorkflowDSL {
   const graphUsable = graphNodes.length > 0
   const componentsUsable = Object.keys(components).length > 0
   const variables = dsl.variables && typeof dsl.variables === 'object' ? dsl.variables : {}
+  const pinned = dsl.pinned && typeof dsl.pinned === 'object' ? dsl.pinned : {}
 
   if (graphUsable) {
     const realNodes = graphNodes
@@ -273,6 +274,7 @@ export function normalizeDsl(input: unknown): WorkflowDSL {
       graph: { nodes, edges },
       components: componentsFromGraph(nodes, edges),
       variables,
+      ...(Object.keys(pinned).length > 0 ? { pinned } : {}),
     }
   }
 
@@ -283,6 +285,7 @@ export function normalizeDsl(input: unknown): WorkflowDSL {
       graph: laid,
       components: componentsFromGraph(laid.nodes, laid.edges),
       variables,
+      ...(Object.keys(pinned).length > 0 ? { pinned } : {}),
     }
   }
 
@@ -294,12 +297,14 @@ export function buildDsl(
   nodes: WFNode[],
   edges: WFEdge[],
   variables?: Record<string, unknown>,
+  pinned?: Record<string, Record<string, unknown>>,
 ): WorkflowDSL {
   return {
     version: 1,
     graph: { nodes, edges },
     components: componentsFromGraph(nodes, edges),
     variables: variables ?? {},
+    ...(pinned && Object.keys(pinned).length > 0 ? { pinned } : {}),
   }
 }
 

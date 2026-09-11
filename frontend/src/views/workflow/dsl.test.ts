@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { autoLayout, validateGraph, normalizeDsl, buildDsl } from './dsl.ts'
-import type { WFNode } from './dsl.ts'
+import type { WFEdge, WFNode } from '@/api/workflow'
 
 function node(id: string, kind: WFNode['type'], params?: Record<string, unknown>): WFNode {
   return { id, type: kind, position: { x: 0, y: 0 }, data: params ? { params } : undefined }
@@ -302,4 +302,20 @@ test('componentsFromGraph keeps everything when ALL nodes are floating', async (
   const { componentsFromGraph } = await import('./dsl.ts')
   const out = componentsFromGraph([node('a', 'LLM'), node('b', 'Answer')], [])
   assert.ok(out['a'] && out['b'], 'exclusion must not empty the components view (save would 400)')
+})
+
+test('pinned data survives buildDsl/normalizeDsl round-trip', () => {
+  const nodes: WFNode[] = [
+    { id: 'a', type: 'Start', position: { x: 0, y: 0 }, data: { params: {} } },
+    { id: 'b', type: 'Answer', position: { x: 1, y: 0 }, data: { params: { template: 'x' } } },
+  ]
+  const edges: WFEdge[] = [{ id: 'e1', source: 'a', target: 'b' }]
+  const pinned = { b: { answer: 'frozen' } }
+  const dsl = buildDsl(nodes, edges, {}, pinned)
+  assert.deepEqual(dsl.pinned, pinned)
+  const round = normalizeDsl(JSON.parse(JSON.stringify(dsl)))
+  assert.deepEqual(round.pinned, pinned)
+  // Empty pinned map is dropped, not persisted as {}
+  const bare = buildDsl(nodes, edges, {}, {})
+  assert.equal(bare.pinned, undefined)
 })
