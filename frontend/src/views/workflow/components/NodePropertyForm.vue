@@ -1174,6 +1174,9 @@ function modelLabel(name: string): string {
   display: flex;
   align-items: center;
   gap: 4px;
+  /* Rows pack input + type select + required + delete: allow wrapping so
+     the delete button never gets pushed out of reach in narrow panes. */
+  flex-wrap: wrap;
 }
 
 .wf-prop-row .t-input,

@@ -1,53 +1,66 @@
 <template>
   <t-dialog
     :visible="visible"
-    :header="t('workflow.editor.runNodeTitle', { name: nodeLabel })"
-    width="880px"
+    :header="headerTitle"
+    width="1180px"
     :footer="false"
     :close-btn="true"
-    :close-on-overlay-click="false"
+    :close-on-overlay-click="true"
+    dialog-class-name="wf-node-detail-dialog"
     @update:visible="emit('update:visible', $event)"
   >
-    <div class="wf-node-run">
-      <div class="wf-node-run-toolbar">
-        <p class="wf-node-run-hint">{{ t('workflow.editor.runNodeHint') }}</p>
-        <t-button theme="primary" :loading="running" @click="run">
+    <div class="wf-detail">
+      <div class="wf-detail-toolbar">
+        <span class="wf-detail-node-id">{{ nodeId }}</span>
+        <t-button
+          v-if="runnable"
+          size="small"
+          theme="primary"
+          variant="outline"
+          :loading="running"
+          @click="run"
+        >
           {{ t('workflow.editor.runNodeGo') }}
         </t-button>
       </div>
 
-      <div class="wf-node-run-cols">
-        <!-- Left: INPUT — direct upstream outputs, editable JSON. -->
-        <div class="wf-node-run-col">
-          <p class="wf-node-run-col-title">{{ t('workflow.editor.nodeInputs') }}</p>
-          <div v-if="upstreamList.length === 0" class="wf-node-run-empty">
+      <div class="wf-detail-cols">
+        <!-- Left: INPUT — direct upstream outputs, editable JSON (n8n pinned-data style). -->
+        <aside class="wf-detail-pane">
+          <p class="wf-detail-pane-title">{{ t('workflow.editor.nodeInputs') }}</p>
+          <div v-if="upstreams.length === 0" class="wf-detail-empty">
             {{ t('workflow.editor.runNodeNoUpstream') }}
           </div>
-          <div v-for="up in upstreamList" :key="up.id" class="wf-node-run-up">
-            <p class="wf-node-run-up-title">
-              <span class="wf-node-run-dot" :style="{ background: up.color }" />
+          <div v-for="up in upstreamList" :key="up.id" class="wf-detail-up">
+            <p class="wf-detail-up-title">
+              <span class="wf-detail-dot" :style="{ background: up.color }" />
               {{ up.label }}
-              <span class="wf-node-run-up-id">{{ up.id }}</span>
+              <span class="wf-detail-up-id">{{ up.id }}</span>
             </p>
             <textarea
-              class="wf-node-run-json"
-              rows="8"
+              class="wf-detail-json"
+              rows="10"
               spellcheck="false"
               :value="draftOf(up.id).draft"
               :placeholder="t('workflow.editor.runNodeJsonPlaceholder')"
               @input="setDraft(up.id, ($event.target as HTMLTextAreaElement).value)"
             />
-            <p v-if="draftOf(up.id).parseError" class="wf-node-run-err">{{ draftOf(up.id).parseError }}</p>
+            <p v-if="draftOf(up.id).parseError" class="wf-detail-err">{{ draftOf(up.id).parseError }}</p>
           </div>
-        </div>
+        </aside>
 
-        <!-- Right: OUTPUT — this node's execution result (n8n-style panel). -->
-        <div class="wf-node-run-col">
-          <p class="wf-node-run-col-title">{{ t('workflow.editor.nodeOutputs') }}</p>
-          <pre v-if="outputShown !== null" class="wf-node-run-json-out" :class="{ 'wf-node-run-json-out--err': failed }">{{ outputShown }}</pre>
-          <div v-else class="wf-node-run-empty">{{ t('workflow.editor.runNodeNoOutput') }}</div>
-          <p v-if="runError" class="wf-node-run-err">{{ runError }}</p>
-        </div>
+        <!-- Middle: the node's property form (the old right-side drawer body). -->
+        <section class="wf-detail-main">
+          <slot />
+        </section>
+
+        <!-- Right: OUTPUT — this node's execution result. -->
+        <aside class="wf-detail-pane">
+          <p class="wf-detail-pane-title">{{ t('workflow.editor.nodeOutputs') }}</p>
+          <pre v-if="outputShown !== null" class="wf-detail-json-out" :class="{ 'wf-detail-json-out--err': failed }">{{ outputShown }}</pre>
+          <div v-else class="wf-detail-empty">{{ t('workflow.editor.runNodeNoOutput') }}</div>
+          <p v-if="runError" class="wf-detail-err">{{ runError }}</p>
+        </aside>
       </div>
     </div>
   </t-dialog>
@@ -59,14 +72,13 @@ import { useI18n } from 'vue-i18n'
 import { runWorkflowNode, type WorkflowRunTraceEntry, type WorkflowNodeType } from '@/api/workflow'
 import { NODE_COLORS } from '../nodeMeta'
 
-/** One upstream node of the node being debugged. */
-export interface NodeRunUpstream {
+/** One upstream node for the INPUT pane. */
+export interface DetailUpstream {
   id: string
   kind: WorkflowNodeType
   /** Last-known outputs (previous run) prefilled as the editable input. */
   outputs?: Record<string, unknown> | null
-  /** Shape hint for Start upstreams (query key + field defaults) so the
-   * user sees what to fill instead of an empty {} textarea. */
+  /** Shape hint for Start upstreams (query key + field defaults). */
   seed?: Record<string, unknown> | null
 }
 
@@ -75,10 +87,18 @@ const props = defineProps<{
   workflowId: string
   nodeId: string
   nodeLabel: string
-  upstreams: NodeRunUpstream[]
+  /** Show the test-step button (false for Start / Iteration, which the
+   * backend rejects as not runnable in isolation). */
+  runnable: boolean
+  upstreams: DetailUpstream[]
 }>()
 
-const emit = defineEmits<{ 'update:visible': [value: boolean] }>()
+const emit = defineEmits<{
+  'update:visible': [value: boolean]
+  /** Fired after a successful single-node run so the editor's outputs
+   * cache (canvas cards, future debug prefill) stays in sync. */
+  'node-output': [nodeId: string, outputs: Record<string, unknown>]
+}>()
 
 const { t } = useI18n()
 const running = ref(false)
@@ -88,6 +108,8 @@ const failed = ref(false)
 
 // One editable JSON draft per upstream (nodeId -> {draft, parseError}).
 const drafts = reactive(new Map<string, { draft: string; parseError: string }>())
+
+const headerTitle = computed(() => t('workflow.editor.runNodeTitle', { name: props.nodeLabel }))
 
 const upstreamList = computed(() =>
   props.upstreams.map((up) => ({
@@ -161,7 +183,9 @@ async function run() {
       failed.value = true
       runError.value = entry?.error || run.error || t('workflow.editor.runNodeFailed')
     }
-    outputShown.value = pretty(entry?.outputs ?? run.output ?? {})
+    const outputs = (entry?.outputs ?? run.output ?? {}) as Record<string, unknown>
+    outputShown.value = pretty(outputs)
+    if (run.status !== 'failed') emit('node-output', props.nodeId, outputs)
   } catch (e) {
     // Transport-level failure (400 node-not-runnable, 403 gate, network).
     runError.value = e instanceof Error ? e.message : String(e) || t('workflow.editor.runNodeFailed')
@@ -172,49 +196,57 @@ async function run() {
 </script>
 
 <style scoped>
-.wf-node-run {
+.wf-detail {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
-.wf-node-run-toolbar {
+.wf-detail-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
 }
 
-.wf-node-run-hint {
-  margin: 0;
+.wf-detail-node-id {
   font-size: 12px;
-  color: var(--td-text-color-secondary);
+  color: var(--td-text-color-placeholder);
+  font-family: var(--td-font-family-code);
 }
 
-.wf-node-run-cols {
+.wf-detail-cols {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  min-height: 260px;
+  grid-template-columns: 290px minmax(0, 1fr) 290px;
+  gap: 14px;
+  height: min(66vh, 640px);
 }
 
-.wf-node-run-col {
+.wf-detail-pane {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
 }
 
-.wf-node-run-col-title {
+.wf-detail-pane-title {
   margin: 0;
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.5px;
   text-transform: uppercase;
   color: var(--td-text-color-placeholder);
+  flex: none;
 }
 
-.wf-node-run-empty {
+.wf-detail-main {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 4px;
+}
+
+.wf-detail-empty {
   padding: 24px 12px;
   text-align: center;
   font-size: 12px;
@@ -223,13 +255,13 @@ async function run() {
   border-radius: var(--td-radius-medium);
 }
 
-.wf-node-run-up {
+.wf-detail-up {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-.wf-node-run-up-title {
+.wf-detail-up-title {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -238,20 +270,20 @@ async function run() {
   font-weight: 500;
 }
 
-.wf-node-run-dot {
+.wf-detail-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   flex: none;
 }
 
-.wf-node-run-up-id {
+.wf-detail-up-id {
   font-size: 11px;
   color: var(--td-text-color-placeholder);
   font-family: var(--td-font-family-code);
 }
 
-.wf-node-run-json {
+.wf-detail-json {
   width: 100%;
   box-sizing: border-box;
   resize: vertical;
@@ -265,16 +297,14 @@ async function run() {
   color: var(--td-text-color-primary);
 }
 
-.wf-node-run-json:focus {
+.wf-detail-json:focus {
   outline: none;
   border-color: var(--td-brand-color);
 }
 
-.wf-node-run-json-out {
+.wf-detail-json-out {
   margin: 0;
-  flex: 1;
   overflow: auto;
-  max-height: 340px;
   font-family: var(--td-font-family-code);
   font-size: 12px;
   line-height: 1.6;
@@ -286,11 +316,11 @@ async function run() {
   word-break: break-all;
 }
 
-.wf-node-run-json-out--err {
+.wf-detail-json-out--err {
   border-color: var(--td-error-color);
 }
 
-.wf-node-run-err {
+.wf-detail-err {
   margin: 0;
   font-size: 12px;
   color: var(--td-error-color);
