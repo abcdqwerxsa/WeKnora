@@ -157,33 +157,6 @@
     </div>
 
     <t-drawer
-      v-model:visible="drawerVisible"
-      :header="$t('workflow.editor.properties')"
-      size="360px"
-      :footer="false"
-      :close-btn="true"
-      :show-overlay="false"
-    >
-      <NodePropertyForm
-        v-if="selectedParams && selectedKind"
-        :kind="selectedKind"
-        :current-node-id="selectedNodeId ?? ''"
-        :params="selectedParams"
-        :nodes="pickerNodes"
-        :edges="canvasEdges"
-        :chat-models="chatModels"
-        :rerank-models="rerankModels"
-        :kbs="kbs"
-        :env-names="envNames"
-        :web-search-providers="webSearchProviders"
-        :parent="selectedParent"
-        @set-parent="setSelectedParent"
-      />
-      <div v-else class="wf-editor-form-empty">
-        {{ $t('workflow.editor.selectNode') }}
-      </div>
-    </t-drawer>
-    <t-drawer
       v-model:visible="runDrawerVisible"
       :header="$t('workflow.run.title')"
       size="420px"
@@ -201,13 +174,36 @@
         @node-outputs="runNodeOutputs = $event"
       />
     </t-drawer>
-    <NodeRunDrawer
-      v-model:visible="nodeRunVisible"
+    <!-- n8n-style centered node detail: left INPUT / middle properties /
+         right OUTPUT, with the single-node test-step run wired in. -->
+    <NodeDetailDialog
+      v-model:visible="drawerVisible"
       :workflow-id="workflowId"
-      :node-id="nodeRunNodeId"
-      :node-label="nodeRunLabel"
-      :upstreams="nodeRunUpstreams"
-    />
+      :node-id="selectedNodeId ?? ''"
+      :node-label="t(`workflow.nodes.${selectedKind}`)"
+      :runnable="detailRunnable"
+      :upstreams="detailUpstreams"
+      @node-output="onDetailNodeOutput"
+    >
+      <NodePropertyForm
+        v-if="selectedParams && selectedKind"
+        :kind="selectedKind"
+        :current-node-id="selectedNodeId ?? ''"
+        :params="selectedParams"
+        :nodes="pickerNodes"
+        :edges="canvasEdges"
+        :chat-models="chatModels"
+        :rerank-models="rerankModels"
+        :kbs="kbs"
+        :env-names="envNames"
+        :web-search-providers="webSearchProviders"
+        :parent="selectedParent"
+        @set-parent="setSelectedParent"
+      />
+      <div v-else class="wf-editor-form-empty">
+        {{ t('workflow.editor.selectNode') }}
+      </div>
+    </NodeDetailDialog>
     <t-drawer
       v-model:visible="variablesDrawerVisible"
       :header="$t('workflow.editor.variablesDrawer')"
@@ -263,8 +259,8 @@ import WfEdge from './components/WfEdge.vue'
 import NodePalette from './components/NodePalette.vue'
 import NodePropertyForm from './components/NodePropertyForm.vue'
 import WorkflowRunPanel from './components/WorkflowRunPanel.vue'
-import NodeRunDrawer, { type NodeRunUpstream } from './components/NodeRunDrawer.vue'
-import { WORKFLOW_NODE_TYPES, getWorkflow, updateWorkflow, publishWorkflow, runWorkflowNode, type Workflow, type WorkflowDSL, type WorkflowNodeType } from '@/api/workflow'
+import NodeDetailDialog, { type DetailUpstream } from './components/NodeDetailDialog.vue'
+import { WORKFLOW_NODE_TYPES, getWorkflow, updateWorkflow, publishWorkflow, type Workflow, type WorkflowDSL, type WorkflowNodeType } from '@/api/workflow'
 import { buildDsl, defaultParams, makeNodeId, migrateNodeParams, normalizeDsl, autoLayout, validateGraph, type GraphIssue } from './dsl'
 import { paramSummary } from './nodeMeta'
 import { listModels, type ModelConfig } from '@/api/model'
@@ -593,28 +589,40 @@ const runNodeOutputs = ref<Record<string, Record<string, unknown>>>({})
 // Hover play button on a node card opens the debug drawer: direct upstream
 // nodes with editable JSON inputs (prefilled from the last run's outputs),
 // then runWorkflowNode POSTs to the draft-only node endpoint.
-const nodeRunVisible = ref(false)
-const nodeRunNodeId = ref('')
-const nodeRunLabel = ref('')
-const nodeRunUpstreams = ref<NodeRunUpstream[]>([])
 const nodeRunLoading = ref<string | null>(null)
 
+// The detail dialog's INPUT pane mirrors the selected node's direct
+// upstreams: last-run outputs when known, else the Start seed skeleton.
+const detailUpstreams = computed<DetailUpstream[]>(() => {
+  const id = selectedNodeId.value
+  if (!id) return []
+  const kindOf = (nodeId: string): WorkflowNodeType =>
+    ((canvasNodes.value.find((n) => n.id === nodeId)?.data as { kind?: WorkflowNodeType } | undefined)?.kind) ?? 'Answer'
+  return canvasEdges.value
+    .filter((edge) => edge.target === id)
+    .map((edge) => edge.source)
+    .filter((upId, index, all) => all.indexOf(upId) === index)
+    .map((upId) => ({ id: upId, kind: kindOf(upId), outputs: runNodeOutputs.value[upId] ?? null, seed: startSeedOf(upId) }))
+})
+
+// Start / Iteration cannot run in isolation (backend guard).
+const detailRunnable = computed(() => selectedKind.value !== 'Start' && selectedKind.value !== 'Iteration')
+
+function onDetailNodeOutput(nodeId: string, outputs: Record<string, unknown>) {
+  runNodeOutputs.value = { ...runNodeOutputs.value, [nodeId]: outputs }
+}
+
+// Card ▶ button: open the detail dialog on that node (the test-step run
+// lives inside it, n8n-style).
 async function onRunNode(nodeId: string) {
   if (nodeRunLoading.value) return
+  const node = canvasNodes.value.find((item) => item.id === nodeId)
+  if (!node) return
   nodeRunLoading.value = nodeId
   try {
     // The server executes the SAVED draft — flush pending edits first.
-    if (dirty.value && !(await doSave())) return
-    const kindOf = (nodeId_: string): WorkflowNodeType =>
-      ((canvasNodes.value.find((n) => n.id === nodeId_)?.data as { kind?: WorkflowNodeType } | undefined)?.kind) ?? 'Answer'
-    nodeRunNodeId.value = nodeId
-    nodeRunLabel.value = t(`workflow.nodes.${kindOf(nodeId)}`)
-    nodeRunUpstreams.value = canvasEdges.value
-      .filter((edge) => edge.target === nodeId)
-      .map((edge) => edge.source)
-      .filter((id, index, all) => all.indexOf(id) === index)
-      .map((id) => ({ id, kind: kindOf(id), outputs: runNodeOutputs.value[id] ?? null, seed: startSeedOf(id) }))
-    nodeRunVisible.value = true
+    if (dirty.value && !(await doSave({ silent: true }))) return
+    selectedNodeId.value = nodeId
   } finally {
     nodeRunLoading.value = null
   }
