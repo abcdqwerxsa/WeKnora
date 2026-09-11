@@ -40,7 +40,9 @@
       <div class="wf-detail-cols" :style="colsStyle">
         <!-- Left: INPUT — direct upstream outputs, editable JSON (n8n pinned-data style).
              With multiple upstreams an InputNodeSelect-style dropdown picks
-             the one under edit instead of stacking them all. -->
+             the one under edit instead of stacking them all. The Start node
+             (no upstreams) renders its own form here instead: filling it
+             materialises the entry fixture when the node is test-run. -->
         <aside class="wf-detail-pane">
           <div class="wf-detail-pane-head">
             <p class="wf-detail-pane-title">{{ t('workflow.editor.nodeInputs') }}</p>
@@ -59,7 +61,30 @@
               />
             </t-select>
           </div>
-          <div v-if="upstreams.length === 0" class="wf-detail-empty">
+          <template v-if="isStart">
+            <p class="wf-detail-form-hint">{{ t('workflow.editor.startFormHint') }}</p>
+            <t-textarea
+              v-model="startForm.query"
+              :autosize="{ minRows: 2, maxRows: 4 }"
+              :placeholder="t('workflow.run.queryPlaceholder')"
+            />
+            <t-form label-align="top" size="small">
+              <t-form-item
+                v-for="field in startFields"
+                :key="field.name"
+                :label="field.label || field.name"
+                :mark="field.required"
+              >
+                <t-select v-if="field.type === 'select'" v-model="startForm.values[field.name]" clearable :placeholder="field.name">
+                  <t-option v-for="option in field.options ?? []" :key="option" :value="option" :label="option" />
+                </t-select>
+                <t-textarea v-else-if="field.type === 'paragraph'" v-model="startForm.values[field.name]" :autosize="{ minRows: 1, maxRows: 4 }" :placeholder="field.name" />
+                <t-input-number v-else-if="field.type === 'number'" v-model="startForm.values[field.name]" theme="column" :placeholder="field.name" />
+                <t-input v-else v-model="startForm.values[field.name]" :placeholder="field.name" />
+              </t-form-item>
+            </t-form>
+          </template>
+          <div v-else-if="upstreams.length === 0" class="wf-detail-empty">
             {{ t('workflow.editor.runNodeNoUpstream') }}
           </div>
           <div v-for="up in visibleUpstreams" :key="up.id" class="wf-detail-up">
@@ -174,10 +199,15 @@ const props = defineProps<{
   workflowId: string
   nodeId: string
   nodeLabel: string
-  /** Show the test-step button (false for Start / Iteration, which the
-   * backend rejects as not runnable in isolation). */
+  /** Kind of the node under edit (drives the Start form in the INPUT pane). */
+  nodeKind?: WorkflowNodeType
+  /** Show the test-step button (false for Iteration, which the backend
+   * rejects as not runnable in isolation). Start IS runnable: its test
+   * step materialises the filled form as the entry fixture. */
   runnable: boolean
   upstreams: DetailUpstream[]
+  /** Start-node form fields (query + these materialise into outputs). */
+  startFields?: Array<{ name: string; label?: string; type: string; required?: boolean; default?: string; options?: string[] }>
   /** Frozen outputs persisted in the DSL (n8n pinned data); non-null pins
    * the node: full runs skip it and replay these values. */
   pinned?: Record<string, unknown> | null
@@ -203,6 +233,21 @@ const activeUpstreamId = ref<string | null>(null)
 let copiedTimer: number | null = null
 
 // ---- pinned data ----
+const isStart = computed(() => props.nodeKind === 'Start')
+// The Start node's INPUT pane is a form (query + declared fields); running
+// the node materialises it as the entry fixture for downstream debugging.
+const startForm = ref<{ query: string; values: Record<string, string | number | undefined> }>({ query: '', values: {} })
+watch(
+  () => [props.visible, props.nodeId] as const,
+  ([visible]) => {
+    if (!visible || !isStart.value) return
+    const values: Record<string, string | number | undefined> = {}
+    for (const field of props.startFields ?? []) values[field.name] = field.default ?? ''
+    startForm.value = { query: '', values }
+  },
+  { immediate: true },
+)
+
 const pinned = computed(() => props.pinned != null && Object.keys(props.pinned).length > 0)
 // Anything with outputs can be pinned (Start included — a pinned Start
 // freezes the entry fixture the whole flow develops against).
@@ -361,20 +406,33 @@ function pretty(value: unknown): string {
 }
 
 async function run() {
-  // Parse every upstream draft first — abort on the first syntax error.
   const inputs: Record<string, Record<string, unknown>> = {}
-  for (const up of props.upstreams) {
-    const raw = draftOf(up.id).draft || '{}'
-    try {
-      const parsed = JSON.parse(raw)
-      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        throw new Error('expected a JSON object')
+
+  if (isStart.value) {
+    // Start's test step: materialise the filled form as the node's outputs
+    // (the backend promotes the fixture to the run request; the node's
+    // echo produces the outputs) — downstream INPUT panes pick it up.
+    const fixture: Record<string, unknown> = {}
+    if (startForm.value.query.trim() !== '') fixture.query = startForm.value.query
+    for (const [k, v] of Object.entries(startForm.value.values)) {
+      if (v !== undefined && String(v) !== '') fixture[k] = v
+    }
+    inputs[props.nodeId] = fixture
+  } else {
+    // Parse every upstream draft first — abort on the first syntax error.
+    for (const up of props.upstreams) {
+      const raw = draftOf(up.id).draft || '{}'
+      try {
+        const parsed = JSON.parse(raw)
+        if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          throw new Error('expected a JSON object')
+        }
+        inputs[up.id] = parsed as Record<string, unknown>
+        drafts.set(up.id, { draft: raw, parseError: '' })
+      } catch (e) {
+        drafts.set(up.id, { draft: raw, parseError: e instanceof Error ? e.message : String(e) })
+        return
       }
-      inputs[up.id] = parsed as Record<string, unknown>
-      drafts.set(up.id, { draft: raw, parseError: '' })
-    } catch (e) {
-      drafts.set(up.id, { draft: raw, parseError: e instanceof Error ? e.message : String(e) })
-      return
     }
   }
 
@@ -494,6 +552,12 @@ async function run() {
   color: var(--td-success-color);
   font-family: var(--td-font-family-code);
   word-break: break-all;
+}
+
+.wf-detail-form-hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--td-text-color-placeholder);
 }
 
 .wf-detail-pane {

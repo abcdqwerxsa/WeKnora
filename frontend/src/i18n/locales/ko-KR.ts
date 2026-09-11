@@ -6898,6 +6898,7 @@ export default {
       pin: '데이터 고정',
       unpin: '고정 해제',
       pinHint: '고정되면 전체 실행에서 이 노드를 건너뛰고 이 고정 출력을 사용합니다',
+      startFormHint: '폼을 채우고 실행하면 시작 노드의 출력으로 구체화되어 다운스트림 디버깅에 사용됩니다',
       pinnedBadge: '출력 고정됨 (전체 실행에서 건너뜀)',
       outputViewTable: '표',
       outputTableRows: '{count}행',

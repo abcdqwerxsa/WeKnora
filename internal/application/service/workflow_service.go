@@ -686,9 +686,10 @@ func (s *workflowService) RunWorkflowNode(ctx context.Context, id, nodeID string
 	if !ok {
 		return nil, fmt.Errorf("%w: node %q is not in the draft DSL", ErrWorkflowNodeNotRunnable, nodeID)
 	}
-	if strings.EqualFold(comp.Obj.ComponentName, nodes.ComponentStart) {
-		return nil, fmt.Errorf("%w: the Start node has nothing to inject and nothing to debug", ErrWorkflowNodeNotRunnable)
-	}
+	// Start IS runnable in isolation (n8n trigger-in-NDV semantics): the
+	// editor passes the filled form as the seed for the Start node itself,
+	// the node's echo-Invoke adds nothing, and the seed outputs surface in
+	// the trace — a materialised entry fixture for downstream debugging.
 	if strings.EqualFold(comp.Obj.ComponentName, nodes.ComponentIteration) {
 		return nil, fmt.Errorf("%w: Iteration nodes need their loop body context; run the whole workflow instead", ErrWorkflowNodeNotRunnable)
 	}
@@ -699,6 +700,10 @@ func (s *workflowService) RunWorkflowNode(ctx context.Context, id, nodeID string
 	cp := *comp
 	cp.Upstream = []string{}
 	cp.Downstream = []string{}
+	// A loop-body member run in isolation must shed its Parent pointer —
+	// the sub-DSL has no Iteration component, so Compile would reject the
+	// dangling membership ("references parent which is not an Iteration").
+	cp.Parent = ""
 	sub := &wfengine.DSL{
 		Version:    normalized.Version,
 		Variables:  normalized.Variables,
@@ -725,7 +730,21 @@ func (s *workflowService) RunWorkflowNode(ctx context.Context, id, nodeID string
 	if err := s.repo.CreateWorkflowRun(ctx, run); err != nil {
 		return nil, err
 	}
-	return run, s.executeWorkflowRun(ctx, run, wf, sub, &types.RunWorkflowRequest{}, seed)
+	// Start's test step materialises the editor-filled form: the fixture is
+	// promoted to the run request itself (Start echoes query/files/inputs),
+	// NOT seeded as outputs — the echo would overwrite an empty query over
+	// the seed (startInput always carries query, even "").
+	runReq := &types.RunWorkflowRequest{}
+	if strings.EqualFold(comp.Obj.ComponentName, nodes.ComponentStart) {
+		if m, ok := req.Inputs[nodeID].(map[string]any); ok {
+			if q, _ := m["query"].(string); q != "" {
+				runReq.Query = q
+			}
+			runReq.Inputs = m
+		}
+		seed = nil
+	}
+	return run, s.executeWorkflowRun(ctx, run, wf, sub, runReq, seed)
 }
 
 // ProcessWorkflowRun is the asynq handler for types.TypeWorkflowRun.
@@ -1970,6 +1989,12 @@ func (s *workflowService) runLLMStream(ctx context.Context, req nodes.LLMRequest
 	if err != nil {
 		return "", fmt.Errorf("workflow LLM model %q unavailable: %w", modelID, err)
 	}
+	// An empty rendered prompt means upstream references resolved to
+	// nothing (unfilled debug inputs) — sending it downstream just bounces
+	// as an opaque provider 400 (messages[].content invalid).
+	if strings.TrimSpace(req.Prompt) == "" {
+		return "", errors.New("workflow LLM: the rendered prompt is empty — fill the upstream node's inputs (or pin them) before running this node")
+	}
 	msgs := make([]chat.Message, 0, 2)
 	if req.SystemPrompt != "" {
 		msgs = append(msgs, chat.Message{Role: "system", Content: req.SystemPrompt})
@@ -2053,6 +2078,11 @@ func (s *workflowService) runLLM(ctx context.Context, req nodes.LLMRequest) (str
 	model, err := s.models.GetChatModel(ctx, modelID)
 	if err != nil {
 		return "", fmt.Errorf("workflow LLM model %q unavailable: %w", modelID, err)
+	}
+	// See runLLMStream: an empty rendered prompt fails here with a clear
+	// message instead of an opaque downstream provider 400.
+	if strings.TrimSpace(req.Prompt) == "" {
+		return "", errors.New("workflow LLM: the rendered prompt is empty — fill the upstream node's inputs (or pin them) before running this node")
 	}
 	// System prompt first (when configured), then the rendered user prompt —
 	// the same message shape the chat pipeline assembles for its LLM calls.

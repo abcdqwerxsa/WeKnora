@@ -6899,6 +6899,7 @@ export default {
       pin: '钉住数据',
       unpin: '取消钉住',
       pinHint: '钉住后完整运行将跳过此节点，直接使用这份固定输出',
+      startFormHint: '填写表单后运行，将输入物化为开始节点的输出，供下游节点调试使用',
       pinnedBadge: '输出已钉住（完整运行跳过此节点）',
       outputViewTable: '表格',
       outputTableRows: '{count} 行',
