@@ -184,7 +184,7 @@ func Compile(dsl *DSL, deps Deps) (*Workflow, error) {
 			}
 			own[id] = &cp
 		}
-		bodyWF, err := Compile(&DSL{Version: DSLVersion, Components: own}, deps)
+		bodyWF, err := Compile(&DSL{Version: DSLVersion, Components: own, Pinned: norm.Pinned}, deps)
 		if err != nil {
 			return nil, fmt.Errorf("workflow: iteration %q body: %w", parentID, err)
 		}
@@ -267,7 +267,7 @@ func Compile(dsl *DSL, deps Deps) (*Workflow, error) {
 				return nil, fmt.Errorf("workflow: node %q: %w", id, err)
 			}
 		}
-		fn := nodeClosure(id, node, deps, nodeErrorPolicy(comp.Obj.Params))
+		fn := nodeClosure(id, node, deps, nodeErrorPolicy(comp.Obj.Params), norm.Pinned[id])
 		err = g.AddLambdaNode(graphKey(id), compose.InvokableLambda(fn), compose.WithStatePreHandler(
 			func(ctx context.Context, in map[string]any, st *CanvasState) (map[string]any, error) {
 				// Clone before writing: parallel branches may receive the
@@ -575,13 +575,31 @@ func nodeErrorPolicy(params map[string]any) errorPolicy {
 // nodeClosure wraps a Node with path tracking, output recording, event
 // emission, panic recovery, retry and error-policy handling, and timing. It
 // is the single place node lifecycle semantics live.
-func nodeClosure(id string, node nodes.Node, deps Deps, policy errorPolicy) func(ctx context.Context, in map[string]any) (map[string]any, error) {
+func nodeClosure(id string, node nodes.Node, deps Deps, policy errorPolicy, pinned map[string]any) func(ctx context.Context, in map[string]any) (map[string]any, error) {
 	emit := func(ev NodeEvent) {
 		if deps.OnNodeEvent != nil {
 			deps.OnNodeEvent(ev)
 		}
 	}
 	return func(ctx context.Context, in map[string]any) (map[string]any, error) {
+		// Pinned data (n8n semantics): the editor froze this node's outputs;
+		// the node never executes and runs observe the frozen values. Emitted
+		// as a Replayed frame so traces and SSE mark it as not-fresh.
+		if len(pinned) > 0 {
+			// Seed the canvas state like a real completion so {node@param} refs
+			// in downstream templates resolve (resume replay skips this because
+			// its state already carries the outputs; a pinned run starts fresh).
+			if st, serr := nodes.StateFromInputs(in); serr == nil {
+				if cs, ok := st.(*CanvasState); ok {
+					for k, v := range pinned {
+						cs.SetOutput(id, k, v)
+					}
+					cs.AppendPath(id)
+				}
+			}
+			emit(NodeEvent{NodeID: id, Phase: PhaseFinished, Outputs: pinned, Replayed: true})
+			return edgeView(pinned), nil
+		}
 		// Checkpoint resume: a node whose outputs are already recorded in
 		// the restored state completed in a previous attempt — replay its
 		// recorded outputs onto the graph edge instead of re-invoking it.

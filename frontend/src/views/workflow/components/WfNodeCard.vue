@@ -1,6 +1,7 @@
 <template>
-  <div class="wf-node" :class="[`wf-node--${kind}`, { 'wf-node--selected': selected }, runPhase ? `wf-node--run-${runPhase}` : '']">
+  <div class="wf-node" :class="[`wf-node--${kind}`, { 'wf-node--selected': selected, 'wf-node--pinned': pinned }, runPhase ? `wf-node--run-${runPhase}` : '']">
     <Handle v-if="hasTargetHandle" type="target" :position="Position.Left" />
+    <span v-if="pinned" class="wf-node-pin" :title="t('workflow.editor.pinnedBadge')">📌</span>
     <div class="wf-node-inner">
       <span class="wf-node-icon" :style="{ background: badgeColor }">
         <t-icon :name="iconName" />
@@ -125,6 +126,8 @@ const props = defineProps<{
   nodeId?: string
   /** True while a single-node debug run is in flight (button shows a spinner). */
   runNodeLoading?: boolean
+  /** Pinned (frozen) outputs — renders the pin corner badge. */
+  pinned?: boolean
 }>()
 
 const { t } = useI18n()
@@ -208,6 +211,16 @@ function pickKind(kind: WorkflowNodeType, handleId: string | undefined) {
   box-shadow: var(--td-shadow-1);
   width: 208px;
   transition: box-shadow 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+  position: relative;
+}
+
+.wf-node-pin {
+  position: absolute;
+  top: -9px;
+  right: -7px;
+  font-size: 13px;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
+  pointer-events: none;
 }
 
 .wf-node:hover {

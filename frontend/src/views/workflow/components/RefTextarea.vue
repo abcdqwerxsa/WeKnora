@@ -10,6 +10,8 @@
       @input="onInput"
       @change="emitChange"
       @keydown="onKeyDown"
+      @dragover.prevent
+      @drop.prevent="onDrop"
     />
     <div v-if="suggestions.length > 0" class="wf-ref-suggest">
       <button
@@ -29,7 +31,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import type { RefSuggestion } from '../nodeMeta'
 
 /**
@@ -82,6 +84,24 @@ const suggestions = computed(() => {
 function rememberCaret(event: Event) {
   const target = event.target as HTMLTextAreaElement
   caret.value = target.selectionStart ?? target.value.length
+}
+
+// n8n drag-to-expression: a leaf row dropped from the output tree inserts
+// its {node@param} reference at the caret.
+function onDrop(event: DragEvent) {
+  const ref = event.dataTransfer?.getData('text/plain') ?? ''
+  if (!ref.startsWith('{') || !ref.endsWith('}')) return
+  const target = event.target as HTMLTextAreaElement
+  const pos = target.selectionStart ?? props.modelValue.length
+  const next = `${props.modelValue.slice(0, pos)}${ref}${props.modelValue.slice(pos)}`
+  caret.value = pos + ref.length
+  open.value = false
+  emit('update:modelValue', next)
+  emit('change', next)
+  void nextTick(() => {
+    target.focus()
+    target.setSelectionRange(caret.value, caret.value)
+  })
 }
 
 function onFocus() {

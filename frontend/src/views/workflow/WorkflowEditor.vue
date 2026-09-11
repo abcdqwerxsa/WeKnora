@@ -142,7 +142,8 @@
               :selected="nodeProps.selected"
               :subtitle="nodeSubtitle(nodeProps.data)"
               :run-phase="runNodePhases[nodeProps.id]"
-              :outputs="runNodeOutputs[nodeProps.id]"
+              :outputs="pinnedOutputs[nodeProps.id] ?? runNodeOutputs[nodeProps.id]"
+              :pinned="Boolean(pinnedOutputs[nodeProps.id])"
               :node-id="nodeProps.id"
               :branches="branchHandlesOf(nodeProps)"
               :connected-handles="connectedHandlesOf(nodeProps.id)"
@@ -183,7 +184,9 @@
       :node-label="t(`workflow.nodes.${selectedKind}`)"
       :runnable="detailRunnable"
       :upstreams="detailUpstreams"
+      :pinned="selectedNodeId !== null ? (pinnedOutputs[selectedNodeId] ?? null) : null"
       @node-output="onDetailNodeOutput"
+      @set-pinned="setNodePinned"
     >
       <NodePropertyForm
         v-if="selectedParams && selectedKind"
@@ -282,6 +285,18 @@ const saving = ref(false)
 // Workflow-level variables (DSL.variables → runtime env.*). Edited in the
 // variables drawer; saved as part of the DSL document.
 const wfVariables = ref<Record<string, unknown>>({})
+// n8n pinned data: frozen node outputs persisted in the DSL's `pinned`
+// map; pinned nodes never execute (engine short-circuit) and their frozen
+// outputs prefill downstream node-debug inputs.
+const pinnedOutputs = ref<Record<string, Record<string, unknown>>>({})
+
+function setNodePinned(nodeId: string, outputs: Record<string, unknown> | null) {
+  const next = { ...pinnedOutputs.value }
+  if (outputs === null) delete next[nodeId]
+  else next[nodeId] = outputs
+  pinnedOutputs.value = next
+  dirty.value = true
+}
 const variablesDrawerVisible = ref(false)
 const envNames = computed(() => Object.keys(wfVariables.value).filter(Boolean))
 
@@ -461,6 +476,12 @@ function removeNode(nodeId: string) {
   canvasNodes.value = canvasNodes.value.filter((item) => item.id !== nodeId)
   canvasEdges.value = canvasEdges.value.filter((edge) => edge.source !== nodeId && edge.target !== nodeId)
   if (selectedNodeId.value === nodeId) selectedNodeId.value = null
+  // A node's pinned fixture dies with the node — no orphan DSL entries.
+  if (pinnedOutputs.value[nodeId]) {
+    const next = { ...pinnedOutputs.value }
+    delete next[nodeId]
+    pinnedOutputs.value = next
+  }
 }
 
 // ---- canvas modes (Dify-style) ---------------------------------------------
@@ -592,7 +613,8 @@ const runNodeOutputs = ref<Record<string, Record<string, unknown>>>({})
 const nodeRunLoading = ref<string | null>(null)
 
 // The detail dialog's INPUT pane mirrors the selected node's direct
-// upstreams: last-run outputs when known, else the Start seed skeleton.
+// upstreams: PINNED outputs first (frozen fixtures), then last-run outputs,
+// else the Start seed skeleton.
 const detailUpstreams = computed<DetailUpstream[]>(() => {
   const id = selectedNodeId.value
   if (!id) return []
@@ -602,7 +624,12 @@ const detailUpstreams = computed<DetailUpstream[]>(() => {
     .filter((edge) => edge.target === id)
     .map((edge) => edge.source)
     .filter((upId, index, all) => all.indexOf(upId) === index)
-    .map((upId) => ({ id: upId, kind: kindOf(upId), outputs: runNodeOutputs.value[upId] ?? null, seed: startSeedOf(upId) }))
+    .map((upId) => ({
+      id: upId,
+      kind: kindOf(upId),
+      outputs: pinnedOutputs.value[upId] ?? runNodeOutputs.value[upId] ?? null,
+      seed: startSeedOf(upId),
+    }))
 })
 
 // Start / Iteration cannot run in isolation (backend guard).
@@ -1162,7 +1189,7 @@ function validateBeforeSave(): boolean {
 }
 
 function currentDsl(): WorkflowDSL {
-  return buildDsl(currentGraphNodes(), plainEdges(), { ...wfVariables.value })
+  return buildDsl(currentGraphNodes(), plainEdges(), { ...wfVariables.value }, { ...pinnedOutputs.value })
 }
 
 function setCanvas(dsl: WorkflowDSL) {
@@ -1179,6 +1206,7 @@ function setCanvas(dsl: WorkflowDSL) {
     ...(edge.sourceHandle ? { sourceHandle: edge.sourceHandle } : {}),
   }))
   wfVariables.value = { ...(dsl.variables ?? {}) }
+  pinnedOutputs.value = { ...(dsl.pinned ?? {}) }
   refreshEdgeLabels()
   // Reset the undo history for the freshly loaded graph.
   withRestoreGuard(() => {

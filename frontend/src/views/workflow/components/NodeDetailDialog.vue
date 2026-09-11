@@ -12,26 +12,57 @@
     <div class="wf-detail">
       <div class="wf-detail-toolbar">
         <span class="wf-detail-node-id">{{ nodeId }}</span>
-        <t-button
-          v-if="runnable"
-          size="small"
-          theme="primary"
-          variant="outline"
-          :loading="running"
-          @click="run"
-        >
-          {{ t('workflow.editor.runNodeGo') }}
-        </t-button>
+        <div class="wf-detail-actions">
+          <t-button
+            v-if="pinnable"
+            size="small"
+            :theme="pinned ? 'warning' : 'default'"
+            variant="dashed"
+            :disabled="!pinned && outputValue === null"
+            :title="t('workflow.editor.pinHint')"
+            @click="togglePin"
+          >
+            {{ pinned ? t('workflow.editor.unpin') : t('workflow.editor.pin') }}
+          </t-button>
+          <t-button
+            v-if="runnable"
+            size="small"
+            theme="primary"
+            variant="outline"
+            :loading="running"
+            @click="run"
+          >
+            {{ t('workflow.editor.runNodeGo') }}
+          </t-button>
+        </div>
       </div>
 
       <div class="wf-detail-cols" :style="colsStyle">
-        <!-- Left: INPUT — direct upstream outputs, editable JSON (n8n pinned-data style). -->
+        <!-- Left: INPUT — direct upstream outputs, editable JSON (n8n pinned-data style).
+             With multiple upstreams an InputNodeSelect-style dropdown picks
+             the one under edit instead of stacking them all. -->
         <aside class="wf-detail-pane">
-          <p class="wf-detail-pane-title">{{ t('workflow.editor.nodeInputs') }}</p>
+          <div class="wf-detail-pane-head">
+            <p class="wf-detail-pane-title">{{ t('workflow.editor.nodeInputs') }}</p>
+            <t-select
+              v-if="upstreamList.length > 1"
+              :value="activeUpstreamId ?? upstreamList[0]?.id"
+              size="small"
+              style="width: 150px"
+              @change="activeUpstreamId = String($event)"
+            >
+              <t-option
+                v-for="up in upstreamList"
+                :key="up.id"
+                :value="up.id"
+                :label="`${up.label} · ${up.id}`"
+              />
+            </t-select>
+          </div>
           <div v-if="upstreams.length === 0" class="wf-detail-empty">
             {{ t('workflow.editor.runNodeNoUpstream') }}
           </div>
-          <div v-for="up in upstreamList" :key="up.id" class="wf-detail-up">
+          <div v-for="up in visibleUpstreams" :key="up.id" class="wf-detail-up">
             <p class="wf-detail-up-title">
               <span class="wf-detail-dot" :style="{ background: up.color }" />
               {{ up.label }}
@@ -75,6 +106,14 @@
             <span class="wf-detail-view-toggle">
               <button
                 type="button"
+                :class="['wf-detail-view-btn', { 'is-active': viewMode === 'table' }]"
+                :disabled="!tableable"
+                @click="viewMode = 'table'"
+              >
+                {{ t('workflow.editor.outputViewTable') }}
+              </button>
+              <button
+                type="button"
                 :class="['wf-detail-view-btn', { 'is-active': viewMode === 'tree' }]"
                 @click="viewMode = 'tree'"
               >
@@ -90,7 +129,10 @@
             </span>
           </div>
           <p v-if="copiedRef" class="wf-detail-copied">{{ t('workflow.editor.refCopied', { ref: copiedRef }) }}</p>
-          <template v-if="viewMode === 'tree'">
+          <template v-if="viewMode === 'table'">
+            <OutputTableView :value="outputValue" />
+          </template>
+          <template v-else-if="viewMode === 'tree'">
             <JsonTreeView
               v-if="outputValue !== null && typeof outputValue === 'object'"
               :value="outputValue"
@@ -115,6 +157,7 @@ import { useI18n } from 'vue-i18n'
 import { runWorkflowNode, type WorkflowRunTraceEntry, type WorkflowNodeType } from '@/api/workflow'
 import { NODE_COLORS } from '../nodeMeta'
 import JsonTreeView from './JsonTreeView.vue'
+import OutputTableView from './OutputTableView.vue'
 
 /** One upstream node for the INPUT pane. */
 export interface DetailUpstream {
@@ -135,6 +178,9 @@ const props = defineProps<{
    * backend rejects as not runnable in isolation). */
   runnable: boolean
   upstreams: DetailUpstream[]
+  /** Frozen outputs persisted in the DSL (n8n pinned data); non-null pins
+   * the node: full runs skip it and replay these values. */
+  pinned?: Record<string, unknown> | null
 }>()
 
 const emit = defineEmits<{
@@ -142,6 +188,8 @@ const emit = defineEmits<{
   /** Fired after a successful single-node run so the editor's outputs
    * cache (canvas cards, future debug prefill) stays in sync. */
   'node-output': [nodeId: string, outputs: Record<string, unknown>]
+  /** Pin/unpin the node's frozen outputs in the DSL (null un-pins). */
+  'set-pinned': [nodeId: string, outputs: Record<string, unknown> | null]
 }>()
 
 const { t } = useI18n()
@@ -149,9 +197,56 @@ const running = ref(false)
 const runError = ref('')
 const outputShown = ref<string | null>(null)
 const failed = ref(false)
-const viewMode = ref<'tree' | 'json'>('tree')
+const viewMode = ref<'table' | 'tree' | 'json'>('tree')
 const copiedRef = ref('')
+const activeUpstreamId = ref<string | null>(null)
 let copiedTimer: number | null = null
+
+// ---- pinned data ----
+const pinned = computed(() => props.pinned != null && Object.keys(props.pinned).length > 0)
+// Anything with outputs can be pinned (Start included — a pinned Start
+// freezes the entry fixture the whole flow develops against).
+const pinnable = computed(() => props.nodeId !== '')
+
+function togglePin() {
+  if (pinned.value) {
+    emit('set-pinned', props.nodeId, null)
+    return
+  }
+  const snapshot = (outputValue.value ?? null) as Record<string, unknown> | null
+  // An empty snapshot pins nothing (engine treats len==0 as unpinned);
+  // skipping keeps the badge and the run behaviour consistent.
+  if (snapshot !== null && typeof snapshot === 'object' && Object.keys(snapshot).length > 0) {
+    emit('set-pinned', props.nodeId, snapshot)
+  }
+}
+
+// Upstream selector (n8n InputNodeSelect): one upstream under edit at a
+// time when several feed this node; single upstream needs no selector.
+const visibleUpstreams = computed(() => {
+  if (upstreamList.value.length <= 1) return upstreamList.value
+  const active = activeUpstreamId.value ?? upstreamList.value[0]?.id
+  return upstreamList.value.filter((up) => up.id === active)
+})
+
+// Table view applies when the output is (or contains) an array of
+// keyed objects (empty objects carry no columns — not tableable).
+const tableable = computed(() => {
+  const v = outputValue.value
+  const isObjArr = (x: unknown) =>
+    Array.isArray(x) && x.length > 0 && x.every((i) => i !== null && typeof i === 'object' && !Array.isArray(i) && Object.keys(i).length > 0)
+  if (Array.isArray(v)) return isObjArr(v)
+  if (v !== null && typeof v === 'object') {
+    return Object.values(v as Record<string, unknown>).some(isObjArr)
+  }
+  return false
+})
+
+// Prefer table automatically for array-ish outputs (n8n default for item
+// lists); tree otherwise. Re-evaluated when a new output arrives.
+watch(outputShown, () => {
+  viewMode.value = tableable.value ? 'table' : 'tree'
+})
 
 // ---- pane widths (n8n PanelDragButton semantics): drag the separators,
 // remember per browser. ----
@@ -248,12 +343,15 @@ watch(
   ([visible]) => {
     if (!visible) return
     drafts.clear()
+    activeUpstreamId.value = null
     for (const up of props.upstreams) {
       drafts.set(up.id, { draft: JSON.stringify(up.outputs ?? up.seed ?? {}, null, 2), parseError: '' })
     }
     runError.value = ''
-    outputShown.value = null
     failed.value = false
+    // Pinned nodes show their frozen fixture, not a stale run output.
+    outputShown.value = props.pinned && Object.keys(props.pinned).length > 0 ? JSON.stringify(props.pinned, null, 2) : null
+    viewMode.value = tableable.value ? 'table' : 'tree'
   },
   { immediate: true },
 )
@@ -374,9 +472,20 @@ async function run() {
   cursor: pointer;
 }
 
+.wf-detail-view-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
 .wf-detail-view-btn.is-active {
   background: var(--td-brand-color);
   color: var(--td-text-color-anti);
+}
+
+.wf-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .wf-detail-copied {
