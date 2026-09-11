@@ -187,6 +187,7 @@
       :upstreams="detailUpstreams"
       :start-fields="startFields"
       :pinned="selectedNodeId !== null ? (pinnedOutputs[selectedNodeId] ?? null) : null"
+      :output-decls="outputDeclsOf(selectedKind, selectedParams ?? undefined)"
       @node-output="onDetailNodeOutput"
       @set-pinned="setNodePinned"
     >
@@ -267,7 +268,7 @@ import WorkflowRunPanel from './components/WorkflowRunPanel.vue'
 import NodeDetailDialog, { type DetailUpstream } from './components/NodeDetailDialog.vue'
 import { WORKFLOW_NODE_TYPES, getWorkflow, updateWorkflow, publishWorkflow, type Workflow, type WorkflowDSL, type WorkflowNodeType } from '@/api/workflow'
 import { buildDsl, defaultParams, makeNodeId, migrateNodeParams, normalizeDsl, autoLayout, validateGraph, type GraphIssue } from './dsl'
-import { paramSummary } from './nodeMeta'
+import { outputDeclsOf, paramSummary } from './nodeMeta'
 import { listModels, type ModelConfig } from '@/api/model'
 import { listKnowledgeBases } from '@/api/knowledge-base'
 import { listWebSearchProviders } from '@/api/web-search-provider'

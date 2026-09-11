@@ -163,8 +163,7 @@
           </div>
           <p v-if="copiedRef" class="wf-detail-copied">{{ t('workflow.editor.refCopied', { ref: copiedRef }) }}</p>
           <template v-if="viewMode === 'schema'">
-            <OutputSchemaView v-if="outputValue !== null && typeof outputValue === 'object'" :value="outputValue" />
-            <div v-else class="wf-detail-empty">{{ t('workflow.editor.runNodeNoOutput') }}</div>
+            <OutputSchemaView :value="outputValue ?? undefined" :decls="outputDecls" />
           </template>
           <template v-else-if="viewMode === 'table'">
             <OutputTableView :value="outputValue" />
@@ -226,6 +225,8 @@ const props = defineProps<{
   /** Frozen outputs persisted in the DSL (n8n pinned data); non-null pins
    * the node: full runs skip it and replay these values. */
   pinned?: Record<string, unknown> | null
+  /** Declared outputs (outputDeclsOf) — the schema view's declaration mode. */
+  outputDecls?: Array<{ name: string; type: string; desc?: string }>
 }>()
 
 const emit = defineEmits<{

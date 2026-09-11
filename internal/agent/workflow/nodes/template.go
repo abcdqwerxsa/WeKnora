@@ -3,6 +3,7 @@ package nodes
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -66,6 +67,19 @@ func Render(s string, st StateView) (string, error) {
 	return out, nil
 }
 
+// indexValue addresses slice[idx] with clear errors; generic over the
+// engine's static slice types ([]any, []map[string]any, []string).
+func indexValue[S ~[]E, E any](nodeID, out string, slice S, key string) (any, error) {
+	idx, err := strconv.Atoi(key)
+	if err != nil {
+		return nil, fmt.Errorf("node %s output %q is an array, segment %q is not an index", nodeID, out, key)
+	}
+	if idx < 0 || idx >= len(slice) {
+		return nil, fmt.Errorf("node %s output %q index %d out of range (len %d)", nodeID, out, idx, len(slice))
+	}
+	return any(slice[idx]), nil
+}
+
 func lookupRef(ref string, st StateView) (any, error) {
 	switch {
 	case strings.HasPrefix(ref, "sys."):
@@ -83,23 +97,58 @@ func lookupRef(ref string, st StateView) (any, error) {
 		if !ok || nodeID == "" || param == "" {
 			return nil, fmt.Errorf("malformed node reference %q", ref)
 		}
-		// A dotted param addresses a nested key of a map output, e.g.
-		// {agg@values.picked} — the first segment is the output name (output
-		// names never contain dots), the rest walk map keys. A plain param
-		// keeps the exact-match behaviour.
+		// A dotted param addresses a nested value of a structured output,
+		// e.g. {agg@values.picked} — the first segment is the output name,
+		// the rest walk map keys or array indices ({retr@chunks.2.content}
+		// addresses the third chunk). Live-run outputs carry their static Go
+		// types ([]map[string]any from Retrieval/DataOps, []string files,
+		// map[string]string headers) — only checkpoint/pinned copies are
+		// JSON-rounded to []any/map[string]any — so every shape is handled.
+		// User-declared names (Start form fields) may contain dots: the exact
+		// match is tried first, the segmented walk only on miss.
+		if v, ok := st.GetOutput(nodeID, param); ok {
+			return v, nil
+		}
 		segs := strings.Split(param, ".")
 		v, ok := st.GetOutput(nodeID, segs[0])
 		if !ok {
 			return nil, fmt.Errorf("node %s has no output %q yet", nodeID, segs[0])
 		}
 		for _, key := range segs[1:] {
-			m, isMap := v.(map[string]any)
-			if !isMap {
-				return nil, fmt.Errorf("node %s output %q is not a map, cannot address %q", nodeID, segs[0], key)
-			}
-			next, found := m[key]
-			if !found {
-				return nil, fmt.Errorf("node %s output %q has no key %q", nodeID, segs[0], key)
+			var next any
+			switch holder := v.(type) {
+			case map[string]any:
+				var found bool
+				next, found = holder[key]
+				if !found {
+					return nil, fmt.Errorf("node %s output %q has no key %q", nodeID, segs[0], key)
+				}
+			case map[string]string:
+				s, found := holder[key]
+				if !found {
+					return nil, fmt.Errorf("node %s output %q has no key %q", nodeID, segs[0], key)
+				}
+				next = s
+			case []any:
+				n, ierr := indexValue(nodeID, segs[0], holder, key)
+				if ierr != nil {
+					return nil, ierr
+				}
+				next = n
+			case []map[string]any:
+				n, ierr := indexValue(nodeID, segs[0], holder, key)
+				if ierr != nil {
+					return nil, ierr
+				}
+				next = n
+			case []string:
+				n, ierr := indexValue(nodeID, segs[0], holder, key)
+				if ierr != nil {
+					return nil, ierr
+				}
+				next = n
+			default:
+				return nil, fmt.Errorf("node %s output %q is not addressable at %q", nodeID, segs[0], key)
 			}
 			v = next
 		}
