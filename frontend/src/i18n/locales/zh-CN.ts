@@ -6774,6 +6774,7 @@ export default {
       user: '用户',
       assistant: '助手',
       attachments: '附件',
+      attachHint: '附件将解析为文本并入 LLM 上下文（支持平台文档格式：PDF/Word/Excel/PPT/图片等）',
       references: '引用'
     }
   },
@@ -6896,6 +6897,8 @@ export default {
       runNodeNoUpstream: '该节点没有上游节点，将不带注入输入直接运行。',
       runNodeNoOutput: '运行后此处显示该节点的输出。',
       outputViewTree: '树',
+      outputViewSchema: 'Schema',
+      schemaEmpty: '暂无可推导的字段结构。',
       pin: '钉住数据',
       unpin: '取消钉住',
       pinHint: '钉住后完整运行将跳过此节点，直接使用这份固定输出',

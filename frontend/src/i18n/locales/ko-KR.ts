@@ -6773,6 +6773,7 @@ export default {
       user: '사용자',
       assistant: '어시스턴트',
       attachments: '첨부 파일',
+      attachHint: '첨부 파일은 LLM 컨텍스트로 구문 분석됩니다 (플랫폼 문서 형식: PDF/Word/Excel/PPT/이미지 등)',
       references: '참조'
     }
   },
@@ -6895,6 +6896,8 @@ export default {
       runNodeNoUpstream: '업스트림 노드가 없습니다 — 주입된 입력 없이 실행됩니다.',
       runNodeNoOutput: '실행하면 이 노드의 출력이 여기에 표시됩니다.',
       outputViewTree: '트리',
+      outputViewSchema: 'Schema',
+      schemaEmpty: '아직 파생 가능한 필드 구조가 없습니다.',
       pin: '데이터 고정',
       unpin: '고정 해제',
       pinHint: '고정되면 전체 실행에서 이 노드를 건너뛰고 이 고정 출력을 사용합니다',
