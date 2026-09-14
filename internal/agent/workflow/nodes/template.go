@@ -68,25 +68,93 @@ func Render(s string, st StateView) (string, error) {
 }
 
 // indexValue addresses slice[idx] with clear errors; generic over the
-// engine's static slice types ([]any, []map[string]any, []string).
-func indexValue[S ~[]E, E any](nodeID, out string, slice S, key string) (any, error) {
+// engine's static slice types ([]any, []map[string]any, []string). src
+// names the value being addressed (e.g. `node llm-1 output "chunks"`).
+func indexValue[S ~[]E, E any](src string, slice S, key string) (any, error) {
 	idx, err := strconv.Atoi(key)
 	if err != nil {
-		return nil, fmt.Errorf("node %s output %q is an array, segment %q is not an index", nodeID, out, key)
+		return nil, fmt.Errorf("%s: segment %q is not an index", src, key)
 	}
 	if idx < 0 || idx >= len(slice) {
-		return nil, fmt.Errorf("node %s output %q index %d out of range (len %d)", nodeID, out, idx, len(slice))
+		return nil, fmt.Errorf("%s: index %d out of range (len %d)", src, idx, len(slice))
 	}
 	return any(slice[idx]), nil
 }
 
+// walkRefPath descends v by dotted segments (map keys or array indices).
+// src names the root value in error messages, e.g. `node llm-1 output
+// "chunks"` or `sys.files`.
+func walkRefPath(src string, v any, segs []string) (any, error) {
+	for _, key := range segs {
+		var next any
+		switch holder := v.(type) {
+		case map[string]any:
+			var found bool
+			next, found = holder[key]
+			if !found {
+				return nil, fmt.Errorf("%s has no key %q", src, key)
+			}
+		case map[string]string:
+			s, found := holder[key]
+			if !found {
+				return nil, fmt.Errorf("%s has no key %q", src, key)
+			}
+			next = s
+		case []any:
+			n, ierr := indexValue(src, holder, key)
+			if ierr != nil {
+				return nil, ierr
+			}
+			next = n
+		case []map[string]any:
+			n, ierr := indexValue(src, holder, key)
+			if ierr != nil {
+				return nil, ierr
+			}
+			next = n
+		case []string:
+			n, ierr := indexValue(src, holder, key)
+			if ierr != nil {
+				return nil, ierr
+			}
+			next = n
+		default:
+			return nil, fmt.Errorf("%s is not addressable at %q", src, key)
+		}
+		v = next
+	}
+	return v, nil
+}
+
 func lookupRef(ref string, st StateView) (any, error) {
+	// Tolerate braced refs ("{node@out}") from params that carry raw
+	// references (VariableAggregator / DataOps variables[].ref): extract the
+	// canonical stripped form; already-stripped refs pass through unchanged.
+	// Multiple refs in one string are rejected — the contract is a single
+	// reference, and silently binding only the first would mask the error.
+	trimmed := strings.TrimSpace(ref)
+	if m := VarRefPattern.FindStringSubmatch(trimmed); m != nil {
+		if all := VarRefPattern.FindAllStringSubmatch(trimmed, -1); len(all) > 1 {
+			return nil, fmt.Errorf("expected a single reference, found %d in %q", len(all), ref)
+		}
+		ref = m[1]
+	}
 	switch {
 	case strings.HasPrefix(ref, "sys."):
-		if v, ok := st.SysValue(strings.TrimPrefix(ref, "sys.")); ok {
+		key := strings.TrimPrefix(ref, "sys.")
+		if v, ok := st.SysValue(key); ok {
 			return v, nil
 		}
-		return nil, fmt.Errorf("sys.%s not set", strings.TrimPrefix(ref, "sys."))
+		// Dotted sys refs walk the same path as node outputs: {sys.files.0}
+		// addresses the first uploaded file (sys.files materializes as
+		// []string). Exact key first, segmented walk on miss — mirroring
+		// user-declared Start names that may themselves contain dots.
+		if segs := strings.Split(key, "."); len(segs) > 1 {
+			if v, ok := st.SysValue(segs[0]); ok {
+				return walkRefPath("sys."+segs[0], v, segs[1:])
+			}
+		}
+		return nil, fmt.Errorf("sys.%s not set", key)
 	case strings.HasPrefix(ref, "env."):
 		if v, ok := st.EnvValue(strings.TrimPrefix(ref, "env.")); ok {
 			return v, nil
@@ -114,45 +182,7 @@ func lookupRef(ref string, st StateView) (any, error) {
 		if !ok {
 			return nil, fmt.Errorf("node %s has no output %q yet", nodeID, segs[0])
 		}
-		for _, key := range segs[1:] {
-			var next any
-			switch holder := v.(type) {
-			case map[string]any:
-				var found bool
-				next, found = holder[key]
-				if !found {
-					return nil, fmt.Errorf("node %s output %q has no key %q", nodeID, segs[0], key)
-				}
-			case map[string]string:
-				s, found := holder[key]
-				if !found {
-					return nil, fmt.Errorf("node %s output %q has no key %q", nodeID, segs[0], key)
-				}
-				next = s
-			case []any:
-				n, ierr := indexValue(nodeID, segs[0], holder, key)
-				if ierr != nil {
-					return nil, ierr
-				}
-				next = n
-			case []map[string]any:
-				n, ierr := indexValue(nodeID, segs[0], holder, key)
-				if ierr != nil {
-					return nil, ierr
-				}
-				next = n
-			case []string:
-				n, ierr := indexValue(nodeID, segs[0], holder, key)
-				if ierr != nil {
-					return nil, ierr
-				}
-				next = n
-			default:
-				return nil, fmt.Errorf("node %s output %q is not addressable at %q", nodeID, segs[0], key)
-			}
-			v = next
-		}
-		return v, nil
+		return walkRefPath(fmt.Sprintf("node %s output %q", nodeID, segs[0]), v, segs[1:])
 	}
 }
 

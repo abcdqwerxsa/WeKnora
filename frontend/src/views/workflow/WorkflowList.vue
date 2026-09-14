@@ -5,10 +5,16 @@
         <h2>{{ $t('workflow.title') }}</h2>
         <p class="wf-list-subtitle">{{ $t('workflow.subtitle') }}</p>
       </div>
-      <t-button theme="primary" @click="openCreate">
-        <template #icon><t-icon name="add" /></template>
-        {{ $t('workflow.create') }}
-      </t-button>
+      <div class="wf-list-create-actions">
+        <t-button theme="primary" @click="openCreate">
+          <template #icon><t-icon name="add" /></template>
+          {{ $t('workflow.create') }}
+        </t-button>
+        <t-button variant="outline" @click="openTemplates">
+          <template #icon><t-icon name="gallery-view-2" /></template>
+          {{ $t('workflow.templates.createFrom') }}
+        </t-button>
+      </div>
     </div>
 
     <div v-if="loading" class="wf-list-state">
@@ -88,6 +94,52 @@
       </t-form>
     </t-dialog>
     <t-dialog
+      v-model:visible="templateDialogVisible"
+      :header="$t('workflow.templates.dialogTitle')"
+      width="640px"
+      :confirm-btn="{ content: $t('workflow.templates.instantiate'), loading: instantiating, disabled: !selectedTemplate }"
+      :cancel-btn="$t('workflow.cancel')"
+      @confirm="submitInstantiate"
+    >
+      <div v-if="templatesLoading" class="wf-tpl-state"><t-loading /></div>
+      <div v-else-if="templatesLoadError" class="wf-tpl-state">
+        <p>{{ $t('workflow.templates.loadFailed') }}</p>
+        <t-button variant="outline" size="small" @click="loadTemplates">{{ $t('workflow.retry') }}</t-button>
+      </div>
+      <t-radio-group v-else v-model="selectedTemplateId" class="wf-tpl-list">
+        <div v-for="tpl in templates" :key="tpl.id" class="wf-tpl-item" :class="{ active: selectedTemplateId === tpl.id }" @click="selectedTemplateId = tpl.id">
+          <t-radio :value="tpl.id">
+            <span class="wf-tpl-name">{{ tpl.name }}</span>
+            <t-tag v-if="tpl.category" size="small" variant="outline" class="wf-tpl-category">{{ $t(`workflow.templates.category.${tpl.category}`) !== `workflow.templates.category.${tpl.category}` ? $t(`workflow.templates.category.${tpl.category}`) : tpl.category }}</t-tag>
+          </t-radio>
+          <p class="wf-tpl-desc">{{ tpl.description }}</p>
+        </div>
+      </t-radio-group>
+      <t-form v-if="selectedTemplate" label-align="top" class="wf-tpl-form">
+        <t-form-item
+          v-for="placeholder in selectedTemplate.kb_placeholders ?? []"
+          :key="placeholder"
+          :label="`${$t('workflow.templates.kbBinding')}：${placeholder}`"
+          :mark="true"
+        >
+          <t-select
+            v-model="kbBindings[placeholder]"
+            :placeholder="$t('workflow.templates.kbBindingPlaceholder')"
+            :loading="kbOptionsLoading"
+            clearable
+            :options="kbOptions"
+          />
+        </t-form-item>
+        <t-form-item :label="$t('workflow.templates.nameOverride')">
+          <t-input v-model="templateName" :placeholder="selectedTemplate.name" :maxlength="255" />
+        </t-form-item>
+        <p v-if="kbOptionsLoaded && kbOptions.length === 0 && (selectedTemplate.kb_placeholders ?? []).length > 0" class="wf-tpl-hint">
+          {{ $t('workflow.templates.noKnowledgeBases') }}
+        </p>
+      </t-form>
+    </t-dialog>
+
+    <t-dialog
       v-model:visible="scheduleDialogVisible"
       :header="$t('workflow.schedules.dialogTitle', { name: scheduleWorkflow?.name ?? '' })"
       width="640px"
@@ -146,6 +198,8 @@ import { useRouter } from 'vue-router'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
 import { deleteWorkflow, createWorkflow, listWorkflows, publishWorkflow, setWorkflowStatus, type Workflow, type WorkflowMutationResponse } from '@/api/workflow'
+import { listWorkflowTemplates, instantiateWorkflowTemplate, type WorkflowTemplateSummary } from '@/api/workflowTemplate'
+import { listKnowledgeBases } from '@/api/knowledge-base'
 import {
   listWorkflowSchedules,
   createWorkflowSchedule,
@@ -279,6 +333,89 @@ function unpublish(workflow: Workflow) {
 
 function archive(workflow: Workflow) {
   return act(workflow, () => setWorkflowStatus(workflow.id, 'archived'), 'workflow.archived')
+}
+
+// ---- template gallery dialog -----------------------------------------
+
+const templateDialogVisible = ref(false)
+const templatesLoading = ref(false)
+const templatesLoadError = ref(false)
+const templates = ref<WorkflowTemplateSummary[]>([])
+const selectedTemplateId = ref('')
+const kbBindings = ref<Record<string, string>>({})
+const templateName = ref('')
+const kbOptions = ref<{ label: string; value: string }[]>([])
+const kbOptionsLoading = ref(false)
+const kbOptionsLoaded = ref(false)
+const instantiating = ref(false)
+
+const selectedTemplate = computed(() => templates.value.find((tpl) => tpl.id === selectedTemplateId.value) ?? null)
+
+function openTemplates() {
+  selectedTemplateId.value = ''
+  kbBindings.value = {}
+  templateName.value = ''
+  templateDialogVisible.value = true
+  void loadTemplates()
+  void loadKbOptions()
+}
+
+async function loadTemplates() {
+  templatesLoading.value = true
+  templatesLoadError.value = false
+  try {
+    const response = await listWorkflowTemplates()
+    templates.value = Array.isArray(response?.data) ? response.data : []
+  } catch {
+    templatesLoadError.value = true
+    templates.value = []
+  } finally {
+    templatesLoading.value = false
+  }
+}
+
+async function loadKbOptions() {
+  kbOptionsLoading.value = true
+  try {
+    const response: any = await listKnowledgeBases()
+    const list = Array.isArray(response?.data) ? response.data : []
+    kbOptions.value = list.map((kb: { id: string; name: string }) => ({ label: kb.name, value: kb.id }))
+  } catch {
+    kbOptions.value = []
+  } finally {
+    kbOptionsLoading.value = false
+    kbOptionsLoaded.value = true
+  }
+}
+
+async function submitInstantiate() {
+  const tpl = selectedTemplate.value
+  if (!tpl || instantiating.value) return
+  const missing = (tpl.kb_placeholders ?? []).filter((p) => !kbBindings.value[p])
+  if (missing.length > 0) {
+    MessagePlugin.warning(t('workflow.templates.kbBindingRequired', { placeholders: missing.join(', ') }))
+    return
+  }
+  instantiating.value = true
+  try {
+    const name = templateName.value.trim()
+    const response = await instantiateWorkflowTemplate(tpl.id, {
+      ...(name ? { name } : {}),
+      kb_bindings: { ...kbBindings.value },
+    })
+    const created = response?.data
+    if (response?.success && created?.id) {
+      templateDialogVisible.value = false
+      MessagePlugin.success(t('workflow.templates.instantiated'))
+      router.push(`/platform/workflow/${created.id}/edit`)
+    } else {
+      MessagePlugin.error(response?.message || t('workflow.templates.instantiateFailed'))
+    }
+  } catch (error) {
+    MessagePlugin.error(error instanceof Error ? error.message : t('workflow.templates.instantiateFailed'))
+  } finally {
+    instantiating.value = false
+  }
 }
 
 // ---- schedules dialog -------------------------------------------------------
@@ -420,5 +557,61 @@ onMounted(loadWorkflows)
 .wf-list-actions {
   display: inline-flex;
   gap: 2px;
+}
+.wf-list-create-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.wf-tpl-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 32px 0;
+  color: var(--td-text-color-secondary);
+}
+
+.wf-tpl-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.wf-tpl-item {
+  padding: 10px 12px;
+  border: 1px solid var(--td-component-border);
+  border-radius: var(--td-radius-medium);
+  cursor: pointer;
+}
+
+.wf-tpl-item.active {
+  border-color: var(--td-brand-color);
+  background-color: var(--td-brand-color-light);
+}
+
+.wf-tpl-name {
+  font-weight: 500;
+}
+
+.wf-tpl-category {
+  margin-left: 8px;
+}
+
+.wf-tpl-desc {
+  margin: 4px 0 0 24px;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+}
+
+.wf-tpl-form {
+  margin-top: 16px;
+}
+
+.wf-tpl-hint {
+  margin: 0;
+  color: var(--td-warning-color);
+  font-size: 12px;
 }
 </style>

@@ -1,0 +1,66 @@
+{
+  "id": "wf-doc-extraction",
+  "category": "extraction",
+  "i18n": {
+    "default": {
+      "name": "Structured Extraction",
+      "description": "Extract structured fields (contract / invoice style) from an uploaded document; a completeness switch routes to a JSON answer or a missing-fields notice."
+    },
+    "zh-CN": {
+      "name": "结构化字段抽取",
+      "description": "从上传文档抽取结构化字段（合同/发票类），完整性分支路由到 JSON 结果或缺失提示。"
+    }
+  },
+  "dsl": {
+    "version": 1,
+    "components": {
+      "start-1": {
+        "obj": { "component_name": "Start", "params": {} },
+        "downstream": ["extract-fields"]
+      },
+      "extract-fields": {
+        "obj": { "component_name": "ParameterExtractor", "params": {
+          "query": "从文档 {sys.files.0} 中抽取以下字段。抽取字段说明（无特别说明则按默认语义）：{sys.query}",
+          "parameters": [
+            { "name": "contract_no", "description": "合同/发票编号", "type": "string" },
+            { "name": "company_name", "description": "对方公司全称（甲方或开票方）", "type": "string" },
+            { "name": "amount", "description": "合同金额或票面金额（数字，含币种说明）", "type": "string" },
+            { "name": "sign_date", "description": "签订/开票日期（YYYY-MM-DD）", "type": "string" },
+            { "name": "summary", "description": "一句话摘要（30 字以内）", "type": "string" }
+          ]
+        } },
+        "upstream": ["start-1"],
+        "downstream": ["switch-check"]
+      },
+      "switch-check": {
+        "obj": { "component_name": "Switch", "params": {
+          "cases": [
+            {
+              "conditions": [
+                { "ref": "{extract-fields@company_name}", "op": "not_empty" },
+                { "ref": "{extract-fields@amount}", "op": "not_empty" }
+              ],
+              "logic": "and",
+              "to": "answer-json"
+            }
+          ],
+          "default": "answer-missing"
+        } },
+        "upstream": ["extract-fields"],
+        "downstream": ["answer-json", "answer-missing"]
+      },
+      "answer-json": {
+        "obj": { "component_name": "Answer", "params": {
+          "template": "抽取结果（JSON）：\n\n```json\n{\n  \"contract_no\": \"{extract-fields@contract_no}\",\n  \"company_name\": \"{extract-fields@company_name}\",\n  \"amount\": \"{extract-fields@amount}\",\n  \"sign_date\": \"{extract-fields@sign_date}\",\n  \"summary\": \"{extract-fields@summary}\"\n}\n```\n\n---\n请人工核对金额与日期后入库。"
+        } },
+        "upstream": ["switch-check"]
+      },
+      "answer-missing": {
+        "obj": { "component_name": "Answer", "params": {
+          "template": "## 字段抽取不完整\n\n已抽取到：合同编号 {extract-fields@contract_no}、公司 {extract-fields@company_name}、金额 {extract-fields@amount}、日期 {extract-fields@sign_date}。\n\n---\n关键信息（公司名称/金额）缺失：请确认文档是否为合同/发票类，或在运行输入中补充字段说明后重试。"
+        } },
+        "upstream": ["switch-check"]
+      }
+    }
+  }
+}

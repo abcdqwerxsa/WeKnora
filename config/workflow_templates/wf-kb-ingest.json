@@ -1,0 +1,55 @@
+{
+  "id": "wf-kb-ingest",
+  "category": "knowledge-base",
+  "i18n": {
+    "default": {
+      "name": "Document Ingest",
+      "description": "Parse an uploaded document with the built-in ingest agent: metadata extraction, paragraph chunking, structured JSON output."
+    },
+    "zh-CN": {
+      "name": "文档入库",
+      "description": "调用内置入库 Agent 解析上传文档：抽取元数据、按段落切块、输出结构化 JSON。"
+    }
+  },
+  "dsl": {
+    "version": 1,
+    "components": {
+      "start-1": {
+        "obj": {
+          "component_name": "Start",
+          "params": {}
+        },
+        "downstream": [
+          "llm-ingest"
+        ]
+      },
+      "llm-ingest": {
+        "obj": {
+          "component_name": "Agent",
+          "params": {
+            "agent_id": "builtin-kb-ingest",
+            "prompt": "请解析文档 {sys.files.0}，提取元数据（project / category / phase / doc_type / effective_date），按段落切块（≤1024 token），输出 JSON。",
+            "temperature": 0.1
+          }
+        },
+        "upstream": [
+          "start-1"
+        ],
+        "downstream": [
+          "answer-1"
+        ]
+      },
+      "answer-1": {
+        "obj": {
+          "component_name": "Answer",
+          "params": {
+            "template": "## 入库结果\n\n{llm-ingest@answer}\n\n---\n异步知识关联将由 builtin-kb-associator 后台处理。"
+          }
+        },
+        "upstream": [
+          "llm-ingest"
+        ]
+      }
+    }
+  }
+}

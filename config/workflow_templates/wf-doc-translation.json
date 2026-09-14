@@ -1,0 +1,56 @@
+{
+  "id": "wf-doc-translation",
+  "category": "content",
+  "i18n": {
+    "default": {
+      "name": "Long Document Translation",
+      "description": "Split an uploaded document into segments, translate each in a loop with consistent terminology, and stitch the results."
+    },
+    "zh-CN": {
+      "name": "长文档翻译",
+      "description": "把上传文档分段，循环逐段翻译并保持术语一致，最后拼接输出全文。"
+    }
+  },
+  "dsl": {
+    "version": 1,
+    "components": {
+      "start-1": {
+        "obj": { "component_name": "Start", "params": {} },
+        "downstream": ["llm-split"]
+      },
+      "llm-split": {
+        "obj": { "component_name": "LLM", "params": {
+          "prompt": "把附加上下文中的文档内容（文件：{sys.files.0}）按语义划分为 3-8 个段落，每段不超过 800 字，段落边界选在自然段落处。仅输出一个 JSON 字符串数组（每段一个字符串），不要任何解释、不要 markdown 代码块。",
+          "system_prompt": "你是文档切分助手。你的回复必须是一个合法的 JSON 字符串数组，除此之外不输出任何字符。",
+          "temperature": 0.1
+        } },
+        "upstream": ["start-1"],
+        "downstream": ["iteration-translate"]
+      },
+      "iteration-translate": {
+        "obj": { "component_name": "Iteration", "params": {
+          "items": "{llm-split@content}",
+          "item_var": "segment",
+          "index_var": "index",
+          "output_var": "results",
+          "output_ref": "{llm-translate@content}"
+        } },
+        "upstream": ["llm-split"],
+        "downstream": ["answer-1"]
+      },
+      "llm-translate": {
+        "obj": { "component_name": "LLM", "params": {
+          "prompt": "目标语言：{sys.query}。请把下面的段落（第 {iteration-translate@index} 段）翻译为目标语言。要求：保持术语前后一致，专有名词与数字保留原文，不要添加任何解释或注释，直接输出译文。\n\n{iteration-translate@segment}",
+          "temperature": 0.2
+        } },
+        "parent": "iteration-translate"
+      },
+      "answer-1": {
+        "obj": { "component_name": "Answer", "params": {
+          "template": "## 翻译结果（目标语言：{sys.query}）\n\n{iteration-translate@results}\n\n---\n共翻译 {iteration-translate@count} 段。请人工校对专有名词后使用。"
+        } },
+        "upstream": ["iteration-translate"]
+      }
+    }
+  }
+}

@@ -1,0 +1,132 @@
+{
+  "id": "wf-doc-generation",
+  "category": "document-generation",
+  "kb_placeholders": [
+    "KB_BID_HISTORY",
+    "KB_DOC_TEMPLATE"
+  ],
+  "i18n": {
+    "default": {
+      "name": "Document Generation",
+      "description": "Retrieve templates and history, generate a draft, gate it through a reviewer check, deliver for human confirmation."
+    },
+    "zh-CN": {
+      "name": "文档生成",
+      "description": "检索模板与历史案例生成初稿，校核 Agent 硬门禁把关，通过后交付人工确认。"
+    }
+  },
+  "dsl": {
+    "version": 1,
+    "components": {
+      "start-1": {
+        "obj": {
+          "component_name": "Start",
+          "params": {}
+        },
+        "downstream": [
+          "retrieval-plan"
+        ]
+      },
+      "retrieval-plan": {
+        "obj": {
+          "component_name": "Retrieval",
+          "params": {
+            "query": "技术方案 历史标书 模板",
+            "kb_ids": [
+              "KB_BID_HISTORY",
+              "KB_DOC_TEMPLATE"
+            ],
+            "top_k": 10
+          }
+        },
+        "upstream": [
+          "start-1"
+        ],
+        "downstream": [
+          "llm-plan"
+        ]
+      },
+      "llm-plan": {
+        "obj": {
+          "component_name": "Agent",
+          "params": {
+            "agent_id": "builtin-gen-plan",
+            "prompt": "项目参数：{sys.query}。请基于检索结果生成技术方案初稿。**禁止编造**：业绩、资质、人员、参数等关键信息，未核实的内容用 {{待填:xxx}} 标记，每个引用必须挂 [来源: doc_name §章节]。",
+            "temperature": 0.5
+          }
+        },
+        "upstream": [
+          "retrieval-plan"
+        ],
+        "downstream": [
+          "llm-reviewer"
+        ]
+      },
+      "llm-reviewer": {
+        "obj": {
+          "component_name": "Agent",
+          "params": {
+            "agent_id": "builtin-gen-reviewer",
+            "prompt": "请对生成内容做三项硬约束检查：①事实（业绩/资质/参数是否在知识库中可证）②合规（是否符合模板/规范）③格式（是否仍有 {{待填:xxx}} 占位）。输出 JSON { \"passed\": true|false, \"checks\": [...], \"modification_instruction\": \"...\" }。",
+            "temperature": 0.1
+          }
+        },
+        "upstream": [
+          "llm-plan"
+        ],
+        "downstream": [
+          "switch-gate"
+        ]
+      },
+      "switch-gate": {
+        "obj": {
+          "component_name": "Switch",
+          "params": {
+            "cases": [
+              {
+                "conditions": [
+                  {
+                    "ref": "{llm-reviewer@answer}",
+                    "op": "regex",
+                    "value": "\"passed\"\\s*:\\s*true\\s*,\\s*\"checks\""
+                  }
+                ],
+                "to": "answer-pass"
+              }
+            ],
+            "default": "answer-fail"
+          }
+        },
+        "upstream": [
+          "llm-reviewer"
+        ],
+        "downstream": [
+          "answer-pass",
+          "answer-fail"
+        ]
+      },
+      "answer-pass": {
+        "obj": {
+          "component_name": "Answer",
+          "params": {
+            "template": "## 生成结果（待人工确认）\n\n{llm-plan@answer}\n\n---\n校核报告：{llm-reviewer@answer}\n\n**请人工复核后定稿。**"
+          }
+        },
+        "upstream": [
+          "switch-gate"
+        ]
+      },
+      "answer-fail": {
+        "obj": {
+          "component_name": "Answer",
+          "params": {
+            "template": "## 生成未通过校核\n\n修改指令：\n{llm-reviewer@answer}\n\n---\n请生成 Agent 按指令重试，或人工介入。"
+          }
+        },
+        "upstream": [
+          "switch-gate"
+        ]
+      }
+    }
+  }
+}

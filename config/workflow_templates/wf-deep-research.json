@@ -1,0 +1,86 @@
+{
+  "id": "wf-deep-research",
+  "category": "research",
+  "kb_placeholders": ["KB_RESEARCH_BASE"],
+  "i18n": {
+    "default": {
+      "name": "Deep Research",
+      "description": "Decompose a topic into sub-questions, loop each through web search + knowledge-base retrieval with a digest, then synthesize a structured report."
+    },
+    "zh-CN": {
+      "name": "深度研究",
+      "description": "把主题拆解为子问题，每个子问题循环执行联网搜索 + 知识库检索并摘要，最后汇总生成结构化研究报告。"
+    }
+  },
+  "dsl": {
+    "version": 1,
+    "components": {
+      "start-1": {
+        "obj": { "component_name": "Start", "params": {} },
+        "downstream": ["llm-decompose"]
+      },
+      "llm-decompose": {
+        "obj": { "component_name": "LLM", "params": {
+          "prompt": "针对研究主题，提出 3-5 个相互独立、可检索验证的子问题。仅输出一个 JSON 字符串数组（例如 [\"子问题1\",\"子问题2\"]），不要任何解释、不要 markdown 代码块。\n\n研究主题：{sys.query}",
+          "system_prompt": "你是研究规划助手。你的回复必须是一个合法的 JSON 字符串数组，除此之外不输出任何字符。",
+          "temperature": 0.2
+        } },
+        "upstream": ["start-1"],
+        "downstream": ["iteration-research"]
+      },
+      "iteration-research": {
+        "obj": { "component_name": "Iteration", "params": {
+          "items": "{llm-decompose@content}",
+          "item_var": "item",
+          "index_var": "index",
+          "output_var": "results",
+          "output_ref": "{llm-digest@content}"
+        } },
+        "upstream": ["llm-decompose"],
+        "downstream": ["llm-synth"]
+      },
+      "search-1": {
+        "obj": { "component_name": "WebSearch", "params": {
+          "query": "{iteration-research@item}",
+          "max_results": 5
+        } },
+        "parent": "iteration-research",
+        "upstream": [],
+        "downstream": ["retrieval-1"]
+      },
+      "retrieval-1": {
+        "obj": { "component_name": "Retrieval", "params": {
+          "query": "{iteration-research@item}",
+          "kb_ids": ["KB_RESEARCH_BASE"],
+          "top_k": 5
+        } },
+        "parent": "iteration-research",
+        "upstream": ["search-1"],
+        "downstream": ["llm-digest"]
+      },
+      "llm-digest": {
+        "obj": { "component_name": "LLM", "params": {
+          "prompt": "研究子问题：{iteration-research@item}\n\n联网搜索结果：\n{search-1@results}\n\n知识库检索片段：\n{retrieval-1@chunks}\n\n请针对该子问题输出一段 150 字以内的研究摘要，标注关键事实的来源（搜索结果或文档标题），与子问题无关的信息不要写入。",
+          "temperature": 0.2
+        } },
+        "parent": "iteration-research",
+        "upstream": ["retrieval-1"]
+      },
+      "llm-synth": {
+        "obj": { "component_name": "LLM", "params": {
+          "prompt": "研究主题：{sys.query}\n\n各子问题的研究结果：\n{iteration-research@results}\n\n请综合以上结果生成一份结构化研究报告：\n1. ## 结论摘要（3-5 条要点）\n2. ## 分问题分析（每个子问题一小节，引用来源）\n3. ## 信息缺口与建议（哪些子问题证据不足、建议的后续动作）\n不同来源冲突的信息要显式标注分歧。",
+          "system_prompt": "你是严谨的研究分析师。只基于给定研究结果作答，不得编造来源。",
+          "temperature": 0.3
+        } },
+        "upstream": ["iteration-research"],
+        "downstream": ["answer-1"]
+      },
+      "answer-1": {
+        "obj": { "component_name": "Answer", "params": {
+          "template": "# 深度研究报告：{sys.query}\n\n{llm-synth@content}"
+        } },
+        "upstream": ["llm-synth"]
+      }
+    }
+  }
+}

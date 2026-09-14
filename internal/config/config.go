@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	wfengine "github.com/Tencent/WeKnora/internal/agent/workflow"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/spf13/viper"
@@ -558,6 +559,13 @@ func LoadConfig() (*Config, error) {
 	// Load built-in agent definitions (i18n-aware) from builtin_agents.yaml
 	if err := types.LoadBuiltinAgentsConfig(configDir); err != nil {
 		fmt.Printf("Warning: failed to load builtin agents config: %v\n", err)
+	}
+
+	// Load built-in workflow templates (workflow_templates/*.json) and
+	// fail fast when one is broken: a template that does not compile must
+	// brick startup, not a production run. A missing directory is fine.
+	if err := wfengine.LoadWorkflowTemplates(configDir); err != nil {
+		return nil, err
 	}
 
 	// Load smart-reasoning agent type presets (rag-qa / wiki-qa / hybrid / custom).

@@ -75,7 +75,27 @@ var (
 	// ErrWorkflowNodeNotRunnable: the requested node cannot run in
 	// isolation (missing from the draft, Start, or an Iteration node).
 	ErrWorkflowNodeNotRunnable = errors.New("this node cannot be run in isolation")
+	// ErrWorkflowTemplateNotFound: no built-in template with that id.
+	ErrWorkflowTemplateNotFound = errors.New("workflow template not found")
+	// ErrWorkflowTemplateMissingKB: instantiate without a binding for every
+	// declared kb placeholder (HTTP 400; the missing list rides on
+	// MissingKBBindingsError).
+	ErrWorkflowTemplateMissingKB = errors.New("workflow template requires knowledge base bindings")
+	// ErrWorkflowTemplateInvalidKB: a bound kb id does not exist in the
+	// caller's tenant (HTTP 400).
+	ErrWorkflowTemplateInvalidKB = errors.New("workflow template kb binding is invalid")
 )
+
+// MissingKBBindingsError reports the kb placeholders lacking a binding.
+type MissingKBBindingsError struct{ Missing []string }
+
+func (e *MissingKBBindingsError) Error() string {
+	return fmt.Sprintf("%v: %s", ErrWorkflowTemplateMissingKB, strings.Join(e.Missing, ", "))
+}
+
+// Unwrap keeps errors.Is(ErrWorkflowTemplateMissingKB) working through the
+// structured carrier.
+func (e *MissingKBBindingsError) Unwrap() error { return ErrWorkflowTemplateMissingKB }
 
 // workflowDSLShape is the minimal structural view used to validate the DSL
 // document without importing the engine package. It mirrors the dual-view
@@ -299,6 +319,81 @@ func (s *workflowService) CreateWorkflow(ctx context.Context, workflow *types.Wo
 		return nil, err
 	}
 	return created, nil
+}
+
+// InstantiateWorkflowTemplate copies a built-in template into the caller's
+// tenant as a published workflow: every declared kb placeholder must be
+// bound to a knowledge base the tenant can read (bindings are validated
+// against the tenant before the copy is created), the bound DSL is
+// validated by the same compile path CreateWorkflow/PublishWorkflow use,
+// and the copy lands published so it is immediately runnable.
+func (s *workflowService) InstantiateWorkflowTemplate(ctx context.Context, templateID string, req *types.InstantiateWorkflowTemplateRequest) (*types.Workflow, error) {
+	tenantID, ok := types.TenantIDFromContext(ctx)
+	if !ok || tenantID == 0 {
+		return nil, ErrWorkflowTenantRequired
+	}
+	tpl := wfengine.GetWorkflowTemplate(templateID)
+	if tpl == nil {
+		return nil, ErrWorkflowTemplateNotFound
+	}
+	bindings := map[string]string{}
+	if req != nil {
+		for k, v := range req.KBBindings {
+			bindings[k] = strings.TrimSpace(v)
+		}
+	}
+	// Every declared placeholder needs a binding.
+	var missing []string
+	for _, p := range tpl.KBPlaceholders {
+		if bindings[p] == "" {
+			missing = append(missing, p)
+		}
+	}
+	if len(missing) > 0 {
+		return nil, &MissingKBBindingsError{Missing: missing}
+	}
+	// Every binding must name a KB owned by the tenant. GetKnowledgeBaseByID
+	// is deliberately NOT tenant-scoped (repository contract), so ownership
+	// is enforced here — otherwise a foreign KB id would be baked into a
+	// published workflow and fail only at run time.
+	for _, kbID := range bindings {
+		if kbID == "" {
+			continue
+		}
+		kb, err := s.kbs.GetKnowledgeBaseByID(ctx, kbID)
+		if err != nil || kb == nil {
+			return nil, fmt.Errorf("%w: %s", ErrWorkflowTemplateInvalidKB, kbID)
+		}
+		if kb.TenantID != tenantID {
+			return nil, fmt.Errorf("%w: %s", ErrWorkflowTemplateInvalidKB, kbID)
+		}
+	}
+	dsl, err := tpl.BindKBPlaceholders(bindings)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrWorkflowInvalidDSL, err)
+	}
+	raw, err := json.Marshal(dsl)
+	if err != nil {
+		return nil, err
+	}
+	locale := ""
+	if lang, ok := types.LanguageFromContext(ctx); ok {
+		locale = lang
+	}
+	display := tpl.Localized(locale)
+	name := display.Name
+	if req != nil && strings.TrimSpace(req.Name) != "" {
+		name = strings.TrimSpace(req.Name)
+	}
+	created, err := s.CreateWorkflow(ctx, &types.Workflow{
+		Name:        name,
+		Description: display.Description,
+		DSL:         types.JSON(raw),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return s.PublishWorkflow(ctx, created.ID)
 }
 
 // GetWorkflowByID returns the workflow in the caller's tenant.
