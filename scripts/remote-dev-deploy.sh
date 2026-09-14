@@ -54,6 +54,12 @@ if [ "$TARGET" = "all" ] || [ "$TARGET" = "backend" ]; then
     docker cp ${REMOTE_SRC}/WeKnora WeKnora-app:/app/WeKnora
     docker cp ${REMOTE_SRC}/skills/preloaded/. WeKnora-app:/app/skills/preloaded/
     docker cp ${REMOTE_SRC}/skills/preloaded/. WeKnora-app:/app/skills/_builtin/
+    # Built-in workflow templates load from /app/config/workflow_templates at
+    # startup (path-based, not embedded). Sync ONLY that subdirectory — the
+    # container's config.yaml is the production instance config and must
+    # never be clobbered by the repo copy.
+    docker exec WeKnora-app mkdir -p /app/config/workflow_templates
+    docker cp ${REMOTE_SRC}/config/workflow_templates/. WeKnora-app:/app/config/workflow_templates/
     docker restart WeKnora-app
   "
 fi
