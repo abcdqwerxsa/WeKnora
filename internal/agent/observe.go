@@ -719,6 +719,10 @@ func listToolNames(ts []chat.Tool) []string {
 // buildToolsForLLM builds the tools list for LLM function calling
 func (e *AgentEngine) buildToolsForLLM() []chat.Tool {
 	functionDefs := e.toolRegistry.GetFunctionDefinitions()
+	logger.Infof(context.Background(), "[DEBUG] buildToolsForLLM: got %d tool definitions", len(functionDefs))
+	for _, def := range functionDefs {
+		logger.Infof(context.Background(), "[DEBUG] Tool registered: %s", def.Name)
+	}
 	tools := make([]chat.Tool, 0, len(functionDefs))
 	for _, def := range functionDefs {
 		tools = append(tools, chat.Tool{

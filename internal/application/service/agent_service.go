@@ -505,17 +505,22 @@ func (s *agentService) registerSandboxShellIfAllowed(
 	sessionID string,
 	config *types.AgentConfig,
 ) {
+	logger.Infof(ctx, "[DEBUG] registerSandboxShellIfAllowed called: config=%v, skills_enabled=%v", config != nil, config != nil && config.SkillsEnabled)
 	if config == nil || (!config.SkillsEnabled && !config.SkillInstallMode()) {
+		logger.Infof(ctx, "[DEBUG] Skipped shell_exec registration: config_nil=%v, skills_enabled=%v", config == nil, config != nil && config.SkillsEnabled)
 		return
 	}
+	logger.Infof(ctx, "[DEBUG] Attempting to resolve workspace sandbox for session %s", sessionID)
 	sandboxMgr, err := s.resolveWorkspaceSandbox(ctx, sessionID, config)
 	if err != nil {
 		logger.Warnf(ctx, "Failed to resolve sandbox for shell_exec: %v", err)
 		return
 	}
 	if sandboxMgr == nil {
+		logger.Infof(ctx, "[DEBUG] Sandbox manager is nil, cannot register shell_exec")
 		return
 	}
+	logger.Infof(ctx, "[DEBUG] Sandbox resolved, registering shell_exec tool")
 	s.registerSandboxShellTool(ctx, toolRegistry, sandboxMgr, config)
 }
 
