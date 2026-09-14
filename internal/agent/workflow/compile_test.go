@@ -455,3 +455,40 @@ func TestCompileStillRejectsZeroTerminals(t *testing.T) {
 		t.Error("cycle without terminal must fail compilation")
 	}
 }
+
+// Pinned data (n8n semantics): a node with a Pinned entry never executes —
+// runs replay the frozen outputs so downstream nodes and traces observe
+// them like real outputs (Replayed event marks them not-fresh).
+func TestCompilePinnedShortCircuit(t *testing.T) {
+	log := &eventLog{}
+	dsl := &DSL{Version: 1, Pinned: map[string]map[string]any{
+		"retr": {"chunks": "frozen"},
+	}, Components: map[string]*Component{
+		"start": {Obj: ComponentObj{ComponentName: "Start"}, Downstream: []string{"retr"}},
+		"retr": {
+			Obj:        ComponentObj{ComponentName: "Retrieval", Params: map[string]any{"query": "{sys.query}", "kb_ids": []any{"kb1"}}},
+			Upstream:   []string{"start"},
+			Downstream: []string{"ans"},
+		},
+		"ans": {Obj: ComponentObj{ComponentName: "Answer", Params: map[string]any{"template": "{retr@chunks}"}}, Upstream: []string{"retr"}},
+	}}
+	wf, err := Compile(dsl, linearDeps(log))
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	res, rerr := wf.Run(context.Background(), "q", nil)
+	if rerr != nil {
+		t.Fatalf("Run: %v", rerr)
+	}
+	if got := res.Outputs.Outputs["retr"]["chunks"]; got != "frozen" {
+		t.Errorf("pinned output = %v, want frozen", got)
+	}
+	if got := res.Outputs.Outputs["ans"]["answer"]; got != "frozen" {
+		t.Errorf("downstream template = %v, want frozen passthrough", got)
+	}
+	for _, ev := range log.events {
+		if ev.NodeID == "retr" && ev.Phase == PhaseStarted {
+			t.Error("pinned node must not emit a real start")
+		}
+	}
+}

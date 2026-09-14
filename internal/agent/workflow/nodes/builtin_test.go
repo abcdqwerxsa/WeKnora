@@ -511,6 +511,33 @@ func TestStartFieldsBadTypeRejected(t *testing.T) {
 	}
 }
 
+// Empty-name fields (an untouched “add field” row saved by older editors)
+// are skipped, not fatal — the run must proceed with the addressable ones.
+func TestStartFieldsEmptyNameSkipped(t *testing.T) {
+	n, err := New("Start", map[string]any{
+		"fields": []any{
+			map[string]any{"name": "", "type": "text", "default": "ignored"},
+			map[string]any{"name": "topic", "type": "text", "default": "dflt"},
+		},
+	}, Deps{})
+	if err != nil {
+		t.Fatalf("empty-name field must be skipped, not rejected: %v", err)
+	}
+	out, ierr := n.Invoke(context.Background(), map[string]any{
+		"query":  "q",
+		"inputs": map[string]any{},
+	})
+	if ierr != nil {
+		t.Fatalf("Invoke: %v", ierr)
+	}
+	if _, has := out[""]; has {
+		t.Error("empty-name field must not materialize an output")
+	}
+	if out["topic"] != "dflt" {
+		t.Errorf("named field default must materialize, got %v", out)
+	}
+}
+
 // TestLLMNodeThinkingTriState: absent = nil (provider default), explicit
 // false/true pass through; string forms from DSL exports coerce too.
 func TestLLMNodeThinkingTriState(t *testing.T) {

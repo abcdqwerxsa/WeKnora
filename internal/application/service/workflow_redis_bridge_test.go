@@ -26,8 +26,8 @@ func newRedisTestClient(t *testing.T) *redis.Client {
 // (deterministic; the full-run path is covered by the run tests).
 func TestRedisBridge_CrossInstanceDelivery(t *testing.T) {
 	client := newRedisTestClient(t)
-	instanceA := NewWorkflowService(newRunRepoStub(nil), nil, nil, nil, client, nil, nil, nil, nil, nil, nil, nil).(*workflowService)
-	instanceB := NewWorkflowService(newRunRepoStub(nil), nil, nil, nil, client, nil, nil, nil, nil, nil, nil, nil).(*workflowService)
+	instanceA := NewWorkflowService(newRunRepoStub(nil), nil, nil, nil, client, nil, nil, nil, nil, nil, nil, nil, nil).(*workflowService)
+	instanceB := NewWorkflowService(newRunRepoStub(nil), nil, nil, nil, client, nil, nil, nil, nil, nil, nil, nil, nil).(*workflowService)
 	ctx := context.Background()
 	const runID = "run-x-inst"
 
@@ -65,7 +65,7 @@ func TestRedisBridge_CrossInstanceDelivery(t *testing.T) {
 func TestRedisBridge_SingleInstanceDedup(t *testing.T) {
 	wf := &types.Workflow{ID: "wf-d", TenantID: 8, Name: "wf", DSL: types.JSON(linearDSL), Status: types.WorkflowStatusPublished}
 	client := newRedisTestClient(t)
-	svc := NewWorkflowService(newRunRepoStub(wf), &wfStubModelSvc{reply: "ok"}, nil, nil, client, nil, nil, nil, nil, nil, nil, nil)
+	svc := NewWorkflowService(newRunRepoStub(wf), &wfStubModelSvc{reply: "ok"}, nil, nil, client, nil, nil, nil, nil, nil, nil, nil, nil)
 	concrete := svc.(*workflowService) // same package: reach the transport hooks
 	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(8))
 

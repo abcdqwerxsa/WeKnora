@@ -124,6 +124,9 @@ export interface WorkflowDSL {
   }
   components: Record<string, WFComponent>
   variables?: Record<string, unknown>
+  /** Editor-frozen node outputs (n8n pinned data): nodes with an entry
+   * never execute — runs short-circuit to these values. */
+  pinned?: Record<string, Record<string, unknown>>
 }
 
 export interface Workflow {
@@ -272,6 +275,20 @@ export const runWorkflow = (
   id: string,
   payload: { query: string; files?: string[]; inputs?: Record<string, unknown>; async?: boolean },
 ): Promise<WorkflowRunResponse> => post(`/api/v1/workflows/${id}/runs`, payload)
+
+/**
+ * Run a SINGLE node of the draft DSL (n8n-style step debugging). inputs
+ * maps upstream node ids to their output params (nodeID -> param -> value);
+ * they are injected into the run's canvas state so {upstream@param} refs
+ * resolve without executing the upstreams. Synchronous: the returned run
+ * carries status + per-node trace. A failed NODE execution is a valid
+ * outcome (failed run row, not a transport error).
+ */
+export const runWorkflowNode = (
+  id: string,
+  nodeId: string,
+  payload: { inputs?: Record<string, Record<string, unknown>> },
+): Promise<WorkflowRunResponse> => post(`/api/v1/workflows/${id}/runs/node/${nodeId}`, payload)
 
 /**
  * Cancel a pending/running run (best-effort engine stop + async-task

@@ -40,6 +40,9 @@ func (s *stubTenantService) ListTenants(context.Context) ([]*types.Tenant, error
 func (s *stubTenantService) ListAllTenants(context.Context) ([]*types.Tenant, error) {
 	return nil, nil
 }
+func (s *stubTenantService) ListJoinableTenants(context.Context) ([]*types.Tenant, error) {
+	return nil, nil
+}
 func (s *stubTenantService) SearchTenants(context.Context, string, uint64, int, int) ([]*types.Tenant, int64, error) {
 	return nil, 0, nil
 }

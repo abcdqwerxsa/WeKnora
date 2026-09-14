@@ -112,7 +112,7 @@ func (s *wfStubKBSvc) HybridSearch(_ context.Context, _ string, _ types.SearchPa
 // newTestWFService builds a workflowService with the common test wiring:
 // repo + optional models/kbs; no enqueuer, no redis, no web search.
 func newTestWFService(repo interfaces.WorkflowRepository, models interfaces.ModelService, kbs interfaces.KnowledgeBaseService) interfaces.WorkflowService {
-	return NewWorkflowService(repo, models, kbs, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	return NewWorkflowService(repo, models, kbs, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
 func runTestWorkflow(t *testing.T, dsl string) (*runRepoStub, *types.WorkflowRun, error) {
@@ -123,7 +123,7 @@ func runTestWorkflow(t *testing.T, dsl string) (*runRepoStub, *types.WorkflowRun
 	repo := newRunRepoStub(wf)
 	svc := NewWorkflowService(repo, &wfStubModelSvc{reply: "llm-answer"}, &wfStubKBSvc{
 		hits: []*types.SearchResult{{ID: "c1", Content: "chunk text", KnowledgeTitle: "doc"}},
-	}, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(10001))
 	run, err := svc.RunWorkflow(ctx, "wf-1", &types.RunWorkflowRequest{Query: "hello"})
 	return repo, run, err

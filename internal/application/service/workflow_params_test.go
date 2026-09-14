@@ -276,7 +276,7 @@ func (s *stubTempDocs) ResolveForPrompt(_ context.Context, _ uint64, scope strin
 func TestRunLLMWithAttachmentsPrependsContext(t *testing.T) {
 	ms := &captureModelSvc{rer: &stubReranker{}}
 	td := &stubTempDocs{prompt: "SECRET-ATTACHMENT-CONTENT"}
-	svc := NewWorkflowService(nil, ms, &captureKBSvc{}, nil, nil, nil, nil, nil, nil, nil, nil, td).(*workflowService)
+	svc := NewWorkflowService(nil, ms, &captureKBSvc{}, nil, nil, nil, nil, nil, nil, nil, nil, nil, td).(*workflowService)
 	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(1))
 	out, err := svc.runLLMWithAttachments(ctx, WorkflowAttachmentScope("wf-1"), "the query", []string{"doc-1"},
 		nodes.LLMRequest{Prompt: "p", SystemPrompt: "be brief", Model: "m"})
@@ -335,4 +335,25 @@ func TestWorkflowAttachmentScopeFitsColumn(t *testing.T) {
 	scope := WorkflowAttachmentScope(id)
 	assert.Len(t, scope, 35, "wf- + 32 hex chars")
 	assert.True(t, strings.HasPrefix(scope, "wf-"))
+}
+
+// Empty rendered prompts fail fast with a clear message instead of an
+// opaque downstream provider 400 (messages[].content invalid).
+func TestRunLLMEmptyPromptFailsFast(t *testing.T) {
+	svc := NewWorkflowService(nil, &wfStubModelSvc{reply: "x"}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil).(*workflowService)
+	for name, call := range map[string]func() error{
+		"llm": func() error {
+			_, err := svc.runLLM(context.Background(), nodes.LLMRequest{Prompt: "   ", Model: "m"})
+			return err
+		},
+		"stream": func() error {
+			_, err := svc.runLLMStream(context.Background(), nodes.LLMRequest{Prompt: "", Model: "m"}, nil)
+			return err
+		},
+	} {
+		err := call()
+		if err == nil || !strings.Contains(err.Error(), "rendered prompt is empty") {
+			t.Errorf("%s: err = %v, want empty-prompt error", name, err)
+		}
+	}
 }

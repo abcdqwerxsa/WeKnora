@@ -274,6 +274,61 @@ func (h *WorkflowHandler) CreateWorkflowRun(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"run": run})
 }
 
+// RunWorkflowNode godoc
+// @Summary      单节点调试运行
+// @Description  执行草稿 DSL 中的单个节点（n8n 式逐步调试）：inputs 注入上游节点输
+// @Description  出（nodeID -> param -> value），模板引用 {upstream@param} 从注入状
+// @Description  态解析；同步执行并持久化 run 记录（含逐节点 trace）。
+// @Tags         工作流
+// @Produce      json
+// @Param        id      path string                       true "工作流 ID"
+// @Param        node_id path string                       true "节点 ID"
+// @Param        request body   types.RunWorkflowNodeRequest true "注入的上游输出"
+// @Success      200 {object} map[string]interface{}
+// @Failure      400 {object} apperrors.AppError
+// @Failure      403 {object} apperrors.AppError
+// @Failure      404 {object} apperrors.AppError
+// @Security     Bearer
+// @Router       /workflows/{id}/runs/node/{node_id} [post]
+func (h *WorkflowHandler) RunWorkflowNode(c *gin.Context) {
+	ctx := c.Request.Context()
+	id := c.Param("id")
+	nodeID := c.Param("node_id")
+	var req types.RunWorkflowNodeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(apperrors.NewValidationError("Invalid request parameters").WithDetails(err.Error()))
+		return
+	}
+	run, err := h.service.RunWorkflowNode(ctx, id, nodeID, &req)
+	if err != nil {
+		if errors.Is(err, apprepo.ErrWorkflowNotFound) {
+			c.Error(apperrors.NewNotFoundError("workflow not found"))
+			return
+		}
+		if errors.Is(err, service.ErrWorkflowNotDebuggable) {
+			c.Error(apperrors.NewForbiddenError(err.Error()))
+			return
+		}
+		if errors.Is(err, service.ErrWorkflowInvalidDSL) {
+			c.Error(apperrors.NewValidationError("invalid workflow DSL").WithDetails(err.Error()))
+			return
+		}
+		if errors.Is(err, service.ErrWorkflowNodeNotRunnable) {
+			c.Error(apperrors.NewValidationError(err.Error()).WithDetails(err.Error()))
+			return
+		}
+		// A persisted failed run is a legitimate execution outcome (node
+		// raised an error / a {ref} could not resolve) — surface the run.
+		if run != nil && run.Status == types.WorkflowRunStatusFailed {
+			c.JSON(http.StatusOK, gin.H{"run": run})
+			return
+		}
+		c.Error(apperrors.NewInternalServerError("failed to run node").WithDetails(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"run": run})
+}
+
 // ListWorkflowRuns godoc
 // @Summary      工作流运行历史
 // @Description  列出工作流的执行记录（新到旧）

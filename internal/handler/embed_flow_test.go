@@ -107,6 +107,9 @@ func (f *flowTenantSvc) ListTenants(context.Context) ([]*types.Tenant, error) {
 func (f *flowTenantSvc) ListAllTenants(context.Context) ([]*types.Tenant, error) {
 	return nil, nil
 }
+func (f *flowTenantSvc) ListJoinableTenants(context.Context) ([]*types.Tenant, error) {
+	return nil, nil
+}
 func (f *flowTenantSvc) BulkSetStorageQuota(context.Context, int64) (int64, error) {
 	return 0, nil
 }

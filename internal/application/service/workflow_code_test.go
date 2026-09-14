@@ -42,7 +42,7 @@ func (m *fakeSandboxManager) GetType() sandbox.SandboxType  { return "" }
 
 func codeSvc(t *testing.T, resolver sandbox.TenantSandboxResolver) *workflowService {
 	t.Helper()
-	svc := NewWorkflowService(newRunRepoStub(nil), nil, nil, nil, nil, nil, nil, resolver, nil, nil, nil, nil)
+	svc := NewWorkflowService(newRunRepoStub(nil), nil, nil, nil, nil, nil, nil, resolver, nil, nil, nil, nil, nil)
 	return svc.(*workflowService)
 }
 

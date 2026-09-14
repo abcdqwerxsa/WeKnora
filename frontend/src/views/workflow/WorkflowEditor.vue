@@ -17,20 +17,6 @@
           <template #icon><t-icon name="layout" /></template>
           {{ $t('workflow.editor.autoLayout') }}
         </t-button>
-        <t-button variant="outline" @click="copySelectedNode" :disabled="!ready || !selectedNode">
-          <template #icon><t-icon name="copy" /></template>
-          {{ $t('workflow.editor.copyNode') }}
-        </t-button>
-        <t-button variant="outline" :disabled="!ready || !clipboard" @click="pasteClipboardNode">
-          <template #icon><t-icon name="file-paste" /></template>
-          {{ $t('workflow.editor.pasteNode') }}
-        </t-button>
-        <t-button variant="outline" :disabled="!ready || !canUndo" @click="undo()">
-          <template #icon><t-icon name="rollback" /></template>
-        </t-button>
-        <t-button variant="outline" :disabled="!ready || !canRedo" @click="redo()">
-          <template #icon><t-icon name="rollfront" /></template>
-        </t-button>
         <t-button variant="outline" @click="importDslFile?.click()">
           <template #icon><t-icon name="upload" /></template>
           {{ $t('workflow.editor.importDsl') }}
@@ -39,6 +25,7 @@
           <template #icon><t-icon name="download" /></template>
           {{ $t('workflow.editor.exportDsl') }}
         </t-button>
+        <span v-if="lastSavedAt" class="wf-editor-autosaved">{{ t('workflow.editor.autoSavedAt', { time: autoSavedTime }) }}</span>
         <t-button theme="primary" :loading="saving" :disabled="!ready" @click="doSave">
           {{ saveLabel }}
         </t-button>
@@ -63,8 +50,15 @@
     </div>
 
     <div v-show="ready" class="wf-editor-canvas">
-      <NodePalette @add="addNodeFromPalette" />
-      <div class="wf-editor-flow" :class="{ 'wf-editor-flow--comment': canvasMode === 'comment' }">
+      <NodePalette :has-start="hasStartNode" @add="addNodeFromPalette" />
+      <div
+        ref="flowEl"
+        class="wf-editor-flow"
+        :class="{ 'wf-editor-flow--comment': canvasMode === 'comment' }"
+        @dragover.prevent
+        @drop.prevent="onDropNode"
+        @mousedown.middle.prevent
+      >
         <!-- Dify-style canvas toolbar: pointer (V, box multi-select), hand
              (H, or hold Space temporarily), comment (C, click to place). -->
         <div class="wf-canvas-toolbar">
@@ -105,13 +99,15 @@
           :max-zoom="2"
           :default-edge-options="defaultEdgeOptions"
           :connection-radius="36"
+          :connect-on-click="false"
           :pan-on-drag="effectiveMode === 'hand' || [1]"
           :nodes-draggable="effectiveMode !== 'comment'"
-          :pan-on-scroll="effectiveMode === 'pointer'"
           :selection-key-code="effectiveMode === 'pointer'"
           :selection-mode="SelectionMode.Partial"
           :delete-key-code="null"
           @pane-click="onPaneClick"
+          @move-end="onMoveEnd"
+          @connect-end="onConnectEnd"
           @connect="onConnect"
           @node-click="onNodeClick"
           @edge-click="onEdgeClick"
@@ -123,7 +119,7 @@
           <template #edge-default="edgeProps">
             <WfEdge
               v-bind="edgeProps"
-              @insert="(kind) => onEdgeInsert(String(edgeProps.source), String(edgeProps.target), kind, edgeProps)"
+              @insert="(kind) => onEdgeInsert(String(edgeProps.id), kind, edgeProps)"
             />
           </template>
           <Background :gap="20" />
@@ -146,11 +142,14 @@
               :selected="nodeProps.selected"
               :subtitle="nodeSubtitle(nodeProps.data)"
               :run-phase="runNodePhases[nodeProps.id]"
-              :outputs="runNodeOutputs[nodeProps.id]"
+              :outputs="pinnedOutputs[nodeProps.id] ?? runNodeOutputs[nodeProps.id]"
+              :pinned="Boolean(pinnedOutputs[nodeProps.id])"
               :node-id="nodeProps.id"
               :branches="branchHandlesOf(nodeProps)"
               :connected-handles="connectedHandlesOf(nodeProps.id)"
+              :run-node-loading="nodeRunLoading === nodeProps.id"
               @quick-add="(kind, handleId) => onQuickAdd(String(nodeProps.id), kind, handleId)"
+              @run-node="onRunNode(String(nodeProps.id))"
             />
           </template>
         </VueFlow>
@@ -158,33 +157,6 @@
       </div>
     </div>
 
-    <t-drawer
-      v-model:visible="drawerVisible"
-      :header="$t('workflow.editor.properties')"
-      size="360px"
-      :footer="false"
-      :close-btn="true"
-      :show-overlay="false"
-    >
-      <NodePropertyForm
-        v-if="selectedParams && selectedKind"
-        :kind="selectedKind"
-        :current-node-id="selectedNodeId ?? ''"
-        :params="selectedParams"
-        :nodes="pickerNodes"
-        :edges="canvasEdges"
-        :chat-models="chatModels"
-        :rerank-models="rerankModels"
-        :kbs="kbs"
-        :env-names="envNames"
-        :web-search-providers="webSearchProviders"
-        :parent="selectedParent"
-        @set-parent="setSelectedParent"
-      />
-      <div v-else class="wf-editor-form-empty">
-        {{ $t('workflow.editor.selectNode') }}
-      </div>
-    </t-drawer>
     <t-drawer
       v-model:visible="runDrawerVisible"
       :header="$t('workflow.run.title')"
@@ -203,6 +175,41 @@
         @node-outputs="runNodeOutputs = $event"
       />
     </t-drawer>
+    <!-- n8n-style centered node detail: left INPUT / middle properties /
+         right OUTPUT, with the single-node test-step run wired in. -->
+    <NodeDetailDialog
+      v-model:visible="drawerVisible"
+      :workflow-id="workflowId"
+      :node-id="selectedNodeId ?? ''"
+      :node-label="t(`workflow.nodes.${selectedKind}`)"
+      :node-kind="selectedKind"
+      :runnable="detailRunnable"
+      :upstreams="detailUpstreams"
+      :start-fields="startFields"
+      :pinned="selectedNodeId !== null ? (pinnedOutputs[selectedNodeId] ?? null) : null"
+      :output-decls="outputDeclsOf(selectedKind, selectedParams ?? undefined)"
+      @node-output="onDetailNodeOutput"
+      @set-pinned="setNodePinned"
+    >
+      <NodePropertyForm
+        v-if="selectedParams && selectedKind"
+        :kind="selectedKind"
+        :current-node-id="selectedNodeId ?? ''"
+        :params="selectedParams"
+        :nodes="pickerNodes"
+        :edges="canvasEdges"
+        :chat-models="chatModels"
+        :rerank-models="rerankModels"
+        :kbs="kbs"
+        :env-names="envNames"
+        :web-search-providers="webSearchProviders"
+        :parent="selectedParent"
+        @set-parent="setSelectedParent"
+      />
+      <div v-else class="wf-editor-form-empty">
+        {{ t('workflow.editor.selectNode') }}
+      </div>
+    </NodeDetailDialog>
     <t-drawer
       v-model:visible="variablesDrawerVisible"
       :header="$t('workflow.editor.variablesDrawer')"
@@ -243,6 +250,7 @@ import { useRoute, onBeforeRouteLeave, useRouter } from 'vue-router'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
 import { VueFlow, MarkerType, SelectionMode, type Connection, type Edge, type EdgeMouseEvent, type Node, type NodeMouseEvent } from '@vue-flow/core'
+import { select } from 'd3-selection'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
 import { MiniMap } from '@vue-flow/minimap'
@@ -257,9 +265,10 @@ import WfEdge from './components/WfEdge.vue'
 import NodePalette from './components/NodePalette.vue'
 import NodePropertyForm from './components/NodePropertyForm.vue'
 import WorkflowRunPanel from './components/WorkflowRunPanel.vue'
+import NodeDetailDialog, { type DetailUpstream } from './components/NodeDetailDialog.vue'
 import { WORKFLOW_NODE_TYPES, getWorkflow, updateWorkflow, publishWorkflow, type Workflow, type WorkflowDSL, type WorkflowNodeType } from '@/api/workflow'
 import { buildDsl, defaultParams, makeNodeId, migrateNodeParams, normalizeDsl, autoLayout, validateGraph, type GraphIssue } from './dsl'
-import { paramSummary } from './nodeMeta'
+import { outputDeclsOf, paramSummary } from './nodeMeta'
 import { listModels, type ModelConfig } from '@/api/model'
 import { listKnowledgeBases } from '@/api/knowledge-base'
 import { listWebSearchProviders } from '@/api/web-search-provider'
@@ -279,6 +288,18 @@ const saving = ref(false)
 // Workflow-level variables (DSL.variables → runtime env.*). Edited in the
 // variables drawer; saved as part of the DSL document.
 const wfVariables = ref<Record<string, unknown>>({})
+// n8n pinned data: frozen node outputs persisted in the DSL's `pinned`
+// map; pinned nodes never execute (engine short-circuit) and their frozen
+// outputs prefill downstream node-debug inputs.
+const pinnedOutputs = ref<Record<string, Record<string, unknown>>>({})
+
+function setNodePinned(nodeId: string, outputs: Record<string, unknown> | null) {
+  const next = { ...pinnedOutputs.value }
+  if (outputs === null) delete next[nodeId]
+  else next[nodeId] = outputs
+  pinnedOutputs.value = next
+  dirty.value = true
+}
 const variablesDrawerVisible = ref(false)
 const envNames = computed(() => Object.keys(wfVariables.value).filter(Boolean))
 
@@ -322,6 +343,9 @@ const canvasNodes = ref([]) as Ref<Node[]>
 // VueFlow instance (template ref) for screenToFlowCoordinate in comment mode.
 const flowRef = ref()
 const flowInstance = computed(() => flowRef.value)
+// The flow wrapper element: its rect gives the viewport centre for
+// click-to-add placement (nodes must land where the user is looking).
+const flowEl = ref<HTMLDivElement | null>(null)
 const canvasEdges = ref([]) as Ref<Edge[]>
 
 // ---- typed property-form data sources ------------------------------------
@@ -384,6 +408,10 @@ const selectedNodeId = ref<string | null>(null)
 const selectedEdgeId = ref<string | null>(null)
 const importDslFile = ref<HTMLInputElement | null>(null)
 
+// The palette disables Start (and adds warn) once a Start node exists —
+// a second one can never compile (single entry).
+const hasStartNode = computed(() => canvasNodes.value.some((node) => node.data?.kind === 'Start'))
+
 function onPaneClick(event: MouseEvent) {
   if (canvasMode.value === 'comment') {
     // Place the note at the flow coordinates under the click.
@@ -396,6 +424,26 @@ function onPaneClick(event: MouseEvent) {
     }
   }
   clearSelection()
+}
+
+/** After any pan/zoom drag, d3 installs a one-shot window-capture "click"
+ *  swallow (d3-drag yesdrag → noevent) to eat the click that ended the
+ *  gesture. It is window-wide: the first click after a pan would be eaten
+ *  anywhere — including the node palette — which reads as "adding nodes is
+ *  broken". vue-flow emits moveEnd synchronously right after the swallow is
+ *  installed; drop it immediately so post-pan clicks land normally. */
+function onMoveEnd() {
+  select(window).on('click.drag', null)
+}
+
+/** vue-flow highlights the handle candidate under the pointer mid-drag by
+ *  adding `connecting`/`valid` classes directly to the DOM, but never clears
+ *  the last candidate when the drop lands — the highlight would stick.
+ *  Clear it when the connection gesture ends. */
+function onConnectEnd() {
+  document
+    .querySelectorAll('.vue-flow__handle.connecting, .vue-flow__handle.valid')
+    .forEach((el) => el.classList.remove('connecting', 'valid', 'vue-flow__handle-connecting', 'vue-flow__handle-valid'))
 }
 
 function clearSelection() {
@@ -428,13 +476,15 @@ function removeEdge(edgeId: string) {
 function removeNode(nodeId: string) {
   const node = canvasNodes.value.find((item) => item.id === nodeId)
   if (!node) return
-  if ((node.data?.kind as WorkflowNodeType) === 'Start') {
-    MessagePlugin.warning(t('workflow.editor.startProtected'))
-    return
-  }
   canvasNodes.value = canvasNodes.value.filter((item) => item.id !== nodeId)
   canvasEdges.value = canvasEdges.value.filter((edge) => edge.source !== nodeId && edge.target !== nodeId)
   if (selectedNodeId.value === nodeId) selectedNodeId.value = null
+  // A node's pinned fixture dies with the node — no orphan DSL entries.
+  if (pinnedOutputs.value[nodeId]) {
+    const next = { ...pinnedOutputs.value }
+    delete next[nodeId]
+    pinnedOutputs.value = next
+  }
 }
 
 // ---- canvas modes (Dify-style) ---------------------------------------------
@@ -530,12 +580,11 @@ function onKeyDown(event: KeyboardEvent) {
     removeNode(selectedNodeId.value)
     return
   }
-  // Box multi-select delete: remove every selected node (Start stays).
-  const selected = canvasNodes.value.filter((node) => node.selected)
-  const removable = selected.filter((node) => (node.data?.kind as WorkflowNodeType) !== 'Start')
-  if (removable.length > 0) {
+  // Box multi-select delete: remove every selected node.
+  const selected = canvasNodes.value.filter((node) => (node as { selected?: boolean }).selected)
+  if (selected.length > 0) {
     event.preventDefault()
-    for (const node of removable) removeNode(node.id)
+    for (const node of selected) removeNode(node.id)
   }
 }
 
@@ -559,6 +608,85 @@ const runNodePhases = ref<Record<string, 'running' | 'done' | 'failed'>>({})
 // Per-node debug payload (live frames or selected history run's trace),
 // rendered as the inspect badge on canvas cards. Shares the phase lifecycle.
 const runNodeOutputs = ref<Record<string, Record<string, unknown>>>({})
+
+// ---- n8n-style single-node debug run -------------------------------------
+// Hover play button on a node card opens the debug drawer: direct upstream
+// nodes with editable JSON inputs (prefilled from the last run's outputs),
+// then runWorkflowNode POSTs to the draft-only node endpoint.
+const nodeRunLoading = ref<string | null>(null)
+
+// The detail dialog's INPUT pane mirrors the selected node's direct
+// upstreams: PINNED outputs first (frozen fixtures), then last-run outputs,
+// else the Start seed skeleton.
+const detailUpstreams = computed<DetailUpstream[]>(() => {
+  const id = selectedNodeId.value
+  if (!id) return []
+  const kindOf = (nodeId: string): WorkflowNodeType =>
+    ((canvasNodes.value.find((n) => n.id === nodeId)?.data as { kind?: WorkflowNodeType } | undefined)?.kind) ?? 'Answer'
+  return canvasEdges.value
+    .filter((edge) => edge.target === id)
+    .map((edge) => edge.source)
+    .filter((upId, index, all) => all.indexOf(upId) === index)
+    .map((upId) => ({
+      id: upId,
+      kind: kindOf(upId),
+      outputs: pinnedOutputs.value[upId] ?? runNodeOutputs.value[upId] ?? null,
+      seed: startSeedOf(upId),
+    }))
+})
+
+// Iteration cannot run in isolation (backend guard). Start CAN: its
+// test-step materialises the entry form as the downstream fixture.
+const detailRunnable = computed(() => selectedKind.value !== 'Iteration')
+
+function onDetailNodeOutput(nodeId: string, outputs: Record<string, unknown>) {
+  runNodeOutputs.value = { ...runNodeOutputs.value, [nodeId]: outputs }
+}
+
+// Card ▶ button. n8n semantics: Start is the trigger — running it opens
+// the run form (Execute workflow); every other node opens the detail
+// dialog with the test-step run inside.
+async function onRunNode(nodeId: string) {
+  if (nodeRunLoading.value) return
+  const node = canvasNodes.value.find((item) => item.id === nodeId)
+  if (!node) return
+  if ((node.data?.kind as WorkflowNodeType) === 'Start') {
+    // The run executes the SAVED DSL — flush pending edits, then surface
+    // the shared run form (same entry as the toolbar run button).
+    if (dirty.value && !(await doSave({ silent: true }))) return
+    runDrawerVisible.value = true
+    return
+  }
+  nodeRunLoading.value = nodeId
+  try {
+    // The server executes the SAVED draft — flush pending edits first.
+    if (dirty.value && !(await doSave({ silent: true }))) return
+    selectedNodeId.value = nodeId
+  } finally {
+    nodeRunLoading.value = null
+  }
+}
+
+// startSeedOf sketches what a Start node would output ({query: ''} plus
+// declared field defaults) so the debug drawer's JSON textarea shows the
+// expected shape instead of an opaque {}. The backend synthesizes the same
+// fallback at run time; this is only a UX hint.
+function startSeedOf(id: string): Record<string, unknown> | null {
+  const node = canvasNodes.value.find((n) => n.id === id)
+  const kind = (node?.data as { kind?: WorkflowNodeType } | undefined)?.kind
+  if (kind !== 'Start') return null
+  const fields = ((node?.data as { params?: { fields?: unknown } } | undefined)?.params?.fields ?? []) as Array<{
+    name?: unknown
+    default?: unknown
+  }>
+  const seed: Record<string, unknown> = { query: '' }
+  for (const f of Array.isArray(fields) ? fields : []) {
+    const name = typeof f?.name === 'string' ? f.name : ''
+    const def = typeof f?.default === 'string' ? f.default : ''
+    if (name && def && !(name in seed)) seed[name] = def
+  }
+  return seed
+}
 
 // ---- undo / redo ---------------------------------------------------------
 // Snapshot history of the canvas structure (nodes+edges JSON). Structural
@@ -620,7 +748,7 @@ function restoreSnapshot(snap: string): void {
   withRestoreGuard(() => {
     const parsed = JSON.parse(snap) as {
       nodes: Array<{ id: string; type: string; position: { x: number; y: number }; data?: Record<string, unknown> }>
-      edges: Array<{ id: string; source: string; target: string }>
+      edges: Array<{ id: string; source: string; target: string; sourceHandle?: string }>
     }
     canvasNodes.value = parsed.nodes.map((node) => ({
       id: node.id,
@@ -628,7 +756,12 @@ function restoreSnapshot(snap: string): void {
       position: { x: node.position.x, y: node.position.y },
       data: node.data,
     }))
-    canvasEdges.value = parsed.edges.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target }))
+    canvasEdges.value = parsed.edges.map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      ...(edge.sourceHandle ? { sourceHandle: edge.sourceHandle } : {}),
+    }))
     refreshEdgeLabels()
   })
 }
@@ -746,14 +879,26 @@ function refreshEdgeLabels() {
     if (!source || (source.data?.kind !== 'Switch' && source.data?.kind !== 'QuestionClassifier')) continue
     const params = (source.data as { params?: Record<string, unknown> }).params ?? {}
     const cases = (Array.isArray(params.cases) ? (params.cases as Array<Record<string, unknown>>) : Array.isArray(params.classes) ? (params.classes as Array<Record<string, unknown>>) : []) as Array<{ value?: string; name?: string; to: string }>
-    const matched = cases.find((item) => item.to === edge.target)
-    const isDefault = typeof params.default === 'string' && params.default === edge.target
-    const label = matched?.value ?? matched?.name ?? (isDefault ? t('workflow.editor.defaultBranch') : undefined)
-    // Map the semantic target back onto its branch handle so multi-handle
-    // nodes render edges from the right outlet.
-    edge.sourceHandle = matched ? `case-${cases.indexOf(matched)}` : isDefault ? 'default' : edge.sourceHandle
-    if (label) edge.label = label
-    else delete edge.label
+    // Branch identity lives on the edge (sourceHandle) — re-deriving it
+    // from cases[].to is ambiguous once two branches converge on one node
+    // (both edges would jump to the first matching handle). Only legacy
+    // edges saved without a handle derive it from the target, then keep it.
+    if (!edge.sourceHandle) {
+      const matched = cases.find((item) => item.to === edge.target)
+      const isDefault = typeof params.default === 'string' && params.default === edge.target
+      edge.sourceHandle = matched ? `case-${cases.indexOf(matched)}` : isDefault ? 'default' : edge.sourceHandle
+    }
+    const handle = edge.sourceHandle
+    if (handle === 'default') {
+      edge.label = t('workflow.editor.defaultBranch')
+    } else if (typeof handle === 'string' && handle.startsWith('case-')) {
+      const entry = cases[Number(handle.slice(5))]
+      const label = entry ? String(entry.value ?? entry.name ?? '') : ''
+      if (label) edge.label = label
+      else delete edge.label
+    } else {
+      delete edge.label
+    }
   }
 }
 
@@ -773,20 +918,44 @@ watch(runNodePhases, (phases) => {
 
 function onConnect(connection: Connection) {
   if (!connection.source || !connection.target) return
+  const sourceHandle = connection.sourceHandle ?? undefined
   if (connection.source === connection.target) {
     MessagePlugin.warning(t('workflow.editor.selfLoopBlocked'))
     return
   }
-  if (canvasEdges.value.some((edge) => edge.source === connection.source && edge.target === connection.target)) {
-    return
+  const source = canvasNodes.value.find((node) => node.id === connection.source)
+  const isRoutingBranch =
+    !!source &&
+    (source.data?.kind === 'Switch' || source.data?.kind === 'QuestionClassifier') &&
+    !!sourceHandle
+  if (isRoutingBranch) {
+    // A routing branch has exactly one target in the DSL (cases[].to /
+    // default). Reconnecting the same branch outlet MOVES it: drop the old
+    // edge instead of leaving a dead one behind.
+    canvasEdges.value = canvasEdges.value.filter(
+      (edge) => !(edge.source === connection.source && (edge.sourceHandle ?? '') === (sourceHandle ?? '')),
+    )
   }
+  // Duplicate only when the SAME branch handle already reaches the target:
+  // converging branches (two cases → one node) are legitimate.
+  const exists = canvasEdges.value.some(
+    (edge) =>
+      edge.source === connection.source &&
+      edge.target === connection.target &&
+      (edge.sourceHandle ?? '') === (sourceHandle ?? ''),
+  )
+  if (exists) return
+  let id = sourceHandle
+    ? `e-${connection.source}-${sourceHandle}-${connection.target}`
+    : `e-${connection.source}-${connection.target}`
+  while (canvasEdges.value.some((edge) => edge.id === id)) id = `${id}-x`
   canvasEdges.value.push({
-    id: `e-${connection.source}-${connection.target}`,
+    id,
     source: connection.source,
     target: connection.target,
-    ...(connection.sourceHandle ? { sourceHandle: connection.sourceHandle } : {}),
+    ...(sourceHandle ? { sourceHandle } : {}),
   })
-  bindBranchTarget(connection.source, connection.sourceHandle, connection.target)
+  bindBranchTarget(connection.source, sourceHandle, connection.target)
   refreshEdgeLabels()
 }
 
@@ -816,11 +985,15 @@ function pasteClipboardNode() {
 
 // Quick-add from a node's + button: drop the new node to the right of the
 // source (stepping down when the lane is occupied) and connect immediately.
+function isOccupied(x: number, y: number): boolean {
+  return canvasNodes.value.some(
+    (item) => Math.abs(item.position.x - x) < 200 && Math.abs(item.position.y - y) < 90,
+  )
+}
+
 function onQuickAdd(sourceId: string, kind: WorkflowNodeType, sourceHandle?: string) {
   const source = canvasNodes.value.find((item) => item.id === sourceId)
   if (!source) return
-  const occupied = (x: number, y: number) =>
-    canvasNodes.value.some((item) => Math.abs(item.position.x - x) < 200 && Math.abs(item.position.y - y) < 90)
   // Multi-branch sources stack their children vertically per branch lane.
   let x = source.position.x + 260
   let y = source.position.y
@@ -828,7 +1001,7 @@ function onQuickAdd(sourceId: string, kind: WorkflowNodeType, sourceHandle?: str
     y = source.position.y + (Number(sourceHandle.slice(5)) - 0.5) * 110
   }
   let guard = 0
-  while (occupied(x, y) && guard++ < 12) y += 110
+  while (isOccupied(x, y) && guard++ < 12) y += 110
   addNodeAt(kind, { x, y })
   const target = canvasNodes.value[canvasNodes.value.length - 1].id
   onConnect({ source: sourceId, target, sourceHandle } as Connection)
@@ -887,14 +1060,20 @@ function bindBranchTarget(sourceId: string, sourceHandle: string | undefined, ta
 
 /** Edge-midpoint insert (Dify-style): new node lands on the midpoint and
  *  the old edge becomes source→new + new→target. */
-function onEdgeInsert(sourceId: string, targetId: string, kind: WorkflowNodeType, edgeProps: Record<string, unknown>) {
-  const edge = canvasEdges.value.find((item) => item.source === sourceId && item.target === targetId)
+function onEdgeInsert(
+  edgeId: string,
+  kind: WorkflowNodeType,
+  geometry: { sourceX: number; sourceY: number; targetX: number; targetY: number },
+) {
+  const edge = canvasEdges.value.find((item) => item.id === edgeId)
   if (!edge) return
   const sourceHandle = edge.sourceHandle
-  const midX = Number(edgeProps.sourceX ?? 0)
-  const midY = Number(edgeProps.sourceY ?? 0)
-  const dx = Number(edgeProps.targetX ?? midX) - midX
-  const dy = Number(edgeProps.targetY ?? midY) - midY
+  const sourceId = edge.source
+  const targetId = edge.target
+  const midX = Number(geometry.sourceX ?? 0)
+  const midY = Number(geometry.sourceY ?? 0)
+  const dx = Number(geometry.targetX ?? midX) - midX
+  const dy = Number(geometry.targetY ?? midY) - midY
   const position = {
     x: midX + dx / 2 - 104,
     y: midY + dy / 2 - 30,
@@ -920,21 +1099,55 @@ function addNodeAt(kind: WorkflowNodeType, position: { x: number; y: number }) {
   selectedEdgeId.value = null
 }
 
-function addNodeFromPalette(kind: WorkflowNodeType, presetParams?: Record<string, unknown>) {
+/** Current viewport centre in flow coordinates (null when not ready). */
+function viewportCenter(): { x: number; y: number } | null {
+  const flow = flowInstance.value
+  const el = flowEl.value
+  if (!flow?.screenToFlowCoordinate || !el) return null
+  const rect = el.getBoundingClientRect()
+  return flow.screenToFlowCoordinate({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
+}
+
+function addNodeFromPalette(kind: WorkflowNodeType, presetParams?: Record<string, unknown>, position?: { x: number; y: number }) {
   if (!WORKFLOW_NODE_TYPES.includes(kind)) return
-  // Drop near the canvas centre with a little jitter so repeated adds
-  // don't stack exactly on top of each other.
-  const n = canvasNodes.value.length
+  // The graph allows a single Start node — Dify disables the palette entry
+  // once one exists; the guard also covers paste and drag-and-drop paths.
+  if (kind === 'Start' && canvasNodes.value.some((node) => node.data?.kind === 'Start')) {
+    MessagePlugin.warning(t('workflow.editor.startExists'))
+    return
+  }
+  // Land in view: click-add targets the current viewport centre (fixed
+  // far-away coordinates looked like “nothing happened” after panning/zooming);
+  // a drag-drop centres the card on the release point.
+  const centre = position ?? viewportCenter()
   const jitter = () => Math.random() * 48 - 24
+  let x = centre ? centre.x - 104 : 140
+  let y = centre ? centre.y - 30 : 100
+  if (!position) {
+    x += jitter()
+    y += jitter()
+  }
+  let guard = 0
+  while (isOccupied(x, y) && guard++ < 12) y += 110
   const node: Node = {
     id: makeNodeId(kind),
     type: 'wf',
-    position: { x: 140 + (n % 4) * 240 + jitter(), y: 100 + Math.floor(n / 4) * 170 + jitter() },
+    position: { x, y },
     data: { kind, params: presetParams ? JSON.parse(JSON.stringify(presetParams)) : defaultParams(kind) },
   }
   canvasNodes.value.push(node)
   selectedNodeId.value = node.id
   selectedEdgeId.value = null
+}
+
+// Dify-style add-node: drag a palette entry onto the canvas; it lands
+// under the release point.
+function onDropNode(event: DragEvent) {
+  const kind = event.dataTransfer?.getData('application/x-wf-node') as WorkflowNodeType | ''
+  if (!kind) return
+  const flow = flowInstance.value
+  const position = flow?.screenToFlowCoordinate({ x: event.clientX, y: event.clientY })
+  addNodeFromPalette(kind, undefined, position)
 }
 
 // ---- auto layout ----------------------------------------------------------
@@ -947,7 +1160,14 @@ function applyAutoLayout() {
 }
 
 function plainEdges() {
-  return canvasEdges.value.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target }))
+  // sourceHandle rides along: it is the branch identity for routing nodes
+  // and is persisted in the DSL graph view (Go GraphEdge.SourceHandle).
+  return canvasEdges.value.map((edge) => ({
+    id: edge.id,
+    source: edge.source,
+    target: edge.target,
+    ...(edge.sourceHandle ? { sourceHandle: edge.sourceHandle } : {}),
+  }))
 }
 
 function currentGraphNodes() {
@@ -981,7 +1201,7 @@ function validateBeforeSave(): boolean {
 }
 
 function currentDsl(): WorkflowDSL {
-  return buildDsl(currentGraphNodes(), plainEdges(), { ...wfVariables.value })
+  return buildDsl(currentGraphNodes(), plainEdges(), { ...wfVariables.value }, { ...pinnedOutputs.value })
 }
 
 function setCanvas(dsl: WorkflowDSL) {
@@ -991,8 +1211,14 @@ function setCanvas(dsl: WorkflowDSL) {
     position: { x: node.position.x, y: node.position.y },
     data: { kind: node.type, params: migrateNodeParams(node.type, (node.data?.params as Record<string, unknown> | undefined) ?? defaultParams(node.type)) },
   }))
-  canvasEdges.value = dsl.graph.edges.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target }))
+  canvasEdges.value = dsl.graph.edges.map((edge) => ({
+    id: edge.id,
+    source: edge.source,
+    target: edge.target,
+    ...(edge.sourceHandle ? { sourceHandle: edge.sourceHandle } : {}),
+  }))
   wfVariables.value = { ...(dsl.variables ?? {}) }
+  pinnedOutputs.value = { ...(dsl.pinned ?? {}) }
   refreshEdgeLabels()
   // Reset the undo history for the freshly loaded graph.
   withRestoreGuard(() => {
@@ -1027,31 +1253,65 @@ async function load() {
   }
 }
 
-async function doSave(): Promise<boolean> {
+async function doSave(options: { silent?: boolean } = {}): Promise<boolean> {
+  const silent = options.silent === true
   const trimmed = name.value.trim()
   if (!trimmed) {
-    MessagePlugin.warning(t('workflow.nameRequired'))
+    if (!silent) MessagePlugin.warning(t('workflow.nameRequired'))
     return false
   }
-  if (!validateBeforeSave()) return false
+  // Silent (auto-)save skips validation toasts: drafts persist mid-edit, and
+  // publish/run do their own gating. Manual save keeps the loud checks.
+  if (!silent && !validateBeforeSave()) return false
   saving.value = true
   try {
     const response = await updateWorkflow(workflowId.value, { name: trimmed, dsl: currentDsl() })
     if (response?.success) {
       savedSignature = currentSignature()
       dirty.value = false
-      MessagePlugin.success(t('workflow.saved'))
+      if (silent) lastSavedAt.value = new Date()
+      else MessagePlugin.success(t('workflow.saved'))
       return true
     }
-    MessagePlugin.error(response?.message || t('workflow.editor.saveFailed'))
+    if (!silent) MessagePlugin.error(response?.message || t('workflow.editor.saveFailed'))
+    else console.warn('[workflow] auto-save rejected:', response?.message)
     return false
   } catch (error) {
-    MessagePlugin.error(error instanceof Error ? error.message : t('workflow.editor.saveFailed'))
+    if (!silent) MessagePlugin.error(error instanceof Error ? error.message : t('workflow.editor.saveFailed'))
+    else console.warn('[workflow] auto-save failed:', error)
     return false
   } finally {
     saving.value = false
   }
 }
+
+// ---- auto-save ------------------------------------------------------------
+// 3s after the last change that made the canvas dirty, persist silently.
+// Failures stay quiet and retry on the next dirty tick; the leave guards
+// naturally stop firing once auto-saved.
+const AUTO_SAVE_DELAY = 3000
+let autoSaveTimer: number | null = null
+const lastSavedAt = ref<Date | null>(null)
+const autoSavedTime = computed(() =>
+  lastSavedAt.value ? lastSavedAt.value.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+)
+
+function scheduleAutoSave() {
+  if (autoSaveTimer !== null) window.clearTimeout(autoSaveTimer)
+  if (!dirty.value || !ready.value) return
+  autoSaveTimer = window.setTimeout(() => {
+    autoSaveTimer = null
+    if (!dirty.value || !ready.value || saving.value) return
+    void doSave({ silent: true }).then((ok) => {
+      if (!ok) scheduleAutoSave()
+    })
+  }, AUTO_SAVE_DELAY)
+}
+
+watch(dirty, scheduleAutoSave)
+onUnmounted(() => {
+  if (autoSaveTimer !== null) window.clearTimeout(autoSaveTimer)
+})
 
 // Publish from the editor: unsaved changes are saved first (publish always
 // freezes what is on the canvas), then the snapshot endpoint runs.
@@ -1120,10 +1380,12 @@ load()
   cursor: pointer;
 }
 
+.wf-editor .vue-flow__edge:hover path.wf-edge-path,
 .wf-editor .vue-flow__edge:hover path.vue-flow__edge-path {
   stroke: var(--td-brand-color);
 }
 
+.wf-editor .vue-flow__edge.selected path.wf-edge-path,
 .wf-editor .vue-flow__edge.selected path.vue-flow__edge-path {
   stroke: var(--td-brand-color);
   stroke-width: 2.5px;
@@ -1136,6 +1398,12 @@ load()
 .wf-editor .vue-flow__edge-text {
   fill: var(--td-text-color-primary);
   font-size: 11px;
+}
+
+/* Live connection line while dragging: brand-coloured like Dify's. */
+.wf-editor .vue-flow__connection-path {
+  stroke: var(--td-brand-color);
+  stroke-width: 2;
 }
 </style>
 
@@ -1179,6 +1447,12 @@ load()
 
 .wf-editor-name {
   width: 260px;
+}
+
+.wf-editor-autosaved {
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
+  white-space: nowrap;
 }
 
 .wf-editor-file-input {

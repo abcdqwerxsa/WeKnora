@@ -94,6 +94,11 @@ type runRequest struct {
 	files  []string
 	inputs map[string]any
 	state  *CanvasState
+	// seedOutputs, when non-nil, prefills CanvasState.Outputs (nodeID ->
+	// param -> value) before the first node runs. Single-node debug runs
+	// use it to resolve {upstream@param} template refs without executing
+	// the upstreams. Checkpoint resume (when present) overlays on top.
+	seedOutputs map[string]map[string]any
 	// resume, when non-nil, seeds the fresh CanvasState from a checkpoint
 	// side-car (outputs/path of previously completed nodes). Sys/Env come
 	// from the ORIGINAL run via the snapshot, so {sys.query} keeps its
@@ -179,7 +184,7 @@ func Compile(dsl *DSL, deps Deps) (*Workflow, error) {
 			}
 			own[id] = &cp
 		}
-		bodyWF, err := Compile(&DSL{Version: DSLVersion, Components: own}, deps)
+		bodyWF, err := Compile(&DSL{Version: DSLVersion, Components: own, Pinned: norm.Pinned}, deps)
 		if err != nil {
 			return nil, fmt.Errorf("workflow: iteration %q body: %w", parentID, err)
 		}
@@ -210,6 +215,11 @@ func Compile(dsl *DSL, deps Deps) (*Workflow, error) {
 			}
 			st := NewCanvasState(sys, env)
 			if req != nil {
+				for nodeID, params := range req.seedOutputs {
+					for param, value := range params {
+						st.SetOutput(nodeID, param, value)
+					}
+				}
 				if req.resume != nil {
 					// Checkpoint resume: overlay the persisted snapshot (outputs,
 					// path and the ORIGINAL sys/env — a resume continues the prior
@@ -257,7 +267,7 @@ func Compile(dsl *DSL, deps Deps) (*Workflow, error) {
 				return nil, fmt.Errorf("workflow: node %q: %w", id, err)
 			}
 		}
-		fn := nodeClosure(id, node, deps, nodeErrorPolicy(comp.Obj.Params))
+		fn := nodeClosure(id, node, deps, nodeErrorPolicy(comp.Obj.Params), norm.Pinned[id])
 		err = g.AddLambdaNode(graphKey(id), compose.InvokableLambda(fn), compose.WithStatePreHandler(
 			func(ctx context.Context, in map[string]any, st *CanvasState) (map[string]any, error) {
 				// Clone before writing: parallel branches may receive the
@@ -392,6 +402,11 @@ type RunOptions struct {
 	// name). Materialised into the Start node's outputs; nil = query-only
 	// runs (the pre-form DSL behaviour).
 	Inputs map[string]any
+	// SeedOutputs, when non-nil, prefills the CanvasState outputs
+	// (upstream nodeID -> param -> value) so a single-node debug run
+	// resolves {upstream@param} template refs without executing the
+	// upstreams. Ignored when empty.
+	SeedOutputs map[string]map[string]any
 }
 
 // Run executes the workflow once. query/files are exposed to templates as
@@ -403,7 +418,7 @@ func (w *Workflow) Run(ctx context.Context, query string, files []string) (*RunR
 // RunWithOptions executes the workflow with per-run options. See
 // RunOptions for the checkpoint semantics.
 func (w *Workflow) RunWithOptions(ctx context.Context, query string, files []string, opts RunOptions) (*RunResult, error) {
-	req := &runRequest{query: query, files: files, inputs: opts.Inputs}
+	req := &runRequest{query: query, files: files, inputs: opts.Inputs, seedOutputs: opts.SeedOutputs}
 
 	ckptEnabled := opts.CheckpointID != "" && w.deps.CheckpointKV != nil
 	var invokeOpts []compose.Option
@@ -560,13 +575,31 @@ func nodeErrorPolicy(params map[string]any) errorPolicy {
 // nodeClosure wraps a Node with path tracking, output recording, event
 // emission, panic recovery, retry and error-policy handling, and timing. It
 // is the single place node lifecycle semantics live.
-func nodeClosure(id string, node nodes.Node, deps Deps, policy errorPolicy) func(ctx context.Context, in map[string]any) (map[string]any, error) {
+func nodeClosure(id string, node nodes.Node, deps Deps, policy errorPolicy, pinned map[string]any) func(ctx context.Context, in map[string]any) (map[string]any, error) {
 	emit := func(ev NodeEvent) {
 		if deps.OnNodeEvent != nil {
 			deps.OnNodeEvent(ev)
 		}
 	}
 	return func(ctx context.Context, in map[string]any) (map[string]any, error) {
+		// Pinned data (n8n semantics): the editor froze this node's outputs;
+		// the node never executes and runs observe the frozen values. Emitted
+		// as a Replayed frame so traces and SSE mark it as not-fresh.
+		if len(pinned) > 0 {
+			// Seed the canvas state like a real completion so {node@param} refs
+			// in downstream templates resolve (resume replay skips this because
+			// its state already carries the outputs; a pinned run starts fresh).
+			if st, serr := nodes.StateFromInputs(in); serr == nil {
+				if cs, ok := st.(*CanvasState); ok {
+					for k, v := range pinned {
+						cs.SetOutput(id, k, v)
+					}
+					cs.AppendPath(id)
+				}
+			}
+			emit(NodeEvent{NodeID: id, Phase: PhaseFinished, Outputs: pinned, Replayed: true})
+			return edgeView(pinned), nil
+		}
 		// Checkpoint resume: a node whose outputs are already recorded in
 		// the restored state completed in a previous attempt — replay its
 		// recorded outputs onto the graph edge instead of re-invoking it.
