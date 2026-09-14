@@ -771,6 +771,19 @@ func shellMissingModuleHint(command, stderr string) string {
 	if !isMissingInterpreterModule(stderr) {
 		return ""
 	}
+	// If it's an inline eval (python -c / node -e), always recommend write_sandbox_file + execute_skill_script
+	// even for preinstalled office modules, because the issue is the inline pattern, not the module.
+	if isInlineInterpreterProgram(command) {
+		skill := skillNameFromShellCommand(command)
+		skillArg := "skill_name=<the skill that owns those packages>"
+		if skill != "" {
+			skillArg = fmt.Sprintf("skill_name=%q", skill)
+		}
+		return "Hint: system python3 / node do not see skill packages (pandas, …). " +
+			"Do not pip install them into this session, and do not paste the same program into " +
+			"`.venv/bin/python -c`. Write it with write_sandbox_file, then " +
+			"execute_skill_script(" + skillArg + ", script_path=/workspace/output/inspect.py)."
+	}
 	if isPreinstalledOfficeModule(stderr) {
 		return "Hint: python-docx, openpyxl and python-pptx are preinstalled in this " +
 			"image's system python3. A missing module from that set usually means a " +
