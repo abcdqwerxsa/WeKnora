@@ -49,8 +49,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zstd \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/*
 
-# Note: Current preloaded skills only use Python stdlib
-# Add packages here when skills actually need them:
+# Preload document-generation packages so the sandbox's own python3 can
+# produce Office files (docx/xlsx/pptx) without a per-session pip install.
+# The agent writes a script and runs it with python3; artifacts land in
+# /workspace/output for the collector.
+RUN pip install --no-cache-dir --break-system-packages \
+    python-docx==1.1.2 \
+    openpyxl \
+    python-pptx
 
 # Create non-root user (UID 1000) for sandbox execution. The account is named
 # "user" because that is the account name E2B templates are expected to expose

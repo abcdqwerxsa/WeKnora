@@ -1,4 +1,4 @@
-# LuoSA 服务器开发模式
+# LuoSA 服务器开发模式 - luos-zhang 用户专用
 #
 # 设计目标:1 个镜像 luosa-dev,同时跑 frontend / app / docreader / mcp-server
 # 改了代码无需重新 build,直接保存即可生效(前端 HMR / 后端 air / Python --reload)
@@ -17,8 +17,9 @@
 #   docker compose -f docker-compose.dev-server.yml logs -f app
 #
 # 注意:生产部署请用 docker-compose.yml,本文件仅用于开发/测试服务器
+# 此配置已针对多人共享服务器优化,不会与其他用户冲突
 
-name: luosa-dev
+name: luosa-dev-zhang
 
 services:
   # 通用开发镜像构建(只 build 一次,后续服务都基于它)
@@ -26,27 +27,36 @@ services:
   # 也可以单独 docker build -f docker/Dockerfile.dev -t luosa-dev:1.0 .
 
   frontend:
-    image: luosa-dev:1.0
-    container_name: luosa-dev-frontend
+    image: luosa-dev-zhang:1.0
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dev
+    container_name: luosa-dev-zhang-frontend
     restart: unless-stopped
     environment:
       - SERVICE_ROLE=frontend
       - WORKSPACE_DIR=/workspace
+      - VITE_DEV_PROXY_TARGET=http://app:8080
     working_dir: /workspace/frontend
     ports:
-      - "${FRONTEND_PORT:-5173}:5173"
+      - "${FRONTEND_PORT:-15173}:5173"
     volumes:
       # bind mount 宿主机源码 → 改了代码 HMR 自动生效
       # 必须用绝对路径,避免在不同目录启动 compose 时挂错地方
-      - /opt/luosa:/workspace
+      - /opt/luos-zhang:/workspace
       # 排除 node_modules 由容器内 pnpm install 管理
       - /workspace/frontend/node_modules
+    depends_on:
+      - app
     networks:
-      - luosa-dev-net
+      - luosa-dev-zhang-net
 
   app:
-    image: luosa-dev:1.0
-    container_name: luosa-dev-app
+    image: luosa-dev-zhang:1.0
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dev
+    container_name: luosa-dev-zhang-app
     restart: unless-stopped
     environment:
       - SERVICE_ROLE=app
@@ -55,36 +65,40 @@ services:
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_DRIVER=postgres
-      - DB_USER=${DB_USER:-luosa}
+      - DB_USER=${DB_USER:-luosa_zhang}
       - RETRIEVE_DRIVER=postgres
       # 复用已有的 wechatopenai/weknora-docreader 容器(功能完整版本 5.69GB)
       # 不在 dev compose 里起 docreader 了——用现有生产 compose 的
       - DOCREADER_ADDR=${DOCREADER_ADDR:-WeKnora-docreader:50051}
       - DOCREADER_TRANSPORT=${DOCREADER_TRANSPORT:-grpc}
-      - DB_PASSWORD=${DB_PASSWORD:-devpassword}
-      - DB_NAME=${DB_NAME:-luosa}
+      - DB_PASSWORD=${DB_PASSWORD:-devpassword_zhang}
+      - DB_NAME=${DB_NAME:-luosa_zhang}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-devredis}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-devredis_zhang}
       - MINIO_ENDPOINT=minio:9000
-      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
-      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-devminio}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin_zhang}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-devminio_zhang}
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6334
       - LOG_LEVEL=debug
+      # Docker 沙箱配置
+      - WEKNORA_SANDBOX_DOCKER_ENABLED=true
     ports:
-      - "${APP_PORT:-8080}:8080"
+      - "${APP_PORT:-18080}:8080"
     volumes:
-      - /opt/luosa:/workspace
+      - /opt/luos-zhang:/workspace
       # air 构建产物放容器内 tmp,不污染宿主机
       - /workspace/tmp
+      # Docker socket 挂载,用于创建沙箱容器
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - postgres
       - redis
       - qdrant
       - minio
     networks:
-      - luosa-dev-net
+      - luosa-dev-zhang-net
 
   # docreader: 不在 dev compose 默认启动。
   # 复用生产 compose 里的 WeKnora-docreader 容器(用 wechatopenai/weknora-docreader:latest,
@@ -93,8 +107,8 @@ services:
   # 如要 dev 模式自己起 docreader(改 docreader Python 代码并热重载),启用下方 + 用 build:
   #   docker compose -f docker-compose.dev-server.yml --profile docreader up -d docreader
   docreader:
-    image: docreader-dev:1.0
-    container_name: luosa-dev-docreader
+    image: docreader-dev-zhang:1.0
+    container_name: luosa-dev-zhang-docreader
     build:
       context: .
       dockerfile: docker/Dockerfile.docreader-dev
@@ -103,67 +117,67 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
     ports:
-      - "${DOCREADER_PORT:-5005}:5005"
+      - "${DOCREADER_PORT:-15005}:5005"
     volumes:
-      - /opt/luosa:/workspace
+      - /opt/luos-zhang:/workspace
     networks:
-      - luosa-dev-net
+      - luosa-dev-zhang-net
 
   # ---- 基础设施(和数据服务 compose 复用同一批容器)----
   postgres:
     image: paradedb/paradedb:v0.22.2-pg17
-    container_name: luosa-dev-postgres
+    container_name: luosa-dev-zhang-postgres
     environment:
-      POSTGRES_USER: ${DB_USER:-luosa}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-devpassword}
-      POSTGRES_DB: ${DB_NAME:-luosa}
+      POSTGRES_USER: ${DB_USER:-luosa_zhang}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-devpassword_zhang}
+      POSTGRES_DB: ${DB_NAME:-luosa_zhang}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${POSTGRES_PORT:-15432}:5432"
     volumes:
-      - pg-data-dev:/var/lib/postgresql/data
+      - pg-data-dev-zhang:/var/lib/postgresql/data
     networks:
-      - luosa-dev-net
+      - luosa-dev-zhang-net
 
   redis:
     image: redis:7.0-alpine
-    container_name: luosa-dev-redis
-    command: redis-server --requirepass ${REDIS_PASSWORD:-devredis}
+    container_name: luosa-dev-zhang-redis
+    command: redis-server --requirepass ${REDIS_PASSWORD:-devredis_zhang}
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "${REDIS_PORT:-26379}:6379"
     networks:
-      - luosa-dev-net
+      - luosa-dev-zhang-net
 
   qdrant:
     image: qdrant/qdrant:v1.16.2
-    container_name: luosa-dev-qdrant
+    container_name: luosa-dev-zhang-qdrant
     ports:
-      - "${QDRANT_HTTP_PORT:-6333}:6333"
-      - "${QDRANT_GRPC_PORT:-6334}:6334"
+      - "${QDRANT_HTTP_PORT:-16333}:6333"
+      - "${QDRANT_GRPC_PORT:-16334}:6334"
     volumes:
-      - qdrant-data-dev:/qdrant/storage
+      - qdrant-data-dev-zhang:/qdrant/storage
     networks:
-      - luosa-dev-net
+      - luosa-dev-zhang-net
 
   minio:
     image: minio/minio:RELEASE.2025-09-07T16-13-09Z
-    container_name: luosa-dev-minio
+    container_name: luosa-dev-zhang-minio
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-devminio}
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin_zhang}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-devminio_zhang}
     ports:
-      - "${MINIO_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+      - "${MINIO_PORT:-19000}:9000"
+      - "${MINIO_CONSOLE_PORT:-19001}:9001"
     volumes:
-      - minio-data-dev:/data
+      - minio-data-dev-zhang:/data
     networks:
-      - luosa-dev-net
+      - luosa-dev-zhang-net
 
 volumes:
-  pg-data-dev:
-  qdrant-data-dev:
-  minio-data-dev:
+  pg-data-dev-zhang:
+  qdrant-data-dev-zhang:
+  minio-data-dev-zhang:
 
 networks:
-  luosa-dev-net:
+  luosa-dev-zhang-net:
     driver: bridge

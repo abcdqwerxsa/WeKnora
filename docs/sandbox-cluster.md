@@ -23,6 +23,9 @@
 - `/workspace` 工作目录；
 - UID 1000 的非 root `user` 账号（E2B 模板约定的账号名，WeKnora 以它执行脚本与文件操作）。
 
+系统 `python3` 预装了 `python-docx`、`openpyxl`、`python-pptx`，Agent 可以直接用 `python3`
+脚本生成 docx / xlsx / pptx 文件（产物写到 `/workspace/output` 交给 ArtifactCollector 收集）。
+
 生产环境应使用与 WeKnora 相同的版本标签，不建议长期指向 `latest`。Skills 新增系统依赖时，应先更新标准镜像并重新注册模板，再切换集群的默认模板 ID。
 
 ### 两个镜像变体

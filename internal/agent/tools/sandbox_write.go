@@ -102,7 +102,7 @@ const writeSandboxFileDescription = `Write a text file into the current session'
   ` + "`execute_skill_script(skill_name=..., script_path=<this path>)`" + `
   so the skill's virtualenv is used. Independent scripts: ` + "`shell_exec`" + `,
   e.g. ` + "`python3 /workspace/output/generate_ppt.py`" + `.
-- Put user-facing artifacts (pptx, pdf, png, html) under
+- Put user-facing artifacts (pptx, docx, pdf, png, html) under
   ` + "`/workspace/output`" + ` so they can be collected for download. Scratch
   scripts may live anywhere under ` + "`/workspace`" + ` except
   ` + "`/workspace/input`" + `.
