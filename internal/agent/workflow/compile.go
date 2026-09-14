@@ -232,8 +232,16 @@ func Compile(dsl *DSL, deps Deps) (*Workflow, error) {
 		}),
 	)
 
-	// nodes
+	// nodes — only nodes reachable from the single entry join the eino
+	// graph. A component with a stale upstream reference but no incoming
+	// edge (half-detached topology) is dead code: excluding it reproduces
+	// the historical behavior where it simply never ran, and keeps the
+	// AllPredecessor END barrier from waiting on a node nothing feeds.
+	reachable := reachableFrom(entries[0], norm.Components)
 	for id, comp := range norm.Components {
+		if !reachable[id] {
+			continue
+		}
 		nd := nodes.Deps{
 			LLMFunc:       deps.LLMFunc,
 			LLMStreamFunc: deps.LLMStreamFunc,
@@ -286,6 +294,9 @@ func Compile(dsl *DSL, deps Deps) (*Workflow, error) {
 
 	// edges / branches
 	for id, comp := range norm.Components {
+		if !reachable[id] {
+			continue
+		}
 		policy := nodeErrorPolicy(comp.Obj.Params)
 		targets, err := nodes.RouteTargets(comp.Obj.ComponentName, comp.Obj.Params)
 		if err != nil {
@@ -313,6 +324,21 @@ func Compile(dsl *DSL, deps Deps) (*Workflow, error) {
 			// expressed through one branch — fail compilation with a clear
 			// message instead of silently mis-routing.
 			routingByParams := nodes.IsRoutingComponent(comp.Obj.ComponentName)
+			if routingByParams {
+				// Downstream must be exactly the route targets (plus
+				// on_error.route_to): an extra entry would be added to the
+				// graph with no incoming edge and stall the AllPredecessor
+				// END barrier at run time.
+				allowed := make(map[string]bool, len(targets))
+				for _, t := range targets {
+					allowed[t] = true
+				}
+				for _, d := range comp.Downstream {
+					if !allowed[d] {
+						return nil, fmt.Errorf("workflow: node %q: routing node lists downstream %q which is not one of its route targets", id, d)
+					}
+				}
+			}
 			if !routingByParams {
 				normal := make([]string, 0, len(comp.Downstream))
 				for _, d := range comp.Downstream {
@@ -362,12 +388,22 @@ func Compile(dsl *DSL, deps Deps) (*Workflow, error) {
 		return nil, fmt.Errorf("workflow: wire start: %w", err)
 	}
 	for _, term := range terminals {
+		if !reachable[term] {
+			continue
+		}
 		if err := g.AddEdge(graphKey(term), compose.END); err != nil {
 			return nil, fmt.Errorf("workflow: wire end %q: %w", term, err)
 		}
 	}
 
-	compileOpts := []compose.GraphCompileOption{}
+	compileOpts := []compose.GraphCompileOption{
+		// AllPredecessor switches eino from the default pregel channel (a
+		// multi-input node activates on the FIRST upstream message — parallel
+		// joins with unequal branch depths mis-fire) to DAG channels whose
+		// barrier waits for every upstream edge (branches report skips), which
+		// matches this engine's data-through-CanvasState join semantics.
+		compose.WithNodeTriggerMode(compose.AllPredecessor),
+	}
 	if deps.CheckpointKV != nil {
 		compileOpts = append(compileOpts, compose.WithCheckPointStore(
 			&KVCheckPointStore{KV: deps.CheckpointKV, TTL: deps.CheckpointTTL}))
@@ -724,6 +760,38 @@ func edgeView(out map[string]any) map[string]any {
 // mapping is injective and only used at the eino boundary — events, Path
 // and outputs keep the original DSL id.
 func graphKey(id string) string { return "wf:" + id }
+
+// reachableFrom returns the set of node ids reachable from entry via
+// Downstream links and route targets (Switch cases, on_error.route_to),
+// BFS. Route targets are unioned in because hand-written components DSL
+// may declare a branch target's upstream without listing it in the
+// routing node's Downstream — it is still wired via AddBranch.
+func reachableFrom(entry string, comps map[string]*Component) map[string]bool {
+	seen := map[string]bool{entry: true}
+	queue := []string{entry}
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		c, ok := comps[id]
+		if !ok {
+			continue
+		}
+		next := append([]string{}, c.Downstream...)
+		if targets, err := nodes.RouteTargets(c.Obj.ComponentName, c.Obj.Params); err == nil {
+			next = append(next, targets...)
+		}
+		if p := nodeErrorPolicy(c.Obj.Params); p.routeTo != "" {
+			next = append(next, p.routeTo)
+		}
+		for _, d := range next {
+			if !seen[d] {
+				seen[d] = true
+				queue = append(queue, d)
+			}
+		}
+	}
+	return seen
+}
 
 func entryIDs(comps map[string]*Component) []string {
 	targeted := map[string]bool{}

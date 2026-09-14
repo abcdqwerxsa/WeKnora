@@ -6821,6 +6821,30 @@ capabilityRunWorkflowsHint: 'Выполнение опубликованных �
   }
 ,
   workflow: {
+    templates: {
+      createFrom: 'Создать из шаблона',
+      dialogTitle: 'Создать рабочий процесс из шаблона',
+      instantiate: 'Создать',
+      loadFailed: 'Не удалось загрузить шаблоны',
+      kbBinding: 'Привязка базы знаний',
+      kbBindingPlaceholder: 'Выберите базу знаний для этого заполнителя',
+      kbBindingRequired: 'Сначала привяжите базы знаний: {placeholders}',
+      nameOverride: 'Название (необязательно, по умолчанию — название шаблона)',
+      noKnowledgeBases: 'В этом рабочем пространстве нет баз знаний. Сначала создайте базу и импортируйте документы, затем используйте этот шаблон.',
+      instantiated: 'Создано из шаблона и опубликовано',
+      instantiateFailed: 'Не удалось создать из шаблона',
+      metaNodes: 'узлов: {count}',
+      metaKB: 'нужно привязать баз знаний: {count}',
+      category: {
+        'document-review': 'Рецензирование документа',
+        'document-generation': 'Генерация документа',
+        'bid-analysis': 'Анализ тендеров',
+        'knowledge-base': 'База знаний',
+        research: 'Глубокое исследование',
+        extraction: 'Извлечение данных',
+        content: 'Обработка контента'
+      }
+    },
   schedules: {
     manage: 'Расписания',
     dialogTitle: 'Расписания — {name}',

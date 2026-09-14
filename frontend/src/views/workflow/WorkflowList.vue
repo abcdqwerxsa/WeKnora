@@ -5,10 +5,16 @@
         <h2>{{ $t('workflow.title') }}</h2>
         <p class="wf-list-subtitle">{{ $t('workflow.subtitle') }}</p>
       </div>
-      <t-button theme="primary" @click="openCreate">
-        <template #icon><t-icon name="add" /></template>
-        {{ $t('workflow.create') }}
-      </t-button>
+      <div class="wf-list-create-actions">
+        <t-button theme="primary" @click="openCreate">
+          <template #icon><t-icon name="add" /></template>
+          {{ $t('workflow.create') }}
+        </t-button>
+        <t-button variant="outline" @click="openTemplates">
+          <template #icon><t-icon name="gallery-view-2" /></template>
+          {{ $t('workflow.templates.createFrom') }}
+        </t-button>
+      </div>
     </div>
 
     <div v-if="loading" class="wf-list-state">
@@ -88,6 +94,76 @@
       </t-form>
     </t-dialog>
     <t-dialog
+      v-model:visible="templateDialogVisible"
+      :header="$t('workflow.templates.dialogTitle')"
+      width="760px"
+      :confirm-btn="{ content: $t('workflow.templates.instantiate'), loading: instantiating, disabled: !selectedTemplate }"
+      :cancel-btn="$t('workflow.cancel')"
+      @confirm="submitInstantiate"
+    >
+      <div v-if="templatesLoading" class="wf-tpl-state"><t-loading /></div>
+      <div v-else-if="templatesLoadError" class="wf-tpl-state">
+        <p>{{ $t('workflow.templates.loadFailed') }}</p>
+        <t-button variant="outline" size="small" @click="loadTemplates">{{ $t('workflow.retry') }}</t-button>
+      </div>
+      <div
+        v-else
+        class="wf-tpl-grid"
+        role="radiogroup"
+        :aria-label="$t('workflow.templates.dialogTitle')"
+      >
+        <div
+          v-for="tpl in templates"
+          :key="tpl.id"
+          class="wf-tpl-card"
+          :class="{ active: selectedTemplateId === tpl.id }"
+          role="radio"
+          :aria-checked="selectedTemplateId === tpl.id"
+          :tabindex="selectedTemplateId === tpl.id || (selectedTemplateId === '' && templates[0]?.id === tpl.id) ? 0 : -1"
+          @click="selectedTemplateId = tpl.id"
+          @keydown.enter.prevent="selectedTemplateId = tpl.id"
+          @keydown.space.prevent="selectedTemplateId = tpl.id"
+        >
+          <div class="wf-tpl-card-head">
+            <span class="wf-tpl-name" :title="tpl.name">{{ tpl.name }}</span>
+            <t-tag v-if="tpl.category" size="small" variant="outline" :theme="categoryTheme(tpl.category)">
+              {{ categoryLabel(tpl.category) }}
+            </t-tag>
+          </div>
+          <p class="wf-tpl-desc">{{ tpl.description }}</p>
+          <div class="wf-tpl-meta">
+            <span v-if="tpl.node_count">{{ t('workflow.templates.metaNodes', { count: tpl.node_count }) }}</span>
+            <span v-if="(tpl.kb_placeholders ?? []).length">
+              {{ t('workflow.templates.metaKB', { count: (tpl.kb_placeholders ?? []).length }) }}
+            </span>
+          </div>
+        </div>
+      </div>
+      <t-form v-if="selectedTemplate" label-align="top" class="wf-tpl-form">
+        <t-form-item
+          v-for="placeholder in selectedTemplate.kb_placeholders ?? []"
+          :key="placeholder"
+          :label="`${$t('workflow.templates.kbBinding')}：${placeholder}`"
+          :mark="true"
+        >
+          <t-select
+            v-model="kbBindings[placeholder]"
+            :placeholder="$t('workflow.templates.kbBindingPlaceholder')"
+            :loading="kbOptionsLoading"
+            clearable
+            :options="kbOptions"
+          />
+        </t-form-item>
+        <t-form-item :label="$t('workflow.templates.nameOverride')">
+          <t-input v-model="templateName" :placeholder="selectedTemplate.name" :maxlength="255" />
+        </t-form-item>
+        <p v-if="kbOptionsLoaded && kbOptions.length === 0 && (selectedTemplate.kb_placeholders ?? []).length > 0" class="wf-tpl-hint">
+          {{ $t('workflow.templates.noKnowledgeBases') }}
+        </p>
+      </t-form>
+    </t-dialog>
+
+    <t-dialog
       v-model:visible="scheduleDialogVisible"
       :header="$t('workflow.schedules.dialogTitle', { name: scheduleWorkflow?.name ?? '' })"
       width="640px"
@@ -146,6 +222,8 @@ import { useRouter } from 'vue-router'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
 import { deleteWorkflow, createWorkflow, listWorkflows, publishWorkflow, setWorkflowStatus, type Workflow, type WorkflowMutationResponse } from '@/api/workflow'
+import { listWorkflowTemplates, instantiateWorkflowTemplate, type WorkflowTemplateSummary } from '@/api/workflowTemplate'
+import { listKnowledgeBases } from '@/api/knowledge-base'
 import {
   listWorkflowSchedules,
   createWorkflowSchedule,
@@ -279,6 +357,111 @@ function unpublish(workflow: Workflow) {
 
 function archive(workflow: Workflow) {
   return act(workflow, () => setWorkflowStatus(workflow.id, 'archived'), 'workflow.archived')
+}
+
+// ---- template gallery dialog -----------------------------------------
+
+const templateDialogVisible = ref(false)
+const templatesLoading = ref(false)
+const templatesLoadError = ref(false)
+const templates = ref<WorkflowTemplateSummary[]>([])
+const selectedTemplateId = ref('')
+const kbBindings = ref<Record<string, string>>({})
+const templateName = ref('')
+const kbOptions = ref<{ label: string; value: string }[]>([])
+const kbOptionsLoading = ref(false)
+const kbOptionsLoaded = ref(false)
+const instantiating = ref(false)
+
+const selectedTemplate = computed(() => templates.value.find((tpl) => tpl.id === selectedTemplateId.value) ?? null)
+
+// Category display: translated label with raw id fallback, plus a stable
+// tag color per category so the grid reads at a glance.
+function categoryLabel(category: string): string {
+  const key = `workflow.templates.category.${category}`
+  const label = t(key)
+  return label !== key ? label : category
+}
+
+const CATEGORY_THEMES: Record<string, 'default' | 'primary' | 'success' | 'warning' | 'danger'> = {
+  'document-review': 'warning',
+  'document-generation': 'primary',
+  'bid-analysis': 'danger',
+  'knowledge-base': 'success',
+  research: 'primary',
+  extraction: 'warning',
+  content: 'default',
+}
+
+function categoryTheme(category: string): 'default' | 'primary' | 'success' | 'warning' | 'danger' {
+  return CATEGORY_THEMES[category] ?? 'default'
+}
+
+function openTemplates() {
+  selectedTemplateId.value = ''
+  kbBindings.value = {}
+  templateName.value = ''
+  templateDialogVisible.value = true
+  void loadTemplates()
+  void loadKbOptions()
+}
+
+async function loadTemplates() {
+  templatesLoading.value = true
+  templatesLoadError.value = false
+  try {
+    const response = await listWorkflowTemplates()
+    templates.value = Array.isArray(response?.data) ? response.data : []
+  } catch {
+    templatesLoadError.value = true
+    templates.value = []
+  } finally {
+    templatesLoading.value = false
+  }
+}
+
+async function loadKbOptions() {
+  kbOptionsLoading.value = true
+  try {
+    const response: any = await listKnowledgeBases()
+    const list = Array.isArray(response?.data) ? response.data : []
+    kbOptions.value = list.map((kb: { id: string; name: string }) => ({ label: kb.name, value: kb.id }))
+  } catch {
+    kbOptions.value = []
+  } finally {
+    kbOptionsLoading.value = false
+    kbOptionsLoaded.value = true
+  }
+}
+
+async function submitInstantiate() {
+  const tpl = selectedTemplate.value
+  if (!tpl || instantiating.value) return
+  const missing = (tpl.kb_placeholders ?? []).filter((p) => !kbBindings.value[p])
+  if (missing.length > 0) {
+    MessagePlugin.warning(t('workflow.templates.kbBindingRequired', { placeholders: missing.join(', ') }))
+    return
+  }
+  instantiating.value = true
+  try {
+    const name = templateName.value.trim()
+    const response = await instantiateWorkflowTemplate(tpl.id, {
+      ...(name ? { name } : {}),
+      kb_bindings: { ...kbBindings.value },
+    })
+    const created = response?.data
+    if (response?.success && created?.id) {
+      templateDialogVisible.value = false
+      MessagePlugin.success(t('workflow.templates.instantiated'))
+      router.push(`/platform/workflow/${created.id}/edit`)
+    } else {
+      MessagePlugin.error(response?.message || t('workflow.templates.instantiateFailed'))
+    }
+  } catch (error) {
+    MessagePlugin.error(error instanceof Error ? error.message : t('workflow.templates.instantiateFailed'))
+  } finally {
+    instantiating.value = false
+  }
 }
 
 // ---- schedules dialog -------------------------------------------------------
@@ -420,5 +603,100 @@ onMounted(loadWorkflows)
 .wf-list-actions {
   display: inline-flex;
   gap: 2px;
+}
+.wf-list-create-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.wf-tpl-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 32px 0;
+  color: var(--td-text-color-secondary);
+}
+
+.wf-tpl-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  max-height: 46vh;
+  overflow: auto;
+  padding: 2px;
+}
+
+.wf-tpl-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--td-component-border);
+  border-radius: var(--td-radius-medium);
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.wf-tpl-card:hover {
+  border-color: var(--td-brand-color);
+}
+
+.wf-tpl-card:focus-visible {
+  outline: 2px solid var(--td-brand-color-focus, var(--td-brand-color));
+  outline-offset: 1px;
+}
+
+.wf-tpl-card.active {
+  border-color: var(--td-brand-color);
+  background-color: var(--td-brand-color-light);
+}
+
+.wf-tpl-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.wf-tpl-name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wf-tpl-desc {
+  margin: 0;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  /* Reserve two lines so short descriptions keep cards equal-height. */
+  min-height: 36px;
+}
+
+.wf-tpl-meta {
+  display: flex;
+  gap: 12px;
+  color: var(--td-text-color-placeholder);
+  font-size: 12px;
+}
+
+.wf-tpl-form {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--td-component-border);
+}
+
+.wf-tpl-hint {
+  margin: 0;
+  color: var(--td-warning-color);
+  font-size: 12px;
 }
 </style>

@@ -37,6 +37,17 @@ type CreateWorkflowRequest struct {
 	Status      string `json:"status"` // optional; empty = draft
 }
 
+// InstantiateWorkflowTemplateRequest is the REST payload for
+// POST /api/v1/workflow-templates/:id/instantiate. The created copy is
+// published immediately; Name defaults to the template's localized name.
+type InstantiateWorkflowTemplateRequest struct {
+	// Name overrides the template's localized display name.
+	Name string `json:"name"`
+	// KBBindings maps every kb placeholder the template declares to a
+	// knowledge base id in the caller's tenant.
+	KBBindings map[string]string `json:"kb_bindings"`
+}
+
 // UpdateWorkflowRequest is the REST payload for PUT /api/v1/workflows/:id.
 // The update is a full replace of the mutable fields: omitted fields reset
 // to their zero value. Bump of `version` is server-side.

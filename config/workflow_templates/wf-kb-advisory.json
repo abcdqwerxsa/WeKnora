@@ -1,0 +1,76 @@
+{
+  "id": "wf-kb-advisory",
+  "category": "knowledge-base",
+  "kb_placeholders": [
+    "KB_COMPANY_HISTORY"
+  ],
+  "i18n": {
+    "default": {
+      "name": "Project Advisory",
+      "description": "When a new project starts, retrieve related historical issues and generate a prioritized cautions checklist."
+    },
+    "zh-CN": {
+      "name": "新项目顾问",
+      "description": "新项目启动时检索历史问题，生成带风险分级的注意事项清单。"
+    }
+  },
+  "dsl": {
+    "version": 1,
+    "components": {
+      "start-1": {
+        "obj": {
+          "component_name": "Start",
+          "params": {}
+        },
+        "downstream": [
+          "retrieval-advisory"
+        ]
+      },
+      "retrieval-advisory": {
+        "obj": {
+          "component_name": "Retrieval",
+          "params": {
+            "query": "{sys.query}",
+            "kb_ids": [
+              "KB_COMPANY_HISTORY"
+            ],
+            "top_k": 15
+          }
+        },
+        "upstream": [
+          "start-1"
+        ],
+        "downstream": [
+          "llm-advisor"
+        ]
+      },
+      "llm-advisor": {
+        "obj": {
+          "component_name": "Agent",
+          "params": {
+            "agent_id": "builtin-kb-advisor",
+            "prompt": "新项目信息：{sys.query}。请基于检索结果生成『历史问题 & 注意事项清单』，每条挂历史文档引用（可点击跳转），按 high/medium/low 风险倒序排列。",
+            "temperature": 0.3
+          }
+        },
+        "upstream": [
+          "retrieval-advisory"
+        ],
+        "downstream": [
+          "answer-1"
+        ]
+      },
+      "answer-1": {
+        "obj": {
+          "component_name": "Answer",
+          "params": {
+            "template": "## 新项目启动注意事项\n\n{llm-advisor@answer}\n\n---\n请项目负责人逐项确认。"
+          }
+        },
+        "upstream": [
+          "llm-advisor"
+        ]
+      }
+    }
+  }
+}

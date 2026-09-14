@@ -6820,6 +6820,30 @@ export default {
   }
 ,
   workflow: {
+  templates: {
+    createFrom: 'Create from template',
+    dialogTitle: 'Create workflow from template',
+    instantiate: 'Create',
+    loadFailed: 'Failed to load templates',
+    kbBinding: 'Bind knowledge base',
+    kbBindingPlaceholder: 'Choose the knowledge base for this placeholder',
+    kbBindingRequired: 'Bind knowledge bases first: {placeholders}',
+    nameOverride: 'Name (optional, defaults to the template name)',
+    noKnowledgeBases: 'No knowledge bases in this workspace yet. Create one and ingest documents before using this template.',
+    instantiated: 'Created and published from template',
+    instantiateFailed: 'Failed to create from template',
+    metaNodes: '{count} nodes',
+    metaKB: '{count} knowledge bases to bind',
+    category: {
+      'document-review': 'Document Review',
+      'document-generation': 'Document Generation',
+      'bid-analysis': 'Bid Analysis',
+      'knowledge-base': 'Knowledge Base',
+      research: 'Research',
+      extraction: 'Extraction',
+      content: 'Content'
+    }
+  },
   schedules: {
     manage: 'Schedules',
     dialogTitle: 'Schedules — {name}',

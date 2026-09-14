@@ -30,7 +30,7 @@ import (
 // declared with the read_workflows + run_workflows capabilities — keys can
 // drive published workflows but never read or mutate definitions.
 // Definition routes (CRUD/publish/status) stay default-deny for keys.
-func RegisterWorkflowRoutes(r *gin.RouterGroup, workflowHandler *handler.WorkflowHandler, scheduleHandler *handler.WorkflowScheduleHandler, attachmentHandler *handler.WorkflowRunAttachmentHandlers, g *rbacGuards) {
+func RegisterWorkflowRoutes(r *gin.RouterGroup, workflowHandler *handler.WorkflowHandler, scheduleHandler *handler.WorkflowScheduleHandler, attachmentHandler *handler.WorkflowRunAttachmentHandlers, templateHandler *handler.WorkflowTemplateHandler, g *rbacGuards) {
 	if workflowHandler == nil {
 		return
 	}
@@ -75,6 +75,19 @@ func RegisterWorkflowRoutes(r *gin.RouterGroup, workflowHandler *handler.Workflo
 		runs.GET("/:id/runs/:run_id/events", g.Viewer(), workflowHandler.GetWorkflowRunEvents)
 		runs.POST("/:id/runs/:run_id/cancel", g.Contributor(), workflowHandler.CancelWorkflowRun)
 		runs.POST("/:id/runs/:run_id/resume", g.Contributor(), workflowHandler.ResumeWorkflowRun)
+	}
+
+	// Built-in templates: read-only presets + the instantiate action.
+	// Viewer reads (same exposure as workflow reads); instantiate is the
+	// creation entry point, so Contributor+. Deliberately NOT in the
+	// apiKeyGroup — keys drive published workflows, never definitions.
+	if templateHandler != nil {
+		templates := r.Group("/workflow-templates")
+		{
+			templates.GET("", g.Viewer(), templateHandler.ListWorkflowTemplates)
+			templates.GET("/:id", g.Viewer(), templateHandler.GetWorkflowTemplate)
+			templates.POST("/:id/instantiate", g.Contributor(), templateHandler.InstantiateWorkflowTemplate)
+		}
 	}
 }
 

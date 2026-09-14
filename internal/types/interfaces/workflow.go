@@ -98,6 +98,14 @@ type WorkflowService interface {
 	// synchronous (120s cap).
 	RunWorkflow(ctx context.Context, id string, req *types.RunWorkflowRequest) (*types.WorkflowRun, error)
 
+	// InstantiateWorkflowTemplate copies a built-in template into the
+	// caller's tenant as a published workflow: binds every kb placeholder
+	// to a tenant knowledge base (KBBindings), validates the bound DSL,
+	// creates the workflow and publishes it in one step. Errors:
+	// ErrWorkflowTemplateNotFound (404), ErrWorkflowTemplateMissingKB with
+	// MissingKBBindingsError.Missing (400), ErrWorkflowTemplateInvalidKB (400).
+	InstantiateWorkflowTemplate(ctx context.Context, templateID string, req *types.InstantiateWorkflowTemplateRequest) (*types.Workflow, error)
+
 	// RunWorkflowNode executes a SINGLE node of the workflow's DRAFT DSL
 	// with injected upstream outputs (n8n-style step debugging): the
 	// editor passes nodeID plus inputs (upstream nodeID -> param -> value);

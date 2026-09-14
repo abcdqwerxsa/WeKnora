@@ -6821,6 +6821,30 @@ export default {
   }
 ,
   workflow: {
+    templates: {
+      createFrom: '템플릿으로 만들기',
+      dialogTitle: '템플릿으로 워크플로 만들기',
+      instantiate: '만들기',
+      loadFailed: '템플릿을 불러오지 못했습니다',
+      kbBinding: '지식 베이스 연결',
+      kbBindingPlaceholder: '이 자리표시자에 연결할 지식 베이스 선택',
+      kbBindingRequired: '먼저 지식 베이스를 연결하세요: {placeholders}',
+      nameOverride: '이름(선택, 기본값은 템플릿 이름)',
+      noKnowledgeBases: '현재 워크스페이스에 지식 베이스가 없습니다. 먼저 생성하고 문서를 가져온 뒤 이 템플릿을 사용하세요.',
+      instantiated: '템플릿에서 만들고 게시했습니다',
+      instantiateFailed: '템플릿 생성 실패',
+      metaNodes: '노드 {count}개',
+      metaKB: '지식 베이스 {count}개 연결 필요',
+      category: {
+        'document-review': '문서 검토',
+        'document-generation': '문서 생성',
+        'bid-analysis': '입찰 분석',
+        'knowledge-base': '지식 베이스',
+        research: '심층 연구',
+        extraction: '정보 추출',
+        content: '콘텐츠 처리'
+      }
+    },
   schedules: {
     manage: '스케줄',
     dialogTitle: '스케줄 — {name}',

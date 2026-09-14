@@ -6822,6 +6822,30 @@ export default {
   }
 ,
   workflow: {
+  templates: {
+    createFrom: '从模板创建',
+    dialogTitle: '从模板创建工作流',
+    instantiate: '创建',
+    loadFailed: '模板加载失败',
+    kbBinding: '绑定知识库',
+    kbBindingPlaceholder: '选择该占位符对应的知识库',
+    kbBindingRequired: '请先绑定知识库：{placeholders}',
+    nameOverride: '名称（可选，默认使用模板名）',
+    noKnowledgeBases: '当前空间暂无知识库，请先创建并导入文档后再使用该模板。',
+    instantiated: '已从模板创建并发布',
+    instantiateFailed: '从模板创建失败',
+    metaNodes: '{count} 个节点',
+    metaKB: '需绑定 {count} 个知识库',
+    category: {
+      'document-review': '文档审查',
+      'document-generation': '文档生成',
+      'bid-analysis': '招投标分析',
+      'knowledge-base': '知识库',
+      research: '深度研究',
+      extraction: '信息抽取',
+      content: '内容处理'
+    }
+  },
   schedules: {
     manage: '定时计划',
     dialogTitle: '定时计划 — {name}',
