@@ -155,6 +155,9 @@ var shellExecTool = BaseTool{
   never into ` + "`/opt/weknora/tenant/skills`" + `. The skill venv is frozen after
   install. ` + "`apt-get`" + ` is only for a system library this task actually needs,
   not to recover from probing with a missing inspection command.
+- The image's system ` + "`python3`" + ` already has ` + "`python-docx`" + `,
+  ` + "`openpyxl`" + ` and ` + "`python-pptx`" + ` preinstalled — generate docx /
+  xlsx / pptx files straight from a ` + "`python3`" + ` script; no pip install needed.
 - The sandbox is one long-lived session: files written and packages installed by
   an earlier call are still there for later ` + "`shell_exec`" + ` and
   ` + "`execute_skill_script`" + ` calls. Do not redo setup you already did.
@@ -166,10 +169,9 @@ var shellExecTool = BaseTool{
   intermediate files for later commands or skills.
 
 ## When NOT to Use
-- DO NOT run ANY script that needs a skill's packages (` + "`docx`" + `,
-  ` + "`pptx`" + `, pandas, …) from here — generating a file counts, not just
-  inspecting one. System ` + "`python3`" + ` has none of them. Write the script with
-  ` + "`write_sandbox_file`" + ` and run it with
+- DO NOT run a script that needs a skill's packages (pandas, …) from here —
+  generating a file counts, not just inspecting one. System ` + "`python3`" + ` has
+  none of them. Write the script with ` + "`write_sandbox_file`" + ` and run it with
   ` + "`execute_skill_script(skill_name=..., script_path=/workspace/output/... )`" + `,
   which uses the skill's own interpreter and sets ` + "`PYTHONPATH`" + ` / ` + "`NODE_PATH`" + `
   for you. Do NOT wire that environment by hand
@@ -769,15 +771,48 @@ func shellMissingModuleHint(command, stderr string) string {
 	if !isMissingInterpreterModule(stderr) {
 		return ""
 	}
+	// If it's an inline eval (python -c / node -e), always recommend write_sandbox_file + execute_skill_script
+	// even for preinstalled office modules, because the issue is the inline pattern, not the module.
+	if isInlineInterpreterProgram(command) {
+		skill := skillNameFromShellCommand(command)
+		skillArg := "skill_name=<the skill that owns those packages>"
+		if skill != "" {
+			skillArg = fmt.Sprintf("skill_name=%q", skill)
+		}
+		return "Hint: system python3 / node do not see skill packages (pandas, …). " +
+			"Do not pip install them into this session, and do not paste the same program into " +
+			"`.venv/bin/python -c`. Write it with write_sandbox_file, then " +
+			"execute_skill_script(" + skillArg + ", script_path=/workspace/output/inspect.py)."
+	}
+	if isPreinstalledOfficeModule(stderr) {
+		return "Hint: python-docx, openpyxl and python-pptx are preinstalled in this " +
+			"image's system python3. A missing module from that set usually means a " +
+			"typo or wrong case in the import (`docx`, `openpyxl`, `pptx`). " +
+			"Write the script with write_sandbox_file, then run `python3 /workspace/output/....py`."
+	}
 	skill := skillNameFromShellCommand(command)
 	skillArg := "skill_name=<the skill that owns those packages>"
 	if skill != "" {
 		skillArg = fmt.Sprintf("skill_name=%q", skill)
 	}
-	return "Hint: system python3 / node do not see skill packages (docx, pptx, pandas, …). " +
+	return "Hint: system python3 / node do not see skill packages (pandas, …). " +
 		"Do not pip install them into this session, and do not paste the same program into " +
 		"`.venv/bin/python -c`. Write it with write_sandbox_file, then " +
 		"execute_skill_script(" + skillArg + ", script_path=/workspace/output/inspect.py)."
+}
+
+// isPreinstalledOfficeModule reports whether the missing module is one of the
+// Office packages the standard sandbox image ships in its system python3.
+func isPreinstalledOfficeModule(stderr string) bool {
+	lower := strings.ToLower(stderr)
+	for _, mod := range []string{"docx", "openpyxl", "pptx"} {
+		if strings.Contains(lower, "no module named '"+mod+"'") ||
+			strings.Contains(lower, "cannot find module '"+mod+"'") ||
+			strings.Contains(lower, "no module named "+mod) {
+			return true
+		}
+	}
+	return false
 }
 
 func isMissingInterpreterModule(stderr string) bool {

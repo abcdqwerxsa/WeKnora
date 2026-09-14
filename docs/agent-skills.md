@@ -555,7 +555,7 @@ sh scripts/build_images.sh -s
 > 用 `main` 而非 `latest`：`latest` 只在发版时移动，目前仍停在 `/workspace` 及其 `input`/`output` 目录交给沙箱账号之前的版本，用它建出来的沙箱写不了自己的产物目录。发版带上该修复后即可换回 `latest`。
 
 **镜像内置环境**：
-- Python 3.11 + pip（requests、pyyaml、pandas、beautifulsoup4）
+- Python 3.11 + pip（预装 python-docx、openpyxl、python-pptx，可直接用 `python3` 生成 docx / xlsx / pptx 文件）
 - Node.js 20 + npm
 - CLI 工具：jq、curl、bash、grep、sed、awk 等
 
