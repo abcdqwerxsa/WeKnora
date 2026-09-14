@@ -6832,6 +6832,8 @@ export default {
     noKnowledgeBases: 'No knowledge bases in this workspace yet. Create one and ingest documents before using this template.',
     instantiated: 'Created and published from template',
     instantiateFailed: 'Failed to create from template',
+    metaNodes: '{count} nodes',
+    metaKB: '{count} knowledge bases to bind',
     category: {
       'document-review': 'Document Review',
       'document-generation': 'Document Generation',

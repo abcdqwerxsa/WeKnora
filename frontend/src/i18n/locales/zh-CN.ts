@@ -6834,6 +6834,8 @@ export default {
     noKnowledgeBases: '当前空间暂无知识库，请先创建并导入文档后再使用该模板。',
     instantiated: '已从模板创建并发布',
     instantiateFailed: '从模板创建失败',
+    metaNodes: '{count} 个节点',
+    metaKB: '需绑定 {count} 个知识库',
     category: {
       'document-review': '文档审查',
       'document-generation': '文档生成',

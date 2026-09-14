@@ -96,7 +96,7 @@
     <t-dialog
       v-model:visible="templateDialogVisible"
       :header="$t('workflow.templates.dialogTitle')"
-      width="640px"
+      width="760px"
       :confirm-btn="{ content: $t('workflow.templates.instantiate'), loading: instantiating, disabled: !selectedTemplate }"
       :cancel-btn="$t('workflow.cancel')"
       @confirm="submitInstantiate"
@@ -106,15 +106,39 @@
         <p>{{ $t('workflow.templates.loadFailed') }}</p>
         <t-button variant="outline" size="small" @click="loadTemplates">{{ $t('workflow.retry') }}</t-button>
       </div>
-      <t-radio-group v-else v-model="selectedTemplateId" class="wf-tpl-list">
-        <div v-for="tpl in templates" :key="tpl.id" class="wf-tpl-item" :class="{ active: selectedTemplateId === tpl.id }" @click="selectedTemplateId = tpl.id">
-          <t-radio :value="tpl.id">
-            <span class="wf-tpl-name">{{ tpl.name }}</span>
-            <t-tag v-if="tpl.category" size="small" variant="outline" class="wf-tpl-category">{{ $t(`workflow.templates.category.${tpl.category}`) !== `workflow.templates.category.${tpl.category}` ? $t(`workflow.templates.category.${tpl.category}`) : tpl.category }}</t-tag>
-          </t-radio>
+      <div
+        v-else
+        class="wf-tpl-grid"
+        role="radiogroup"
+        :aria-label="$t('workflow.templates.dialogTitle')"
+      >
+        <div
+          v-for="tpl in templates"
+          :key="tpl.id"
+          class="wf-tpl-card"
+          :class="{ active: selectedTemplateId === tpl.id }"
+          role="radio"
+          :aria-checked="selectedTemplateId === tpl.id"
+          :tabindex="selectedTemplateId === tpl.id || (selectedTemplateId === '' && templates[0]?.id === tpl.id) ? 0 : -1"
+          @click="selectedTemplateId = tpl.id"
+          @keydown.enter.prevent="selectedTemplateId = tpl.id"
+          @keydown.space.prevent="selectedTemplateId = tpl.id"
+        >
+          <div class="wf-tpl-card-head">
+            <span class="wf-tpl-name" :title="tpl.name">{{ tpl.name }}</span>
+            <t-tag v-if="tpl.category" size="small" variant="outline" :theme="categoryTheme(tpl.category)">
+              {{ categoryLabel(tpl.category) }}
+            </t-tag>
+          </div>
           <p class="wf-tpl-desc">{{ tpl.description }}</p>
+          <div class="wf-tpl-meta">
+            <span v-if="tpl.node_count">{{ t('workflow.templates.metaNodes', { count: tpl.node_count }) }}</span>
+            <span v-if="(tpl.kb_placeholders ?? []).length">
+              {{ t('workflow.templates.metaKB', { count: (tpl.kb_placeholders ?? []).length }) }}
+            </span>
+          </div>
         </div>
-      </t-radio-group>
+      </div>
       <t-form v-if="selectedTemplate" label-align="top" class="wf-tpl-form">
         <t-form-item
           v-for="placeholder in selectedTemplate.kb_placeholders ?? []"
@@ -351,6 +375,28 @@ const instantiating = ref(false)
 
 const selectedTemplate = computed(() => templates.value.find((tpl) => tpl.id === selectedTemplateId.value) ?? null)
 
+// Category display: translated label with raw id fallback, plus a stable
+// tag color per category so the grid reads at a glance.
+function categoryLabel(category: string): string {
+  const key = `workflow.templates.category.${category}`
+  const label = t(key)
+  return label !== key ? label : category
+}
+
+const CATEGORY_THEMES: Record<string, 'default' | 'primary' | 'success' | 'warning' | 'danger'> = {
+  'document-review': 'warning',
+  'document-generation': 'primary',
+  'bid-analysis': 'danger',
+  'knowledge-base': 'success',
+  research: 'primary',
+  extraction: 'warning',
+  content: 'default',
+}
+
+function categoryTheme(category: string): 'default' | 'primary' | 'success' | 'warning' | 'danger' {
+  return CATEGORY_THEMES[category] ?? 'default'
+}
+
 function openTemplates() {
   selectedTemplateId.value = ''
   kbBindings.value = {}
@@ -572,41 +618,80 @@ onMounted(loadWorkflows)
   color: var(--td-text-color-secondary);
 }
 
-.wf-tpl-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  width: 100%;
+.wf-tpl-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  max-height: 46vh;
+  overflow: auto;
+  padding: 2px;
 }
 
-.wf-tpl-item {
-  padding: 10px 12px;
+.wf-tpl-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
   border: 1px solid var(--td-component-border);
   border-radius: var(--td-radius-medium);
   cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
 }
 
-.wf-tpl-item.active {
+.wf-tpl-card:hover {
+  border-color: var(--td-brand-color);
+}
+
+.wf-tpl-card:focus-visible {
+  outline: 2px solid var(--td-brand-color-focus, var(--td-brand-color));
+  outline-offset: 1px;
+}
+
+.wf-tpl-card.active {
   border-color: var(--td-brand-color);
   background-color: var(--td-brand-color-light);
 }
 
-.wf-tpl-name {
-  font-weight: 500;
+.wf-tpl-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
-.wf-tpl-category {
-  margin-left: 8px;
+.wf-tpl-name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .wf-tpl-desc {
-  margin: 4px 0 0 24px;
+  margin: 0;
   color: var(--td-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  /* Reserve two lines so short descriptions keep cards equal-height. */
+  min-height: 36px;
+}
+
+.wf-tpl-meta {
+  display: flex;
+  gap: 12px;
+  color: var(--td-text-color-placeholder);
   font-size: 12px;
 }
 
 .wf-tpl-form {
   margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--td-component-border);
 }
 
 .wf-tpl-hint {
