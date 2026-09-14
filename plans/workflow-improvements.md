@@ -1,5 +1,14 @@
 # 工作流功能完善：对标 Dify 完整度（内网版）
 
+> **进度勘误（2026-09，经代码核验）**：下文“现状关键事实”已部分滞后于代码——
+> - Code 节点已落地：`internal/agent/workflow/nodes/code.go`（+code_test.go，CodeFunc 走租户沙箱）
+> - Agent 节点已落地：`internal/agent/workflow/nodes/agent.go`（复用 ReAct / custom agent）
+> - MCP Tool 节点已落地：`nodes/mcp_tool.go`
+> - `run_workflow` 工具已落地：`internal/agent/tools/run_workflow.go`
+> - 多终端约束已放宽：`compile.go` 现支持一个或多个 terminal 节点（“regardless of which terminal finishes first”）；单入口约束仍在
+> - checkpoint 断点续跑、发布快照（published/draft）在库
+> 评估剩余工作量时以代码为准，勿按本清单原状排期。另见 `plans/council-general-agent.md`（通用智能体可行性 Council 备忘录）。
+
 ## Context
 
 WeKnora 工作流已有骨架：eino 引擎（`internal/agent/workflow/`）+ 9 种节点 + REST/RBAC + vue-flow 画布 + 同步/异步运行 + SSE 进度 + 取消/断点续跑。但离 Dify 的工作流完整度差距明显：无调试面板、条件分支只有字符串相等、无输入表单、无发布模型、节点能力单薄。

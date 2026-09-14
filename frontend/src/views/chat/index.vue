@@ -5,6 +5,18 @@
         'has-references-panel': referencesDrawerVisible,
     }">
         <ChatHeader v-if="!embeddedMode" :session="currentSession" :has-references-panel="referencesDrawerVisible" />
+        <t-button
+            v-if="!embeddedMode && session_id"
+            class="task-workspace-toggle"
+            shape="circle"
+            variant="outline"
+            size="small"
+            :title="t('agent.taskWorkspace.buttonTitle')"
+            :aria-label="t('agent.taskWorkspace.buttonTitle')"
+            @click="showTaskWorkspace = true"
+        >
+            <template #icon><t-icon name="folder" size="16px" /></template>
+        </t-button>
         <div class="chat_thread">
             <div ref="scrollContainer" class="chat_scroll_box" @scroll="handleScroll">
                 <div class="msg_list" :class="{ 'is-embedded': embeddedMode }">
@@ -135,6 +147,7 @@
         @update:visible="(val) => val ? null : uiStore.closeKBEditor()" @success="handleKBEditorSuccess" />
     <ChatReferencesDrawer />
     <ChatAttachmentPreviewDrawer />
+    <TaskWorkspaceDrawer v-model:visible="showTaskWorkspace" :session-id="session_id" :messages="messagesList" />
 </template>
 <script setup>
 import { storeToRefs } from 'pinia';
@@ -164,6 +177,7 @@ import MessageTimestamp from '@/components/chat/MessageTimestamp.vue';
 import ChatQuestionMinimap from '@/components/chat/ChatQuestionMinimap.vue';
 import { shouldShowConversationTimestamp } from '@/utils/messageTimestamp';
 import ChatHeader from '@/components/ChatHeader.vue';
+import TaskWorkspaceDrawer from './components/TaskWorkspaceDrawer.vue';
 import {
     notifySessionMutation,
     SESSION_MUTATION_EVENT,
@@ -276,6 +290,7 @@ const historyLoadingMore = ref(false);
 const hasMoreHistory = ref(true);
 let fullContent = ref('')
 const scrollContainer = ref(null)
+const showTaskWorkspace = ref(false)
 const userHasScrolledUp = ref(false)
 const SCROLL_BOTTOM_THRESHOLD = 80
 const minimapTargetId = ref('')
@@ -1112,6 +1127,10 @@ onBeforeRouteUpdate((to, from, next) => {
             .chat_scroll_box {
                 padding-top: 0;
             }
+
+            .task-workspace-toggle {
+                right: 432px;
+            }
         }
     }
 
@@ -1375,5 +1394,15 @@ onBeforeRouteUpdate((to, from, next) => {
 .sq-fade-enter-from,
 .sq-fade-leave-to {
     opacity: 0;
+}
+
+// 任务工作区入口：与 ChatHeader（绝对定位 top-left）对称挂在右上角
+.task-workspace-toggle {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    z-index: 6;
+    background-color: var(--td-bg-color-container);
+    transition: right 0.3s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 </style>

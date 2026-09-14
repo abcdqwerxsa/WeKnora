@@ -323,38 +323,40 @@ func (r *messageRepository) UpdateMessageKnowledgeID(
 }
 
 // GetSessionArtifacts returns every skill-produced MessageArtifact recorded
-// against any assistant message of the session, in creation order.
+// against any assistant message of the session, paired with the owning
+// message id and the artifact's per-message index so session-level listings
+// can address the message-scoped download endpoint.
 //
-// Projection is scoped to the artifacts JSONB column plus created_at (used
-// to order the flattened output). Assistant messages without artifacts (the
-// common case) contribute an empty slice and cost nothing extra.
+// Projection is scoped to the artifacts JSONB column plus the message id
+// (used to build the flattened output). Assistant messages without artifacts
+// (the common case) contribute an empty slice and cost nothing extra.
 func (r *messageRepository) GetSessionArtifacts(
 	ctx context.Context, sessionID string,
-) (types.MessageArtifacts, error) {
+) ([]types.SessionArtifact, error) {
 	if sessionID == "" {
 		return nil, nil
 	}
 	var rows []struct {
+		ID        string                 `gorm:"column:id"`
 		Artifacts types.MessageArtifacts `gorm:"column:artifacts"`
-		CreatedAt time.Time              `gorm:"column:created_at"`
 	}
 	if err := r.db.WithContext(ctx).
 		Model(&types.Message{}).
-		Select("artifacts", "created_at").
+		Select("id", "artifacts").
 		Where("session_id = ? AND deleted_at IS NULL", sessionID).
 		Order("created_at ASC").
 		Find(&rows).Error; err != nil {
 		return nil, err
 	}
-	if len(rows) == 0 {
-		return types.MessageArtifacts{}, nil
-	}
-	result := make(types.MessageArtifacts, 0, len(rows))
+	result := make([]types.SessionArtifact, 0, len(rows))
 	for _, row := range rows {
-		if len(row.Artifacts) == 0 {
-			continue
+		for idx, a := range row.Artifacts {
+			result = append(result, types.SessionArtifact{
+				MessageID: row.ID,
+				Index:     idx,
+				Artifact:  a,
+			})
 		}
-		result = append(result, row.Artifacts...)
 	}
 	return result, nil
 }

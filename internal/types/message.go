@@ -188,6 +188,17 @@ type MessageArtifact struct {
 	CreatedAt  time.Time `json:"created_at"`  // When WeKnora persisted the blob
 }
 
+// SessionArtifact pairs a persisted MessageArtifact with the assistant
+// message that owns it and the artifact's position inside that message's
+// Artifacts slice. Session-level listings need both to address the
+// message-scoped download endpoint
+// (/sessions/:id/messages/:message_id/artifacts/:index/download).
+type SessionArtifact struct {
+	MessageID string          `json:"message_id"`
+	Index     int             `json:"index"`
+	Artifact  MessageArtifact `json:"-"`
+}
+
 // MessageArtifacts is a slice of MessageArtifact for database storage.
 type MessageArtifacts []MessageArtifact
 

@@ -77,6 +77,18 @@
 - **生产服务器**：`ssh root@192.168.20.226` —— 运行环境，compose 在 `/opt/weknora`；前端容器 `WeKnora-frontend`（nginx，服务 `/usr/share/nginx/html`），后端容器 `WeKnora-app`（对外 8091）。
 - **不要构建 docker 镜像**：把构建产物直接放进运行中的容器即可看到最新效果。
 
+**一键远程构建与部署（推荐，零本地资源消耗，秒级生效）**：
+
+由于目标服务器（`192.168.20.226`）具备 32 核 CPU 及高速 NVMe，可直接使用封装好的脚本将本地代码增量同步到服务器容器中极速编译并热替换进容器：
+
+```bash
+./scripts/remote-dev-deploy.sh          # 远程构建并部署前后端（约 30s）
+./scripts/remote-dev-deploy.sh frontend # 仅远程构建并部署前端（约 20s）
+./scripts/remote-dev-deploy.sh backend  # 仅远程构建并部署后端（约 5s）
+```
+
+**手动部署流程**（当需要逐步排查时使用）：
+
 **前端部署**（本地或构建服务器 `npm run build` 产出 `frontend/dist`，注意 `VITE_IS_DOCKER=true`）：
 
 ```bash

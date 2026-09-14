@@ -41,16 +41,16 @@ func (s *stubSessionServiceForArtifacts) GetSession(ctx context.Context, id stri
 type stubMessageServiceForArtifacts struct {
 	interfaces.MessageService
 	getMessage         func(ctx context.Context, sessionID, id string) (*types.Message, error)
-	getSessionArtifact func(ctx context.Context, sessionID string) (types.MessageArtifacts, error)
+	getSessionArtifact func(ctx context.Context, sessionID string) ([]types.SessionArtifact, error)
 }
 
 func (s *stubMessageServiceForArtifacts) GetMessage(ctx context.Context, sessionID, id string) (*types.Message, error) {
 	return s.getMessage(ctx, sessionID, id)
 }
 
-func (s *stubMessageServiceForArtifacts) GetSessionArtifacts(ctx context.Context, sessionID string) (types.MessageArtifacts, error) {
+func (s *stubMessageServiceForArtifacts) GetSessionArtifacts(ctx context.Context, sessionID string) ([]types.SessionArtifact, error) {
 	if s.getSessionArtifact == nil {
-		return types.MessageArtifacts{}, nil
+		return []types.SessionArtifact{}, nil
 	}
 	return s.getSessionArtifact(ctx, sessionID)
 }
@@ -229,9 +229,11 @@ func TestListSessionArtifacts_StripsURL(t *testing.T) {
 			},
 		},
 		messageService: &stubMessageServiceForArtifacts{
-			getSessionArtifact: func(_ context.Context, _ string) (types.MessageArtifacts, error) {
-				return types.MessageArtifacts{
-					{URL: "fake://internal/1", FileName: "a.txt", FileSize: 1, CreatedAt: time.Now()},
+			getSessionArtifact: func(_ context.Context, _ string) ([]types.SessionArtifact, error) {
+				return []types.SessionArtifact{
+					{MessageID: "msg-9", Index: 0, Artifact: types.MessageArtifact{
+						URL: "fake://internal/1", FileName: "a.txt", FileSize: 1, CreatedAt: time.Now(),
+					}},
 				}, nil
 			},
 		},
