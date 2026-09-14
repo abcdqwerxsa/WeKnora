@@ -54,9 +54,9 @@ func writeTemplateDir(t *testing.T) string {
 				},
 				"retrieval-1": map[string]any{
 					"obj": map[string]any{"component_name": "Retrieval", "params": map[string]any{
-						"query":   "{sys.query}",
-						"kb_ids":  []any{"KB_TEST_BASE"},
-						"top_k":   5,
+						"query":  "{sys.query}",
+						"kb_ids": []any{"KB_TEST_BASE"},
+						"top_k":  5,
 					}},
 					"upstream":   []string{"start-1"},
 					"downstream": []string{"answer-1"},
