@@ -28,9 +28,15 @@ func (s *messageRepoArtifactStore) KnownArtifacts(
 	if s == nil || s.repo == nil || sessionID == "" {
 		return nil, nil
 	}
-	arts, err := s.repo.GetSessionArtifacts(ctx, sessionID)
+	items, err := s.repo.GetSessionArtifacts(ctx, sessionID)
 	if err != nil {
 		return nil, err
+	}
+	// The collector only diffs metadata; the owning message id and index it
+	// carries are irrelevant here, so flatten back to plain artifacts.
+	arts := make([]types.MessageArtifact, 0, len(items))
+	for _, it := range items {
+		arts = append(arts, it.Artifact)
 	}
 	return arts, nil
 }

@@ -480,14 +480,15 @@ func (s *messageService) GetChatHistoryKBStats(ctx context.Context) (*types.Chat
 }
 
 // GetSessionArtifacts returns every skill-produced artifact recorded against
-// any assistant message of the session. Thin pass-through to the repository:
-// the collector and session cleanup both need it, and centralising it here
-// keeps tests able to inject a stub MessageService.
+// any assistant message of the session, paired with the owning message id
+// and per-message index (see types.SessionArtifact). Thin pass-through to the
+// repository: the collector and session cleanup both need it, and centralising
+// it here keeps tests able to inject a stub MessageService.
 func (s *messageService) GetSessionArtifacts(
 	ctx context.Context, sessionID string,
-) (types.MessageArtifacts, error) {
+) ([]types.SessionArtifact, error) {
 	if sessionID == "" {
-		return types.MessageArtifacts{}, nil
+		return []types.SessionArtifact{}, nil
 	}
 	return s.messageRepo.GetSessionArtifacts(ctx, sessionID)
 }

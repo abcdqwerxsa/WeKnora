@@ -92,6 +92,10 @@ export async function clearSessionMessages(session_id: string) {
 
 export interface ArtifactMeta {
   index: number;
+  /** Owning assistant message; present on list endpoints so session-level
+   * listings can address the message-scoped download endpoint. Streamed
+   * artifacts (SSE hydration) may omit it. */
+  message_id?: string;
   /**
    * `resource://<handle>` — the artifact's stable identity, and the destination
    * the answer body references. Empty when the deployment runs without a

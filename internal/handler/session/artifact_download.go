@@ -70,16 +70,17 @@ func (h *Handler) ListSessionArtifacts(c *gin.Context) {
 	}
 
 	items := make([]artifactListItem, 0, len(artifacts))
-	for i, a := range artifacts {
+	for _, a := range artifacts {
 		items = append(items, artifactListItem{
-			Index:      i,
-			Handle:     artifactHandle(a),
-			FileName:   a.FileName,
-			FileType:   a.FileType,
-			FileSize:   a.FileSize,
-			SourcePath: a.SourcePath,
-			ModTime:    a.ModTime,
-			CreatedAt:  a.CreatedAt,
+			Index:      a.Index,
+			MessageID:  a.MessageID,
+			Handle:     artifactHandle(a.Artifact),
+			FileName:   a.Artifact.FileName,
+			FileType:   a.Artifact.FileType,
+			FileSize:   a.Artifact.FileSize,
+			SourcePath: a.Artifact.SourcePath,
+			ModTime:    a.Artifact.ModTime,
+			CreatedAt:  a.Artifact.CreatedAt,
 		})
 	}
 
@@ -125,6 +126,7 @@ func (h *Handler) ListMessageArtifacts(c *gin.Context) {
 	for i, a := range msg.Artifacts {
 		items = append(items, artifactListItem{
 			Index:      i,
+			MessageID:  messageID,
 			Handle:     artifactHandle(a),
 			FileName:   a.FileName,
 			FileType:   a.FileType,
@@ -224,6 +226,10 @@ func (h *Handler) DownloadMessageArtifact(c *gin.Context) {
 // bucket/key stays server side.
 type artifactListItem struct {
 	Index int `json:"index"`
+	// MessageID is the assistant message that owns this artifact. Session-level
+	// listings need it to address the message-scoped download endpoint; the
+	// message-level listing echoes the path parameter for shape parity.
+	MessageID string `json:"message_id"`
 	// Handle is the artifact's `resource://<handle>` reference, matching the
 	// destinations in the message body. Empty when the deployment runs without
 	// a resource catalog, in which case the body references files by name.
