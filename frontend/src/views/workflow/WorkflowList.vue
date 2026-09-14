@@ -11,7 +11,7 @@
           {{ $t('workflow.create') }}
         </t-button>
         <t-button variant="outline" @click="openTemplates">
-          <template #icon><t-icon name="gallery-view-2" /></template>
+          <template #icon><t-icon name="browse-gallery" /></template>
           {{ $t('workflow.templates.createFrom') }}
         </t-button>
       </div>
