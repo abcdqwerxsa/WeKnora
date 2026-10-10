@@ -2511,6 +2511,7 @@ onBeforeRouteUpdate((to, from, next) => {
 })
 
 defineExpose({
+  query,
   triggerSend(text: string) {
     if (!text.trim()) return;
     query.value = text;

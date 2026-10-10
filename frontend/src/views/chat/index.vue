@@ -88,7 +88,9 @@
                             </usermsg>
                         </div>
                         <div v-if="session.role == 'assistant' && shouldRenderAssistantMessage(session)"
-                            class="message-row">
+                            class="message-row"
+                            :data-message-id="session.id || session.assistant_message_id || undefined"
+                            :data-message-role="session.role">
                             <botmsg :content="session.content" :session="session" :session-id="session_id"
                                 :user-query="getUserQuery(index)" @scroll-bottom="scrollToBottom"
                                 :isFirstEnter="isFirstEnter" :embeddedMode="embeddedMode"
@@ -515,11 +517,45 @@ watch([() => route.params], async (newvalue) => {
 });
 const scrollToBottom = (force = false) => {
     if (!force && userHasScrolledUp.value) return;
+    // 用户当前不在底部附近（主动上滚查看历史/中间内容）→ 不打扰
+    if (!force && !isNearBottom()) return;
     nextTick(() => {
-        if (scrollContainer.value) {
-            scrollContainer.value.scrollTop = scrollContainer.value.scrollHeight;
+        if (!scrollContainer.value) return;
+        const container = scrollContainer.value;
+        // force=true 表示用户主动意图（点底部按钮 / 新建消息占位），不做智能判断
+        if (force) {
+            container.scrollTop = container.scrollHeight;
+            return;
+        }
+        // 智能跟随（DeepSeek 风格）：
+        //   - 短回答：assistant 消息底部还在可视区内 → 沉底，让回答完整可见
+        //   - 长回答：assistant 消息底部已超出可视区 → 滚到 assistant 顶部，从首句开始读
+        const assistantEl = getLastAssistantMessageEl();
+        if (!assistantEl) {
+            container.scrollTop = container.scrollHeight;
+            return;
+        }
+        const containerRect = container.getBoundingClientRect();
+        const assistantRect = assistantEl.getBoundingClientRect();
+        const assistantTopInContainer =
+            (assistantRect.top - containerRect.top) + container.scrollTop;
+        const assistantBottomInContainer = assistantTopInContainer + assistantEl.offsetHeight;
+        const visibleBottom = container.scrollTop + container.clientHeight;
+        if (assistantBottomInContainer <= visibleBottom) {
+            // 短回答 → 沉底，让回答完整可见
+            container.scrollTop = container.scrollHeight;
+        } else {
+            // 长回答 → 滚到 assistant 消息顶部，让用户从首句开始读
+            container.scrollTop = assistantTopInContainer;
         }
     })
+}
+
+// 找到最后一条 assistant 消息的 DOM 元素，用于智能跟随判断
+const getLastAssistantMessageEl = () => {
+    if (!scrollContainer.value) return null;
+    const rows = scrollContainer.value.querySelectorAll('[data-message-role="assistant"]');
+    return rows.length > 0 ? rows[rows.length - 1] : null;
 }
 const onClickScrollToBottom = () => {
     userHasScrolledUp.value = false;

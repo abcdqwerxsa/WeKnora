@@ -460,15 +460,10 @@
       </div>
     </Transition>
   </Teleport>
-
-  <KbCreateContextualGuide :when="visible && editorMode === 'create'" :is-faq="isFAQ"
-    :needs-embedding="kbCreateNeedsEmbedding" />
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
-import KbCreateContextualGuide from '@/components/KbCreateContextualGuide.vue'
-import { KB_EDITOR_FOCUS_SECTION_EVENT, markContextualGuideDone } from '@/config/contextualGuides'
+import { ref, computed, watch } from 'vue'
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
 import { createKnowledgeBase, getKnowledgeBaseById, listKnowledgeFiles, updateKnowledgeBase, rebuildKBIndex } from '@/api/knowledge-base'
 import { updateKBConfig, type KBModelConfigRequest } from '@/api/initialization'
@@ -528,20 +523,6 @@ const copyKbId = async () => {
 
 const currentSection = ref<string>('basic')
 
-const onKbEditorFocusSection = (event: Event) => {
-  const section = (event as CustomEvent<{ section?: string }>).detail?.section
-  if (section) {
-    currentSection.value = section
-  }
-}
-
-onMounted(() => {
-  window.addEventListener(KB_EDITOR_FOCUS_SECTION_EVENT, onKbEditorFocusSection)
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener(KB_EDITOR_FOCUS_SECTION_EVENT, onKbEditorFocusSection)
-})
 const saving = ref(false)
 const loading = ref(false)
 const allModels = ref<any[]>([])
@@ -675,12 +656,6 @@ const advancedSettingsRef = ref<InstanceType<typeof KBAdvancedSettings>>()
 // 表单数据
 const formData = ref<any>(null)
 const isFAQ = computed(() => formData.value?.type === 'faq')
-
-const kbCreateNeedsEmbedding = computed(() => {
-  if (!formData.value || formData.value.type === 'faq') return false
-  const s = formData.value.indexingStrategy
-  return Boolean(s?.vectorEnabled || s?.keywordEnabled)
-})
 
 const applyDefaultModelsIfEmpty = () => {
   if (!formData.value || editorMode.value !== 'create') return
@@ -1383,7 +1358,6 @@ const doSubmit = async () => {
       currentSection.value = 'basic'
       await loadKBData(createdKbId)
       MessagePlugin.success(t('knowledgeEditor.messages.createSuccess'))
-      markContextualGuideDone('kbCreate')
       emit('success', createdKbId)
     } else {
       // 编辑模式：分别更新基本信息和配置

@@ -73,6 +73,22 @@ func (r *tenantRepository) ListTenants(ctx context.Context) ([]*types.Tenant, er
 	return tenants, nil
 }
 
+// CountTenants returns how many tenant rows exist, excluding soft-deleted
+// ones (GORM's default scope). Used by UserService.Register to detect
+// the very first user on a fresh deployment — see the interface comment
+// for the bootstrap-admin rationale. Hits the tenants_pkey primary
+// index so O(1) on Postgres / SQLite regardless of how many KBs / agents
+// live inside each tenant.
+func (r *tenantRepository) CountTenants(ctx context.Context) (int64, error) {
+	var count int64
+	if err := r.db.WithContext(ctx).
+		Model(&types.Tenant{}).
+		Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 // SearchTenants searches tenants with pagination and filters
 func (r *tenantRepository) SearchTenants(ctx context.Context, keyword string, tenantID uint64, page, pageSize int) ([]*types.Tenant, int64, error) {
 	var tenants []*types.Tenant
@@ -116,6 +132,19 @@ func (r *tenantRepository) SearchTenants(ctx context.Context, keyword string, te
 // UpdateTenant updates tenant.
 func (r *tenantRepository) UpdateTenant(ctx context.Context, tenant *types.Tenant) error {
 	return r.db.WithContext(ctx).Model(&types.Tenant{}).Where("id = ?", tenant.ID).Updates(tenant).Error
+}
+
+// UpdateTenantJoinable toggles tenants.is_joinable directly via an explicit
+// column update. GORM's struct `Updates(tenant)` skips zero-value bool fields,
+// so toggling a tenant from joinable=true back to joinable=false would
+// silently no-op when going through UpdateTenant. Routing this single column
+// through a dedicated method sidesteps the gotcha without forcing every
+// caller of UpdateTenant to switch to `Select("*")`.
+func (r *tenantRepository) UpdateTenantJoinable(ctx context.Context, id uint64, joinable bool) error {
+	return r.db.WithContext(ctx).
+		Model(&types.Tenant{}).
+		Where("id = ?", id).
+		Update("is_joinable", joinable).Error
 }
 
 // DeleteTenant soft-deletes the tenant and every active membership row

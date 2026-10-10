@@ -78,3 +78,68 @@ XXX
 - 保持客观中立，忠于原文
 - 区分事实陈述和观点表达
 - 标注信息来源位置
+
+---
+
+## 章节树定位（合同 / 标书专用扩展）
+
+> 当用户分析对象是 **合同 / 招标文件 / 投标应答** 时，本 Skill 在原有"结构分析"基础上，
+> 额外输出 **章节树 / 条款树** JSON，供后续 `insert_track_changes.py` / `compose_volume.py` 等工具消费。
+
+### 章节树 JSON 输出格式
+
+```json
+{
+  "doc_type": "contract" | "bid_document" | "bid_response",
+  "structure": [
+    {
+      "level": 1,
+      "number": "第一章",
+      "title": "项目概况",
+      "anchor": "ch1",
+      "page": 1,
+      "children": [
+        {
+          "level": 2,
+          "number": "1.1",
+          "title": "项目背景",
+          "anchor": "ch1_1",
+          "page": 3,
+          "children": [
+            {
+              "level": 3,
+              "number": "1.1.1",
+              "title": "建设必要性",
+              "anchor": "ch1_1_1",
+              "page": 3
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+### 锚点规则
+
+- `anchor` 字段格式：`ch<number>`，其中 `<number>` 把 "1.2.3" 转为下划线形式（`ch1_2_3`）
+- `page` 字段精确锚定到原文页码（扫描件 PDF / 多页 docx 常用）
+- **合同条款特殊处理**：识别 "第N条"、"第N.M条" 格式，映射为 `article_<n>` 或 `article_<n>_<m>`，例如 `article_5`、`article_5_2`
+- **招标文件评分项处理**：识别 "评分点 X-Y"、"评标项 T-001" 等格式，映射为 `scoring_<id>`
+
+### 输出位置
+
+章节树 JSON 应当：
+1. 作为 Agent 回复的一部分（`<output type="outline">...</output>` 标签包裹，便于前端折叠展示）
+2. 同时作为下游 Agent 的 input：
+   - `builtin-bid-format-extractor` 用 `structure[].anchor` 定位"格式要求"章节
+   - `builtin-bid-scorer` 用 `scoring_*` 锚点拆解评分项
+   - `builtin-doc-review-proofread` 用 `article_*` 锚点定位合同条款
+   - `office-template-fill/scripts/insert_track_changes.py` 用 `anchor + page` 在 docx 里定位原文
+
+### 注意事项
+
+- 章节树必须 **结构稳定**——同一份合同多次分析应输出相同的 anchor，否则下游工具失效
+- 标题层级推断：扫描件 PDF 通过字体大小 + 缩进识别；docx 通过 Heading 1-3 样式识别
+- 章节缺失（如扫描件无目录）时返回空 `structure` 数组 + 警告，不要伪造章节

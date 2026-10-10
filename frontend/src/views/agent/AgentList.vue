@@ -36,6 +36,33 @@
           <p class="header-subtitle" style="--wails-draggable: drag">{{ $t('agent.subtitle') }}</p>
         </div>
       </div>
+
+      <!-- display_group 顶部 tab：全部 / 对话用 / 工作流专用 / 两者皆可 -->
+      <!-- 与左侧 ListSpaceSidebar 正交，独立作用于 filteredAgents。     -->
+      <div class="agent-list-tabs" data-guide="agent-list-display-group-tabs">
+        <button type="button"
+          :class="['agent-list-tab', 'agent-list-tab--all', { 'is-active': displayGroupFilter === '' }]"
+          :aria-pressed="displayGroupFilter === ''"
+          @click="displayGroupFilter = ''">
+          {{ $t('agent.tabs.allDisplayGroups') }}
+          <span v-if="allDisplayGroupCount > 0" class="agent-list-tab-count">{{ allDisplayGroupCount }}</span>
+        </button>
+        <button type="button"
+          :class="['agent-list-tab', 'agent-list-tab--chat', { 'is-active': displayGroupFilter === 'chat' }]"
+          :aria-pressed="displayGroupFilter === 'chat'"
+          @click="displayGroupFilter = 'chat'">
+          {{ $t('agent.displayGroup.chat') }}
+          <span v-if="chatDisplayGroupCount > 0" class="agent-list-tab-count">{{ chatDisplayGroupCount }}</span>
+        </button>
+        <button type="button"
+          :class="['agent-list-tab', 'agent-list-tab--workflow', { 'is-active': displayGroupFilter === 'workflow' }]"
+          :aria-pressed="displayGroupFilter === 'workflow'"
+          @click="displayGroupFilter = 'workflow'">
+          {{ $t('agent.displayGroup.workflow') }}
+          <span v-if="workflowDisplayGroupCount > 0" class="agent-list-tab-count">{{ workflowDisplayGroupCount }}</span>
+        </button>
+      </div>
+
       <div class="agent-list-main">
         <!-- creator filter removed; see KnowledgeBaseList for rationale.
              Card-level creator display + URL-state field are retained. -->
@@ -712,6 +739,29 @@
           <span class="empty-txt">{{ $t('agent.empty.sharedTitle') }}</span>
           <span class="empty-desc">{{ $t('agent.empty.sharedDescription') }}</span>
         </div>
+
+        <!-- 空状态：display_group 顶部 tab 过滤命中 0 个。
+             触发条件：当前视图本身不为空（agents / sharedAgents / spaceAgentsList
+             至少有内容），但应用 displayGroup 过滤后 filteredAgents 没了。
+             文案根据当前 tab 给提示，提醒用户切到「全部」或调整 agent 的
+             display_group 设置。 -->
+        <div v-if="displayGroupFilter !== '' && filteredAgents.length === 0
+          && !loading
+          && (spaceSelection === 'all' || spaceSelection === 'mine'
+            || spaceSelection === 'favorites' || spaceSelection === 'recents'
+            || (spaceSelectionOrgId && !spaceAgentsLoading))
+          && (agents.length > 0 || sharedAgents.length > 0
+            || spaceAgentsList.length > 0)" class="empty-state">
+          <img class="empty-img" src="@/assets/img/upload.svg" alt="">
+          <span class="empty-txt">{{ $t('agent.empty.displayGroupFilteredTitle') }}</span>
+          <span class="empty-desc">{{ $t('agent.empty.displayGroupFilteredDesc', {
+            group: $t(`agent.displayGroup.${displayGroupFilter}`)
+          }) }}</span>
+          <t-button class="empty-state-btn" theme="default" variant="base"
+            @click="displayGroupFilter = ''">
+            {{ $t('agent.tabs.allDisplayGroups') }}
+          </t-button>
+        </div>
       </div>
     </div>
 
@@ -805,9 +855,6 @@
       :initialHighlightField="editorInitialHighlightField"
       :readOnly="editorMode === 'edit' && editingAgent != null && !canManageAgent(editingAgent as AgentWithUI)"
       @update:visible="editorVisible = $event" @success="handleEditorSuccess" />
-
-    <TenantModelsGuide :when="showAgentTenantModelsGuide" variant="agent" />
-    <ContextualGuide tour="agentList" :when="showAgentListContextualGuide" />
   </div>
 </template>
 
@@ -826,9 +873,6 @@ import { useSettingsStore } from '@/stores/settings'
 import { useMenuStore } from '@/stores/menu'
 import type { SharedAgentInfo, OrganizationSharedAgentItem } from '@/api/organization'
 import AgentEditorModal from './AgentEditorModal.vue'
-import ContextualGuide from '@/components/ContextualGuide.vue'
-import TenantModelsGuide from '@/components/TenantModelsGuide.vue'
-import { focusAgentEditorSection, markContextualGuideDone } from '@/config/contextualGuides'
 import { useTenantModelReadiness } from '@/composables/useTenantModelReadiness'
 import { useUIStore } from '@/stores/ui'
 import AgentAvatar from '@/components/AgentAvatar.vue'
@@ -871,6 +915,65 @@ const { scope: spaceSelection, creator: creatorFilter } = useListUrlState({
   defaultScope,
   defaultCreator: 'all',
 })
+
+// === display_group 顶部 tab（与左侧 ListSpaceSidebar 正交） ===
+// ''=全部 / 'chat'=对话用 / 'workflow'=工作流专用 / 'both'=两者皆可。
+// 与后端 CustomAgentConfig.DisplayGroup 完全对齐；空值 / 未设置 / 'chat'
+// 都被规范化为 'chat'，所以「对话用」tab 既包含显式 chat，也包含历史未
+// 设置 display_group 的 agent（向后兼容）。
+type DisplayGroupFilter = '' | 'chat' | 'workflow' | 'both'
+const DISPLAY_GROUP_FILTERS: ReadonlySet<DisplayGroupFilter> = new Set(['', 'chat', 'workflow', 'both'])
+const initGroup = (() => {
+  const v = route.query.group
+  return typeof v === 'string' && (DISPLAY_GROUP_FILTERS as Set<string>).has(v) ? (v as DisplayGroupFilter) : ''
+})()
+const displayGroupFilter = ref<DisplayGroupFilter>(initGroup)
+// 写：用户点 tab 时同步到 URL；只把非默认值写进去，保持 URL 短。
+watch(displayGroupFilter, (val) => {
+  const next = { ...(route.query as Record<string, string>) }
+  if (val) next.group = val
+  else delete next.group
+  if (next.group === route.query.group) return
+  router.replace({ path: route.path, query: next }).catch(() => {})
+})
+// 读：URL 变化（粘贴链接 / 后退）时反向同步到 ref。
+watch(() => route.query.group, (val) => {
+  const v = typeof val === 'string' && (DISPLAY_GROUP_FILTERS as Set<string>).has(val)
+    ? (val as DisplayGroupFilter)
+    : ''
+  if (displayGroupFilter.value !== v) displayGroupFilter.value = v
+})
+function matchesDisplayGroup(agent: { config?: { display_group?: string } }): boolean {
+  const cur = displayGroupFilter.value
+  if (!cur) return true
+  // 只看显式字段，不再对 undefined 做规范化。
+  // builtin_agents.yaml 现在给所有内置 agent 都显式写了 display_group，
+  // 自定义 agent 由 AgentEditorModal 的 displayGroup setter 兜底。
+  const v = agent.config?.display_group
+  return v === cur
+}
+
+// === 顶部 tab 计数：用于让用户一眼看到每个分组下有几个 agent ===
+function normalizeDisplayGroup(agent: { config?: { display_group?: string } }): 'chat' | 'workflow' | 'both' | '' {
+  const v = agent.config?.display_group
+  if (v === 'chat' || v === 'workflow' || v === 'both') return v
+  return ''
+}
+const displayGroupCounts = computed(() => {
+  const all = agents.value
+  let chat = 0, workflow = 0, both = 0, unset = 0
+  for (const a of all) {
+    const n = normalizeDisplayGroup(a)
+    if (n === 'chat') chat++
+    else if (n === 'workflow') workflow++
+    else if (n === 'both') both++
+    else unset++
+  }
+  return { all: all.length, chat, workflow, both, unset }
+})
+const allDisplayGroupCount = computed(() => displayGroupCounts.value.all)
+const chatDisplayGroupCount = computed(() => displayGroupCounts.value.chat)
+const workflowDisplayGroupCount = computed(() => displayGroupCounts.value.workflow)
 
 // Per-user favorites + recents (localStorage-backed). See useResourcePins.
 const pins = useResourcePins()
@@ -980,10 +1083,15 @@ const recentsAgentList = computed<DisplayAgent[]>(() => {
 })
 
 const filteredAgents = computed<DisplayAgent[]>(() => {
-  if (spaceSelection.value === 'favorites') return favoritesAgentList.value
-  if (spaceSelection.value === 'recents') return recentsAgentList.value
+  // favorites / recents / mine / all 四个视图都接 display_group 过滤，
+  // 保证顶部 tab 在所有视图下行为一致（共享与空间视图另算，
+  // 见下面的 spaceSelectionOrgId 分支）。
+  if (spaceSelection.value === 'favorites') return favoritesAgentList.value.filter(matchesDisplayGroup)
+  if (spaceSelection.value === 'recents') return recentsAgentList.value.filter(matchesDisplayGroup)
   if (spaceSelection.value === 'mine') {
-    return agents.value.map(a => ({ ...a, isMine: true as const }))
+    return agents.value
+      .filter(matchesDisplayGroup)
+      .map(a => ({ ...a, isMine: true as const }))
   }
   if (spaceSelection.value !== 'all') return []
   const list: DisplayAgent[] = []
@@ -1024,11 +1132,15 @@ const filteredAgents = computed<DisplayAgent[]>(() => {
       showMore: false
     } as DisplayAgent)
   })
-  return list
+  // display_group 顶部 tab 过滤。favorites / recents / mine / shared /
+  // all 五个视图共用同一过滤，行为一致。
+  return list.filter(matchesDisplayGroup)
 })
 
 // 「工作空间」视图下的稳定排序：本空间内「我创建」在前、「同事创建 / 内建」
 // 在后。给 contributor 视图把「本空间 · 仅查看」分组标题正好插在过渡处。
+// 末尾接 display_group 顶部 tab 过滤，让 sidebar「本空间」（默认 scope）
+// 视图也响应 tabs。
 const sortedMineAgents = computed(() => {
   // 内置 → 我创建 → 同事创建。与 filteredAgents 的"全部"视图保持同序。
   const builtin: AgentWithUI[] = []
@@ -1039,19 +1151,23 @@ const sortedMineAgents = computed(() => {
     else if (isMyAgent(a)) own.push(a)
     else teammate.push(a)
   })
-  return [...builtin, ...own, ...teammate]
+  return [...builtin, ...own, ...teammate].filter(matchesDisplayGroup)
 })
 
 // 空间视角下的稳定排序：我自己创建的（is_mine）放前面，其余按 permission 切分。
+// 末尾接 display_group 顶部 tab 过滤，行为与 all / mine / favorites /
+// recents 视图一致：tabs 影响任何包含 agent 的视图。
 const sortedSpaceAgentsList = computed(() => {
-  return [...spaceAgentsList.value].sort((a, b) => {
-    const aMine = a.is_mine ? 0 : 1
-    const bMine = b.is_mine ? 0 : 1
-    if (aMine !== bMine) return aMine - bMine
-    const aE = isSharedAgentEditable(a.permission) ? 0 : 1
-    const bE = isSharedAgentEditable(b.permission) ? 0 : 1
-    return aE - bE
-  })
+  return [...spaceAgentsList.value]
+    .filter((item) => matchesDisplayGroup({ config: item.agent?.config }))
+    .sort((a, b) => {
+      const aMine = a.is_mine ? 0 : 1
+      const bMine = b.is_mine ? 0 : 1
+      if (aMine !== bMine) return aMine - bMine
+      const aE = isSharedAgentEditable(a.permission) ? 0 : 1
+      const bE = isSharedAgentEditable(b.permission) ? 0 : 1
+      return aE - bE
+    })
 })
 const loading = ref(false)
 const deleteVisible = ref(false)
@@ -1092,14 +1208,6 @@ const showAgentListEmpty = computed(() => {
   if (spaceSelection.value === 'mine' && agents.value.length === 0) return true
   return false
 })
-
-const showAgentTenantModelsGuide = computed(
-  () => modelsReadyLoaded.value && showAgentListEmpty.value && !isReadyForAgent.value,
-)
-
-const showAgentListContextualGuide = computed(
-  () => showAgentListEmpty.value && isReadyForAgent.value && !editorVisible.value,
-)
 
 const applyAgentListData = (res: { data: CustomAgent[]; disabled_own_agent_ids: string[] }) => {
   const disabledOwnIds = res.disabled_own_agent_ids || []
@@ -1145,14 +1253,15 @@ const checkAndOpenEditModal = async () => {
   const editId = route.query.edit as string
   const section = route.query.section as string
   const sourceTenantId = route.query.sourceTenantId as string | undefined
-  if (editId && (section === 'im' || section === 'embed' || section === 'integrations' || section === 'integration-im' || section === 'integration-embed')) {
-    const tab = section === 'embed' || section === 'integration-embed' ? 'embed' : 'im'
-    router.replace({
-      path: '/platform/settings',
-      query: { section: integrationSectionKey(tab), agentId: editId },
-    })
-    return
-  }
+  // 发布集成已下线，原跳转目标不再可达 → 直接打开普通编辑面板
+  // if (editId && (section === 'im' || section === 'embed' || section === 'integrations' || section === 'integration-im' || section === 'integration-embed')) {
+  //   const tab = section === 'embed' || section === 'integration-embed' ? 'embed' : 'im'
+  //   router.replace({
+  //     path: '/platform/settings',
+  //     query: { section: integrationSectionKey(tab), agentId: editId },
+  //   })
+  //   return
+  // }
   if (editId) {
     const agent = resolveAgentForEdit(editId, sourceTenantId)
     // A route change can remove a creator filter before the corresponding
@@ -1162,28 +1271,16 @@ const checkAndOpenEditModal = async () => {
 
     const requestedSection = section || 'basic'
     const requestedHighlight = (route.query.highlight as string) || ''
-    if (
-      editorVisible.value
-      && editingAgent.value?.id === agent.id
-      && !requestedHighlight
-    ) {
-      // Global Settings may be covering this exact editor. Preserve any
-      // unsaved draft and focus the requested configuration section in place.
-      editorInitialSection.value = requestedSection
-      focusAgentEditorSection(requestedSection)
-    } else {
-      // A global Settings dialog can be opened on top of an existing agent
-      // editor. Flush visible=false before loading the deep-linked target so
-      // AgentEditorModal's visibility watcher rebuilds its form data.
-      editorVisible.value = false
-      await nextTick()
-      if (generation !== editOpenGeneration) return
-      editingAgent.value = agent
-      editorMode.value = 'edit'
-      editorInitialSection.value = requestedSection
-      editorInitialHighlightField.value = requestedHighlight
-      editorVisible.value = true
-    }
+    // Flush visible=false before loading the deep-linked target so
+    // AgentEditorModal's visibility watcher rebuilds its form data.
+    editorVisible.value = false
+    await nextTick()
+    if (generation !== editOpenGeneration) return
+    editingAgent.value = agent
+    editorMode.value = 'edit'
+    editorInitialSection.value = requestedSection
+    editorInitialHighlightField.value = requestedHighlight
+    editorVisible.value = true
     if (generation !== editOpenGeneration) return
     // Drop the transient edit/section params but preserve other filter
     // state (scope / creator / q) so refreshing doesn't reset the view.
@@ -1600,7 +1697,6 @@ const handleCreateAgent = () => {
     uiStore.openSettings('models')
     return
   }
-  markContextualGuideDone('agentList')
   openCreateModal()
 }
 
@@ -1686,6 +1782,89 @@ defineExpose({
     font-size: 24px;
     font-weight: 600;
     line-height: 32px;
+  }
+}
+
+.agent-list-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding-right: 28px;
+
+  .agent-list-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 1px solid var(--td-component-stroke);
+    border-radius: 999px;
+    padding: 6px 16px;
+    font-size: 14px;
+    line-height: 20px;
+    cursor: pointer;
+    color: var(--td-text-color-secondary);
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    font-family: var(--app-font-family);
+
+    &:hover {
+      background: var(--td-bg-color-container-hover);
+      color: var(--td-text-color-primary);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--td-brand-color-light);
+      outline-offset: 1px;
+    }
+
+    &.is-active {
+      color: var(--td-text-color-anti);
+      font-weight: 500;
+    }
+  }
+
+  .agent-list-tab-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 6px;
+    border-radius: 9px;
+    font-size: 12px;
+    line-height: 1;
+    background: rgba(0, 0, 0, 0.06);
+    color: var(--td-text-color-secondary);
+  }
+
+  .agent-list-tab--all.is-active {
+    background: #5b6c75;
+    border-color: #5b6c75;
+
+    .agent-list-tab-count {
+      background: rgba(255, 255, 255, 0.2);
+      color: var(--td-text-color-anti);
+    }
+  }
+
+  .agent-list-tab--chat.is-active {
+    background: #2b7fff;
+    border-color: #2b7fff;
+
+    .agent-list-tab-count {
+      background: rgba(255, 255, 255, 0.2);
+      color: var(--td-text-color-anti);
+    }
+  }
+
+  .agent-list-tab--workflow.is-active {
+    background: #8b5cf6;
+    border-color: #8b5cf6;
+
+    .agent-list-tab-count {
+      background: rgba(255, 255, 255, 0.2);
+      color: var(--td-text-color-anti);
+    }
   }
 }
 

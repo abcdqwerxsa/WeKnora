@@ -204,6 +204,92 @@ func (s *tenantMemberService) AddMember(
 	return member, nil
 }
 
+// AddPendingMember inserts a membership row with status='invited'. The
+// row is the on-disk representation of "user registered and is waiting
+// for admin approval" — they cannot act in the tenant until a
+// SystemAdmin flips the status to 'active'. Distinct from AddMember so
+// callers don't accidentally insert an active membership that bypasses
+// the approval gate.
+func (s *tenantMemberService) AddPendingMember(
+	ctx context.Context,
+	userID string,
+	tenantID uint64,
+	role types.TenantRole,
+) (*types.TenantMember, error) {
+	if !role.IsValid() {
+		return nil, ErrInvalidTenantRole
+	}
+	if err := rejectAPIKeyOwnerAssignment(ctx, role); err != nil {
+		return nil, err
+	}
+	existing, err := s.repo.Get(ctx, userID, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if existing != nil {
+		return nil, ErrMembershipAlreadyExists
+	}
+	member := &types.TenantMember{
+		UserID:   userID,
+		TenantID: tenantID,
+		Role:     role,
+		Status:   types.TenantMemberStatusInvited,
+		JoinedAt: time.Now(),
+	}
+	if err := s.repo.Create(ctx, member); err != nil {
+		if isDuplicateMembership(err) {
+			return nil, ErrMembershipAlreadyExists
+		}
+		return nil, err
+	}
+	return member, nil
+}
+
+// ActivatePendingMember flips an invited member's status to active. This
+// is what the admin approve handler calls to lift the gate. No-op
+// when the row is already active so retry-safe.
+//
+// Writes a rbac.member_added audit row at activation (not AddPendingMember)
+// because the membership only becomes meaningful as a member at activation
+// time. The "source":"pending_approval" detail lets the audit drawer
+// distinguish operator-driven approval from the OwnerAdd path that calls
+// AddMember (which also writes rbac.member_added with no source tag).
+func (s *tenantMemberService) ActivatePendingMember(
+	ctx context.Context,
+	userID string,
+	tenantID uint64,
+) (*types.TenantMember, error) {
+	member, err := s.repo.Get(ctx, userID, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if member == nil {
+		return nil, ErrMembershipAlreadyExists
+	}
+	if member.Status == types.TenantMemberStatusActive {
+		return member, nil
+	}
+	wasInvited := member.Status == types.TenantMemberStatusInvited
+	member.Status = types.TenantMemberStatusActive
+	if err := s.repo.Update(ctx, member); err != nil {
+		return nil, err
+	}
+	if wasInvited {
+		s.emitAudit(ctx, &types.AuditLog{
+			TenantID:     tenantID,
+			ActorUserID:  auditActor(ctx),
+			ActorRole:    auditActorRole(ctx),
+			Action:       types.AuditActionMemberAdded,
+			TargetType:   "tenant_member",
+			TargetUserID: userID,
+			Outcome:      types.AuditOutcomeSuccess,
+			Details:      []byte(`{"source":"pending_approval"}`),
+		})
+	}
+	return member, nil
+}
+
+// EnsureOwner is idempotent: if the user already has an active membership
 // EnsureOwner is idempotent: if the user already has an active membership
 // in the tenant it is returned unchanged; otherwise a new owner row is
 // created. Used by Register/OIDC paths so re-running Register on an

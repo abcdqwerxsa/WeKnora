@@ -238,6 +238,56 @@
                   type="password" autocomplete="new-password" size="large" :disabled="loading" @enter="handleRegister" />
               </t-form-item>
 
+              <!-- Department picker: only shown when departments exist. On a fresh
+                  deployment there are no departments yet, so the picker
+                  is hidden and the server falls back to
+                  WEKNORA_AUTH_DEFAULT_TENANT_MODE=create_personal (the user
+                  gets their own personal workspace). -->
+              <t-form-item
+                v-if="departments.length > 0"
+                :label="$t('auth.department')"
+                name="tenant_id"
+              >
+                <t-select
+                  v-model="registerData.tenant_id"
+                  :placeholder="departmentsLoading ? '…' : $t('auth.departmentPlaceholder')"
+                  :loading="departmentsLoading"
+                  :disabled="departmentsLoading || !!departmentsError"
+                  size="large"
+                  filterable
+                >
+                  <t-option
+                    v-for="d in departments"
+                    :key="d.id"
+                    :value="d.id"
+                    :label="d.name"
+                  >
+                    <div class="department-option">
+                      <span class="department-option__name">{{ d.name }}</span>
+                      <span v-if="d.description" class="department-option__desc">{{ d.description }}</span>
+                    </div>
+                  </t-option>
+                </t-select>
+                <template v-if="departmentsError" #help>
+                  <span class="department-help department-help--error">
+                    {{ $t('auth.departmentLoadFailed') }}
+                    <a href="#" @click.prevent="loadDepartments">{{ $t('common.retry') }}</a>
+                  </span>
+                </template>
+              </t-form-item>
+
+              <!-- No departments: explain that the user gets their own
+                  personal workspace, so they aren't stuck on a required
+                  field that has no options to pick from. -->
+              <t-form-item
+                v-else-if="!departmentsLoading && !departmentsError"
+                class="department-hint"
+              >
+                <span class="department-help department-help--info">
+                  {{ $t('auth.departmentEmptyHint', { default: $t('auth.departmentEmptyHintDefault') }) }}
+                </span>
+              </t-form-item>
+
               <t-button type="submit" theme="primary" size="large" block :loading="loading" class="submit-button">
                 {{ loading ? $t('auth.registering') : $t('auth.register') }}
               </t-button>
@@ -275,6 +325,7 @@ import {
   registerByInvite,
   type InviteLookup,
 } from '@/api/auth'
+import { getAvailableDepartments, type DepartmentOption } from '@/api/system'
 import { useAuthStore } from '@/stores/auth'
 import { useI18n } from 'vue-i18n'
 
@@ -335,12 +386,54 @@ const formData = reactive<{ [key: string]: any }>({
   password: '',
 })
 
+// Department options for the registration form. Fetched once on
+// component mount and reused — the list is admin-controlled and
+// rarely changes, so we don't bother with periodic refresh. The
+// loader is best-effort: if the request fails the dropdown shows an
+// inline error and the user can retry by toggling register mode.
+const departments = ref<DepartmentOption[]>([])
+const departmentsLoading = ref(false)
+const departmentsError = ref(false)
+const loadDepartments = async () => {
+  departmentsLoading.value = true
+  departmentsError.value = false
+  try {
+    const resp = await getAvailableDepartments()
+    departments.value = resp.departments ?? []
+    // Default-select the first joinable workspace so the user lands on a
+    // sensible choice rather than an empty dropdown. The backend
+    // requires a non-zero tenant_id when any workspace already exists
+    // (see UserService.Register's bootstrap-admin rule), so without
+    // this default the form would fail server-side validation. The
+    // first-user case (departments empty) keeps tenant_id undefined
+    // and the backend auto-creates the platform workspace instead.
+    if (departments.value.length > 0 && !registerData.tenant_id) {
+      registerData.tenant_id = departments.value[0].id
+    }
+  } catch (err) {
+    console.error('Failed to load available departments:', err)
+    departmentsError.value = true
+  } finally {
+    departmentsLoading.value = false
+  }
+}
+
+onMounted(() => {
+  // Lazy-load: only fetch when the register form is actually rendered.
+  // The Login page is shown first on most visits, so this avoids an
+  // unnecessary request for users who never click "create account".
+  if (isRegisterMode.value) {
+    loadDepartments()
+  }
+})
+
 // Register form data
 const registerData = reactive<{ [key: string]: any }>({
   username: '',
   email: '',
   password: '',
-  confirmPassword: ''
+  confirmPassword: '',
+  tenant_id: undefined as number | undefined,
 })
 
 // Login form validation rules
@@ -380,7 +473,24 @@ const registerRules = computed(() => ({
       message: t('auth.passwordMismatch'),
       type: 'error'
     }
-  ]
+  ],
+  // Department: required only when departments exist. On a fresh
+  // deployment there are no departments and the server falls back to
+  // WEKNORA_AUTH_DEFAULT_TENANT_MODE=create_personal, so skipping the
+  // dropdown here is the right behaviour and lets the user proceed.
+  tenant_id: [
+    {
+      validator: (val: number | undefined) => {
+        // No departments available → registration falls back to the
+        // server-side default (create_personal). Nothing to validate.
+        if (departments.value.length === 0) return true
+        // Departments exist → user must pick one.
+        return val !== undefined && val !== null
+      },
+      message: t('auth.departmentRequired'),
+      type: 'error',
+    },
+  ],
 }))
 
 // Toggle login/register mode
@@ -390,6 +500,14 @@ const toggleMode = () => {
   Object.keys(registerData).forEach(key => {
     (registerData as any)[key] = ''
   })
+
+  // Lazy-load the department list the first time the user lands on the
+  // register card. Subsequent toggles reuse the cached list so the
+  // dropdown is instant. If a previous load failed, the retry link in
+  // the form help-slot kicks off another attempt.
+  if (isRegisterMode.value && departments.value.length === 0 && !departmentsError.value) {
+    loadDepartments()
+  }
 }
 
 // Toggle language menu
@@ -474,7 +592,7 @@ const persistLoginResponse = async (response: any, skipRedirect = false) => {
   await authStore.refreshFromAuthMe()
   await nextTick()
   if (skipRedirect) return
-  router.replace(authStore.hasValidTenant ? '/platform/knowledge-bases' : '/onboarding/workspace')
+  router.replace(authStore.hasValidTenant ? '/platform/creatChat' : '/onboarding/workspace')
 }
 
 const getBackendOIDCRedirectURI = () => `${window.location.origin}/api/v1/auth/oidc/callback`
@@ -543,7 +661,7 @@ const acceptAndEnter = async (token: string) => {
   } finally {
     loading.value = false
     await nextTick()
-    router.replace('/platform/knowledge-bases')
+    router.replace('/platform/creatChat')
   }
 }
 
@@ -610,14 +728,37 @@ const handleRegister = async () => {
       return
     }
 
-    const response = await register({
+    // Build payload: only include tenant_id when a department was actually
+    // picked. We have to defend against THREE bad values that show up
+    // depending on UI state:
+    //   - undefined  → TDesign's <t-form :data> initializes unset fields
+    //                  to undefined (intended)
+    //   - null       → legacy code path (null from explicit reset)
+    //   - ''         → <t-select v-model> coerces undefined to '' once
+    //                  the form mounts, even when the dropdown is hidden
+    //                  via v-if. Empirically this is what triggers the
+    //                  "cannot unmarshal string into uint64" 400.
+    // Numeric 0 must NOT be sent either: it would be a real uint64(0),
+    // but tenants.id is auto-increment starting at 1, so 0 is always a
+    // sentinel meaning "no department" and would join a non-existent
+    // tenant row on the backend. We filter it out and let the server
+    // fall back to WEKNORA_AUTH_DEFAULT_TENANT_MODE=create_personal.
+    const payload: Record<string, unknown> = {
       username: registerData.username,
       email: registerData.email,
-      password: registerData.password
-    })
+      password: registerData.password,
+    }
+    const tid = Number(registerData.tenant_id)
+    if (Number.isFinite(tid) && tid > 0) {
+      payload.tenant_id = tid
+    }
+    const response = await register(payload)
 
     if (response.success) {
-      MessagePlugin.success(t('auth.registerSuccess'))
+      // Backend response message is the canonical "pending approval"
+      // copy — surface it instead of the legacy "registerSuccess"
+      // string so the user knows they still need admin sign-off.
+      MessagePlugin.success(response.message || t('auth.registerSuccess'))
 
       // Switch to login mode and fill in email
       isRegisterMode.value = false
@@ -688,7 +829,7 @@ onMounted(async () => {
   }
 
   if (authStore.isLoggedIn) {
-    router.replace('/platform/knowledge-bases')
+    router.replace('/platform/creatChat')
     return
   }
 
@@ -1487,6 +1628,34 @@ onMounted(async () => {
   .animated-bg {
     display: none;
   }
+}
+
+// Department option rendering inside the t-select dropdown: name on
+// top, optional description underneath. Keeps the picker compact even
+// when admin-set descriptions run long.
+.department-option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.department-option__name {
+  font-weight: 500;
+}
+.department-option__desc {
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #666);
+}
+.department-help {
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #666);
+}
+.department-help--error {
+  color: var(--td-error-color, #d54941);
+}
+.department-help a {
+  margin-left: 6px;
+  color: var(--td-brand-color, #0052d9);
+  text-decoration: none;
 }
 </style>
 

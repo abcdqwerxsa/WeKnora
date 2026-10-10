@@ -65,7 +65,7 @@ export GOLANG_PROTOBUF_REGISTRATION_CONFLICT=warn
 eval "$(./scripts/get_version.sh env)"
 LDFLAGS="$(./scripts/get_version.sh ldflags) -X 'google.golang.org/protobuf/reflect/protoregistry.conflictPolicy=warn'"
 
-# 默认生成 Wails 绑定（供 window.go.main.App.* 等）；若加 -skipbindings 则需在 OnDomReady 注入 __WEKNORA_API_BASE__
+# 默认生成 Wails 绑定（供 window.go.main.App.* 等）；若加 -skipbindings 则需在 OnDomReady 注入 __LUOSA_API_BASE__
 (cd cmd/desktop && wails build -clean -tags "sqlite_fts5" -ldflags="$LDFLAGS" -o "${APP_NAME}")
 
 # ── Step 3: Copy generated .app to dist ──

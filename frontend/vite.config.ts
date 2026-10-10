@@ -130,6 +130,7 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
+    allowedHosts: true,
     // 代理配置，用于开发环境
     proxy: {
       '/api': {

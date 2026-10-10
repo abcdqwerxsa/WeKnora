@@ -135,7 +135,7 @@ func TestSandboxToolPersistenceStripsDuplicatePayloadsAndCompactsHistory(t *test
 }
 
 func TestSanitizeAgentStepsForStorage_shellExecKeepsStructuredOutput(t *testing.T) {
-	skillDir := "/opt/weknora/tenant/skills/smart-charts"
+	skillDir := "/opt/luosa/tenant/skills/smart-charts"
 	command := skillDir + "/.venv/bin/python " + skillDir + "/plot.py"
 	stdout := "README.md\ncharts.py\nrequirements.txt\n"
 	markdown := "=== Shell Exec ===\n**Command**: `" + command + "`\n" +
@@ -215,7 +215,7 @@ func TestCompactToolOutputForHistory_recoversStreamsFromPlaceholder(t *testing.T
 		Output:  "shell_exec exit=0 command=ls (output omitted from history)",
 		Data: map[string]interface{}{
 			"display_type": "shell_exec",
-			"command":      "ls /opt/weknora/tenant/skills/smart-charts",
+			"command":      "ls /opt/luosa/tenant/skills/smart-charts",
 			"exit_code":    0,
 			"stdout":       "SKILL.md\nplot.py\n",
 		},

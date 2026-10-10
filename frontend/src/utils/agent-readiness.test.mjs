@@ -9,10 +9,17 @@ import {
   resolveAgentNotReadyHighlight,
 } from './agent-readiness.ts'
 
-test('does not treat an unrelated built-in chat model as agent configuration', () => {
+test('treats an empty config as ready when a KnowledgeQA fallback exists (C-mode)', () => {
   assert.equal(agentHasConfiguredChatModel(
     {},
     [{ id: 'builtin-chat', type: 'KnowledgeQA' }],
+  ), true)
+})
+
+test('still treats an empty config as not ready when no KnowledgeQA fallback exists', () => {
+  assert.equal(agentHasConfiguredChatModel(
+    {},
+    [{ id: 'rerank-only', type: 'Rerank' }],
   ), false)
 })
 
@@ -78,20 +85,20 @@ test('resolveAgentNotReadyHighlight returns the first missing item', () => {
   assert.equal(resolveAgentNotReadyHighlight([]), undefined)
 })
 
-test('getAgentNotReadyReasonKeys flags missing chat model', () => {
+test('getAgentNotReadyReasonKeys does not flag summary_model when C-mode fallback exists', () => {
   assert.deepEqual(getAgentNotReadyReasonKeys(
     {},
     [{ id: 'chat-1', type: 'KnowledgeQA' }],
     { isAgentMode: false, isSharedAgent: false },
-  ), ['summary_model'])
+  ), [])
 })
 
-test('getAgentNotReadyReasonKeys requires rerank only in agent mode with KB search', () => {
+test('getAgentNotReadyReasonKeys requires rerank only in agent mode with KB search (C-mode empty model_id)', () => {
   assert.deepEqual(getAgentNotReadyReasonKeys(
     { kb_selection_mode: 'all', allowed_tools: ['knowledge_search'] },
     [{ id: 'chat-1', type: 'KnowledgeQA' }, { id: 'rerank-1', type: 'Rerank' }],
     { isAgentMode: true, isSharedAgent: false },
-  ), ['summary_model', 'rerank_model'])
+  ), ['rerank_model'])
 })
 
 test('getAgentNotReadyReasonKeys does not treat current shared context as shared without sourceTenantId', () => {

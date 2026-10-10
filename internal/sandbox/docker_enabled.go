@@ -16,7 +16,7 @@ import (
 // whatever Engine API this process can reach — typically the host's
 // docker.sock, which is host root. It is therefore off until a
 // SystemAdmin or deployer opts in.
-const DockerBackendEnabledEnv = "WEKNORA_SANDBOX_DOCKER_ENABLED"
+const DockerBackendEnabledEnv = "LUOSA_SANDBOX_DOCKER_ENABLED"
 
 // DockerBackendEnabledSettingKey is the system_settings registry key.
 const DockerBackendEnabledSettingKey = "sandbox.docker_enabled"
@@ -24,7 +24,7 @@ const DockerBackendEnabledSettingKey = "sandbox.docker_enabled"
 // ErrDockerBackendDisabled is returned when a Docker sandbox config is saved,
 // probed, or resolved and the process has not opted in.
 var ErrDockerBackendDisabled = errors.New(
-	"sandbox: docker backend is disabled; enable it in System Settings or set WEKNORA_SANDBOX_DOCKER_ENABLED=true",
+	"sandbox: docker backend is disabled; enable it in System Settings or set LUOSA_SANDBOX_DOCKER_ENABLED=true",
 )
 
 // dockerBackendEnabledOverride is the runtime-tunable source. Nil means

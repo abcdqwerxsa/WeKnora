@@ -4,12 +4,12 @@
 # 兼容: Ubuntu / Debian / CentOS / Rocky / TencentOS 等带 systemd + Docker 的发行版。
 # 使用方式:  sudo bash prepare.sh
 # 可调环境变量:
-#   WEKNORA_REF              要拉取的 git ref (tag / branch / commit), 默认 main
-#   WEKNORA_DIR              部署目录, 默认 /opt/WeKnora
-#   WEKNORA_REPO             仓库地址, 默认 https://github.com/Tencent/WeKnora
-#   WEKNORA_GH_PROXY         GitHub 加速前缀, 默认空。中国大陆机器可设
+#   LUOSA_REF              要拉取的 git ref (tag / branch / commit), 默认 main
+#   LUOSA_DIR              部署目录, 默认 /opt/WeKnora
+#   LUOSA_REPO             仓库地址, 默认 https://github.com/Tencent/WeKnora
+#   LUOSA_GH_PROXY         GitHub 加速前缀, 默认空。中国大陆机器可设
 #                            https://gh-proxy.com/ 或 https://ghfast.top/
-#                            (实际下载地址变成 ${WEKNORA_GH_PROXY}${WEKNORA_REPO}/archive/...)
+#                            (实际下载地址变成 ${LUOSA_GH_PROXY}${LUOSA_REPO}/archive/...)
 #   DOCKER_INSTALL_MIRROR    Docker 安装包镜像源, 默认空 (走 get.docker.com)。
 #                            中国大陆机器境外 CDN 不通时设为, 例如:
 #                              https://mirrors.tencent.com/docker-ce/linux/ubuntu
@@ -23,14 +23,14 @@
 #   PRUNE_OLD_IMAGES         升级场景下是否清理 dangling / 旧版本 tag 镜像,
 #                            默认 false。设为 true 时在拉新镜像之后执行
 #                            `docker image prune -af`, 把没有容器引用的镜像
-#                            (含旧 WEKNORA_VERSION 的 wechatopenai/weknora-*)
+#                            (含旧 LUOSA_VERSION 的 wechatopenai/weknora-*)
 #                            一次性删掉, 减少要打进云镜像的体积。
 set -euo pipefail
 
-WEKNORA_REF="${WEKNORA_REF:-main}"
-WEKNORA_DIR="${WEKNORA_DIR:-/opt/WeKnora}"
-WEKNORA_REPO="${WEKNORA_REPO:-https://github.com/Tencent/WeKnora}"
-WEKNORA_GH_PROXY="${WEKNORA_GH_PROXY:-}"
+LUOSA_REF="${LUOSA_REF:-main}"
+LUOSA_DIR="${LUOSA_DIR:-/opt/WeKnora}"
+LUOSA_REPO="${LUOSA_REPO:-https://github.com/Tencent/WeKnora}"
+LUOSA_GH_PROXY="${LUOSA_GH_PROXY:-}"
 DOCKER_INSTALL_MIRROR="${DOCKER_INSTALL_MIRROR:-}"
 DOCKER_REGISTRY_MIRROR="${DOCKER_REGISTRY_MIRROR:-}"
 PRUNE_OLD_IMAGES="${PRUNE_OLD_IMAGES:-false}"
@@ -120,14 +120,14 @@ EOF
   done
 fi
 
-echo "[prepare] 2/6 拉取 WeKnora 运行时文件 (ref=${WEKNORA_REF})"
+echo "[prepare] 2/6 拉取 WeKnora 运行时文件 (ref=${LUOSA_REF})"
 # 只下载实际需要的 4 个文件, 不 clone 整个仓库 (~MB 级 -> ~KB 级)
-mkdir -p "${WEKNORA_DIR}/config" "${WEKNORA_DIR}/skills"
+mkdir -p "${LUOSA_DIR}/config" "${LUOSA_DIR}/skills"
 
 tmp=$(mktemp -d)
 trap 'rm -rf "${tmp}"' EXIT
 
-tarball_url="${WEKNORA_GH_PROXY}${WEKNORA_REPO}/archive/${WEKNORA_REF}.tar.gz"
+tarball_url="${LUOSA_GH_PROXY}${LUOSA_REPO}/archive/${LUOSA_REF}.tar.gz"
 echo "[prepare]   tarball: ${tarball_url}"
 curl -fsSL "${tarball_url}" -o "${tmp}/repo.tar.gz"
 # 仅解压需要的路径, 显著加速且省空间
@@ -143,37 +143,37 @@ if [[ -z "${src}" ]]; then
   exit 1
 fi
 
-cp    "${src}/docker-compose.yml" "${WEKNORA_DIR}/"
-cp    "${src}/.env.example"       "${WEKNORA_DIR}/"
-cp    "${src}/config/config.yaml" "${WEKNORA_DIR}/config/"
-rm -rf "${WEKNORA_DIR}/skills/preloaded"
-cp -r "${src}/skills/preloaded"   "${WEKNORA_DIR}/skills/"
+cp    "${src}/docker-compose.yml" "${LUOSA_DIR}/"
+cp    "${src}/.env.example"       "${LUOSA_DIR}/"
+cp    "${src}/config/config.yaml" "${LUOSA_DIR}/config/"
+rm -rf "${LUOSA_DIR}/skills/preloaded"
+cp -r "${src}/skills/preloaded"   "${LUOSA_DIR}/skills/"
 
 # 记录元信息, 供 firstboot / 升级时参考
-cat >"${WEKNORA_DIR}/.cloud-image-meta" <<EOF
-WEKNORA_REF=${WEKNORA_REF}
-WEKNORA_REPO=${WEKNORA_REPO}
+cat >"${LUOSA_DIR}/.cloud-image-meta" <<EOF
+LUOSA_REF=${LUOSA_REF}
+LUOSA_REPO=${LUOSA_REPO}
 PREPARED_AT=$(date -Iseconds)
 EOF
 
 echo "[prepare] 3/6 准备 .env (默认值, firstboot 会替换为随机密钥)"
-cd "${WEKNORA_DIR}"
+cd "${LUOSA_DIR}"
 [[ -f .env ]] || cp .env.example .env
 sed -i 's/^GIN_MODE=.*/GIN_MODE=release/' .env || true
 
-# 把 WEKNORA_VERSION 与 WEKNORA_REF 对齐, 让 docker compose 拉取与 ref 一致的
+# 把 LUOSA_VERSION 与 LUOSA_REF 对齐, 让 docker compose 拉取与 ref 一致的
 # 镜像 tag。无条件覆盖, 避免 .env 残留上一次 prepare 留下的旧版本号。
 # Docker Hub 上 wechatopenai/weknora-* 的 tag 命名约定：
 #   - 浮动 tag：main（持续指向最新构建）
 #   - 固定 release tag：v 前缀 + semver（如 v0.7.2、v0.5.2）
 # 因此这里不剥 v、也不映射到 latest。
-WEKNORA_VERSION_VAL="${WEKNORA_REF}"
-if grep -qE '^WEKNORA_VERSION=' .env; then
-  sed -i "s|^WEKNORA_VERSION=.*|WEKNORA_VERSION=${WEKNORA_VERSION_VAL}|" .env
+LUOSA_VERSION_VAL="${LUOSA_REF}"
+if grep -qE '^LUOSA_VERSION=' .env; then
+  sed -i "s|^LUOSA_VERSION=.*|LUOSA_VERSION=${LUOSA_VERSION_VAL}|" .env
 else
-  echo "WEKNORA_VERSION=${WEKNORA_VERSION_VAL}" >>.env
+  echo "LUOSA_VERSION=${LUOSA_VERSION_VAL}" >>.env
 fi
-echo "[prepare]   -> WEKNORA_VERSION=${WEKNORA_VERSION_VAL}"
+echo "[prepare]   -> LUOSA_VERSION=${LUOSA_VERSION_VAL}"
 
 echo "[prepare] 4/6 拉取并启动默认 5 个常驻容器 (frontend/app/docreader/postgres/redis)"
 docker compose pull
@@ -196,12 +196,12 @@ docker compose --profile full pull sandbox || true
 # 没有任何容器引用它, 一旦 `prune -a` 会把当前版本的 sandbox 一起删掉,
 # 反而违背 prepare.sh 4.5 步预拉 sandbox 的目的。
 # 这里精确按 tag 比对, 只删 wechatopenai/weknora-* 仓库下、tag 不等于当前
-# WEKNORA_VERSION 的镜像, 基础设施镜像 (paradedb / redis) 不动。
+# LUOSA_VERSION 的镜像, 基础设施镜像 (paradedb / redis) 不动。
 if [[ "${PRUNE_OLD_IMAGES,,}" == "true" || "${PRUNE_OLD_IMAGES}" == "1" ]]; then
-  echo "[prepare] 4.6/6 清理 wechatopenai/weknora-* 仓库下旧版本镜像 (PRUNE_OLD_IMAGES=true, keep=${WEKNORA_VERSION_VAL})"
+  echo "[prepare] 4.6/6 清理 wechatopenai/weknora-* 仓库下旧版本镜像 (PRUNE_OLD_IMAGES=true, keep=${LUOSA_VERSION_VAL})"
   docker image ls --format '{{.Repository}}:{{.Tag}}' \
     | grep -E '^wechatopenai/weknora-' \
-    | grep -vE ":${WEKNORA_VERSION_VAL}\$" \
+    | grep -vE ":${LUOSA_VERSION_VAL}\$" \
     | xargs -r docker rmi -f 2>/dev/null || true
 fi
 
@@ -227,9 +227,9 @@ systemctl enable weknora-firstboot.service
 
 echo "[prepare] 6/6 完成"
 echo
-echo "  WeKnora 运行时已部署到 ${WEKNORA_DIR}"
+echo "  WeKnora 运行时已部署到 ${LUOSA_DIR}"
 echo "    docker-compose.yml / config/config.yaml / skills/preloaded / .env"
-echo "  版本: ${WEKNORA_REF}  (见 ${WEKNORA_DIR}/.cloud-image-meta)"
+echo "  版本: ${LUOSA_REF}  (见 ${LUOSA_DIR}/.cloud-image-meta)"
 echo
 echo "  打开浏览器访问  http://<本机公网IP>  验证功能"
 echo

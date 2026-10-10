@@ -27,9 +27,11 @@
 ### 服务器端
 
 ```bash
-# 把代码 clone 到服务器（例如 /opt/luosa）
+# 必须放在 /opt/luosa(与 compose 里的 bind mount 绝对路径对齐)
+ssh user@server-ip
+sudo mkdir -p /opt/luosa && sudo chown $USER:$USER /opt/luosa
 cd /opt/luosa
-git clone <你的 fork> .
+git clone <你的 fork> .   # 注意末尾的 .,把内容 clone 到当前目录
 
 # 写 .env（开发模式默认账号即可，不要用线上强密码）
 cat > .env <<EOF
@@ -143,6 +145,20 @@ docker compose -f docker-compose.dev-server.yml up -d --force-recreate
 ### Q4：能不能用 remote container / VSCode devcontainer？
 
 可以。把 `Dockerfile.dev` 作为 devcontainer 的 image build，VSCode 会自动 attach 到容器，IDE 体验更原生。本文档的 bind mount 配置已经兼容。
+
+
+
+## 为什么必须是 /opt/luosa？
+
+`docker-compose.dev-server.yml` 里的 bind mount 已经**硬编码绝对路径**：
+
+```yaml
+volumes:
+  - /opt/luosa:/workspace    # 所有 LuoSA 服务都用这个挂载点
+```
+
+- 放其他路径 → 容器起不来（mount 路径不存在）
+- 想用别的路径（如 `/home/me/work/luosa`）→ 需要同步改 compose 文件里的 3 处 `/opt/luosa`
 
 ## 6. 验证清单
 

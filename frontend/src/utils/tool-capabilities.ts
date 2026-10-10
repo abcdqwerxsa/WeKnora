@@ -71,10 +71,21 @@ export const TOOL_CAPABILITY_REQUIREMENTS: Record<string, ToolRequirement> = {
   wiki_delete_page:     { allOf: ['wiki'] },
   wiki_read_issue:      { allOf: ['wiki'] },
   wiki_update_issue:    { allOf: ['wiki'] },
+  wiki_get_image:       { allOf: ['wiki'], consumesFiles: true },
 
   // ---- Data analysis (reads table summary/column chunks produced by RAG ingest) ----
   data_analysis: { anyOf: ['vector', 'keyword'], consumesFiles: true },
   data_schema:   { anyOf: ['vector', 'keyword'], consumesFiles: true },
+
+  // ---- KB image extraction (reads image chunks; backend also gates on
+  //      writable session sandbox, but the KB-scope gate is enforced here
+  //      so the UI greys the checkbox when no chunk-indexed KB is bound) ----
+  kb_get_image:  { anyOf: ['vector', 'keyword'], consumesFiles: true },
+  // ---- KB file extraction (reads the user's uploaded PDF/DOCX/XLSX from
+  //      a bound KB and stages it into the session sandbox; same
+  //      capability surface as kb_get_image: any KB whose storage
+  //      backend exposes the source file works). ----
+  kb_get_file:   { anyOf: ['vector', 'keyword'], consumesFiles: true },
 };
 
 /**

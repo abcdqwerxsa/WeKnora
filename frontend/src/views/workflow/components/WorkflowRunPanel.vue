@@ -30,6 +30,25 @@
       </t-form>
     </section>
 
+    <!-- Run attachments: parsed into LLM context at execution -->
+    <section class="wf-run-section">
+      <p class="wf-run-section-title">{{ $t('workflow.run.attachments') }}</p>
+      <div class="wf-run-attach">
+        <input ref="fileInput" type="file" multiple hidden @change="onFilesPicked" />
+        <t-button variant="outline" size="small" :loading="uploading" @click="fileInput?.click()">
+          <template #icon><t-icon name="upload" /></template>
+          {{ $t('workflow.run.attachFiles') }}
+        </t-button>
+        <span v-for="a in attachments" :key="a.id" class="wf-run-attach-chip" :class="`wf-run-attach-chip--${a.status}`">
+          <t-icon :name="attachIcon(a.status)" />
+          <span class="wf-run-attach-name" :title="a.error_message || a.file_name">{{ a.file_name }}</span>
+          <span v-if="a.status === 'ready'" class="wf-run-attach-meta">{{ a.chunk_count }}c</span>
+          <t-icon name="close" class="wf-run-attach-remove" @click="removeAttachment(a.id)" />
+        </span>
+      </div>
+      <div v-if="pendingCount > 0" class="wf-run-muted">{{ $t('workflow.run.attachmentProcessing', { n: pendingCount }) }}</div>
+    </section>
+
     <!-- Trigger -->
     <section class="wf-run-section">
       <t-textarea
@@ -182,7 +201,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
 import {

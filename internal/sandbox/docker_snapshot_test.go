@@ -114,7 +114,7 @@ func TestDockerDeleteSnapshotSweepsUntaggedSkillImages(t *testing.T) {
 		},
 		{
 			ID:       "sha256:base",
-			RepoTags: []string{"weknora/sandbox:test"},
+			RepoTags: []string{"luosa/sandbox:test"},
 			Labels:   map[string]string{dockerTemplateLabel: "true"},
 		},
 	}
@@ -152,7 +152,7 @@ func TestDockerListTemplatesHidesSkillSnapshots(t *testing.T) {
 	engine.images = []image.Summary{
 		{
 			ID:       "sha256:base",
-			RepoTags: []string{"weknora/sandbox:test"},
+			RepoTags: []string{"luosa/sandbox:test"},
 			Labels:   map[string]string{dockerTemplateLabel: "true"},
 		},
 		{
@@ -166,7 +166,7 @@ func TestDockerListTemplatesHidesSkillSnapshots(t *testing.T) {
 	templates, err := docker.ListTemplates(context.Background())
 	require.NoError(t, err)
 	require.Len(t, templates, 1)
-	require.Equal(t, "weknora/sandbox:test", templates[0].ID)
+	require.Equal(t, "luosa/sandbox:test", templates[0].ID)
 }
 
 func TestDockerCreateDoesNotPullAMissingSkillSnapshot(t *testing.T) {

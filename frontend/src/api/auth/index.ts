@@ -73,6 +73,11 @@ export interface RegisterRequest {
   username: string
   email: string
   password: string
+  // tenant_id is optional: omit on first-user / no-department registrations
+  // so the server falls back to WEKNORA_AUTH_DEFAULT_TENANT_MODE (default
+  // create_personal). The form must filter out undefined / null / '' / 0
+  // before sending — see handleRegister in Login.vue.
+  tenant_id?: number
 }
 
 export interface RegisterResponse {
@@ -168,6 +173,9 @@ export interface TenantInfo {
   owner_id: string
   storage_quota?: number
   storage_used?: number
+  // is_joinable 控制该 workspace 是否出现在注册页的「所属部门」下拉里。
+  // Owner 在「工作区设置」页可改；其他角色只读。
+  is_joinable?: boolean
   created_at: string
   updated_at: string
   knowledge_bases?: KnowledgeBaseInfo[]

@@ -8,361 +8,83 @@ builtin_agents:
     is_builtin: true
     i18n:
       default:
-        name: "Quick Answer"
-        description: "Knowledge base RAG Q&A for fast and accurate answers"
+        name: "Direct Chat"
+        description: "Chat directly with the LLM, no knowledge base required"
       zh-CN:
-        name: "快速问答"
-        description: "基于知识库的 RAG 问答，快速准确地回答问题"
+        name: "默认对话"
+        description: "直接与大模型对话，不依赖知识库"
       zh-TW:
-        name: "快速問答"
-        description: "基於知識庫的 RAG 問答，快速準確地回答問題"
+        name: "預設對話"
+        description: "直接與大模型對話，不依賴知識庫"
       ja-JP:
-        name: "クイック回答"
-        description: "ナレッジベース RAG Q&A による迅速で正確な回答"
+        name: "デフォルト会話"
+        description: "ナレッジベースなしでLLMと直接会話"
       ko-KR:
-        name: "빠른 답변"
-        description: "지식 베이스 RAG Q&A를 통한 빠르고 정확한 답변"
+        name: "기본 대화"
+        description: "지식 베이스 없이 LLM과 직접 대화"
     config:
       agent_mode: "quick-answer"
-      system_prompt_id: "default_kb"
+      # Use the permissive direct_chat prompt so greetings / chitchat / general
+      # questions are answered naturally instead of being forced through the
+      # KB-grounded "default_kb" template.
+      system_prompt_id: "direct_chat"
       context_template_id: "default_context"
       temperature: 0.7
       max_completion_tokens: 0
-      web_search_enabled: true
-      web_search_max_results: 5
+      web_search_enabled: false
       multi_turn_enabled: true
       history_turns: 5
-      kb_selection_mode: "all"
-      retrieve_kb_only_when_mentioned: false
-      faq_priority_enabled: true
-      faq_direct_answer_threshold: 0.9
-      faq_score_boost: 1.2
-      embedding_top_k: 10
-      keyword_threshold: 0.3
-      vector_threshold: 0.5
-      rerank_top_k: 10
-      rerank_threshold: 0.3
-      enable_query_expansion: true
-      enable_rewrite: true
-      fallback_strategy: "model"
-
-  - id: "builtin-smart-reasoning"
-    avatar: ""
-    is_builtin: true
-    i18n:
-      default:
-        name: "Smart Reasoning"
-        description: "ReAct reasoning framework with multi-step thinking and tool calling"
-      zh-CN:
-        name: "智能推理"
-        description: "ReAct 推理框架，支持多步思考与工具调用"
-      zh-TW:
-        name: "智能推理"
-        description: "ReAct 推理框架，支援多步思考與工具呼叫"
-      ja-JP:
-        name: "スマート推論"
-        description: "ReAct 推論フレームワーク、マルチステップ思考とツール呼び出し対応"
-      ko-KR:
-        name: "스마트 추론"
-        description: "ReAct 추론 프레임워크, 다단계 사고 및 도구 호출 지원"
-    config:
-      agent_mode: "smart-reasoning"
-      agent_type: "rag-qa"
-      system_prompt: ""
-      temperature: 0.7
-      max_completion_tokens: 0
-      max_iterations: 50
-      kb_selection_mode: "all"
-      retrieve_kb_only_when_mentioned: false
-      allowed_tools:
-        - "knowledge_search"
-        - "grep_chunks"
-        - "list_knowledge_chunks"
-        - "query_knowledge_graph"
-        - "get_document_info"
-      web_search_enabled: true
-      web_search_max_results: 5
-      reflection_enabled: false
-      multi_turn_enabled: true
-      history_turns: 5
-      faq_priority_enabled: true
-      faq_direct_answer_threshold: 0.9
-      faq_score_boost: 1.2
-      embedding_top_k: 10
-      keyword_threshold: 0.3
-      vector_threshold: 0.5
-      rerank_top_k: 10
-      rerank_threshold: 0.3
-
-  - id: "builtin-data-analyst"
-    avatar: "📊"
-    is_builtin: true
-    i18n:
-      default:
-        name: "Data Analyst"
-        description: "Professional data analysis agent with SQL query and statistical analysis for CSV/Excel files"
-      zh-CN:
-        name: "数据分析师"
-        description: "专业的数据分析智能体，支持对 CSV/Excel 文件进行 SQL 查询和统计分析"
-      zh-TW:
-        name: "數據分析師"
-        description: "專業的數據分析智能體，支援對 CSV/Excel 檔案進行 SQL 查詢和統計分析"
-      ja-JP:
-        name: "データアナリスト"
-        description: "CSV/Excel ファイルの SQL クエリと統計分析に対応するプロフェッショナルなデータ分析エージェント"
-      ko-KR:
-        name: "데이터 분석가"
-        description: "CSV/Excel 파일에 대한 SQL 쿼리 및 통계 분석을 지원하는 전문 데이터 분석 에이전트"
-    config:
-      agent_mode: "smart-reasoning"
-      agent_type: "data-analysis"
-      system_prompt_id: "data_analyst"
-      temperature: 0.3
-      max_completion_tokens: 0
-      max_iterations: 30
-      kb_selection_mode: "all"
-      retrieve_kb_only_when_mentioned: false
-      supported_file_types:
-        - "csv"
-        - "xlsx"
-      allowed_tools:
-        - "data_schema"
-        - "data_analysis"
-      web_search_enabled: false
-      web_search_max_results: 0
-      reflection_enabled: true
-      multi_turn_enabled: true
-      history_turns: 10
-      embedding_top_k: 5
-      keyword_threshold: 0.3
-      vector_threshold: 0.5
-      rerank_top_k: 5
-      rerank_threshold: 0.3
-
-  - id: "builtin-wiki-researcher"
-    avatar: "📚"
-    is_builtin: true
-    i18n:
-      default:
-        name: "Wiki Questioner"
-        description: "Specialized agent for answering questions based on Wiki knowledge bases"
-      zh-CN:
-        name: "维基问答"
-        description: "专注于在 Wiki 知识库中回答问题的智能体"
-      zh-TW:
-        name: "維基問答"
-        description: "專注於在 Wiki 知識庫中回答問題的智能體"
-      ja-JP:
-        name: "Wiki 問答"
-        description: "Wikiナレッジベースでの回答問題に特化したエージェント"
-      ko-KR:
-        name: "위키 질문"
-        description: "위키 지식 베이스에서 답변하는 데 특화된 에이전트"
-    config:
-      agent_mode: "smart-reasoning"
-      agent_type: "wiki-qa"
-      system_prompt_id: "wiki_researcher"
-      temperature: 0.7
-      max_completion_tokens: 0
-      max_iterations: 30
-      kb_selection_mode: "all"
-      retrieve_kb_only_when_mentioned: false
-      allowed_tools:
-        - "wiki_search"
-        - "wiki_read_page"
-        - "wiki_read_source_doc"
-        - "wiki_flag_issue"
-      web_search_enabled: false
-      web_search_max_results: 0
-      reflection_enabled: false
-      multi_turn_enabled: true
-      history_turns: 10
-      embedding_top_k: 10
-      keyword_threshold: 0.3
-      vector_threshold: 0.5
-      rerank_top_k: 10
-      rerank_threshold: 0.3
-
-  - id: "builtin-wiki-fixer"
-    avatar: "🔧"
-    is_builtin: true
-    i18n:
-      default:
-        name: "Wiki Fixer"
-        description: "Specialized agent for revising Wiki pages based on inspection issues"
-      zh-CN:
-        name: "维基修订"
-        description: "专门用于根据巡检问题修订 Wiki 页面的智能体"
-      zh-TW:
-        name: "維基修訂"
-        description: "專門用於根據巡檢問題修訂 Wiki 頁面的智能體"
-      ja-JP:
-        name: "Wiki 修訂"
-        description: "検査の問題に基づいてWikiページを修復および最適化するための専用エージェント"
-      ko-KR:
-        name: "위키 수정"
-        description: "검사 문제를 기반으로 Wiki 페이지를 修復하고 最適化하는 전용 에이전트"
-    config:
-      agent_mode: "smart-reasoning"
-      agent_type: "custom"
-      system_prompt_id: "wiki_fixer"
-      temperature: 0.7
-      max_completion_tokens: 0
-      max_iterations: 30
-      kb_selection_mode: "selected"
-      retrieve_kb_only_when_mentioned: false
-      retain_retrieval_history: true
-      allowed_tools:
-        - "wiki_search"
-        - "wiki_read_page"
-        - "wiki_read_source_doc"
-        - "wiki_write_page"
-        - "wiki_replace_text"
-        - "wiki_rename_page"
-        - "wiki_delete_page"
-        - "wiki_read_issue"
-        - "wiki_update_issue"
-      web_search_enabled: false
-      web_search_max_results: 0
-      reflection_enabled: false
-      multi_turn_enabled: true
-      history_turns: 10
-      embedding_top_k: 10
-      keyword_threshold: 0.3
-      vector_threshold: 0.5
-      rerank_top_k: 10
-      rerank_threshold: 0.3
-
-  - id: "builtin-skill-installer"
-    avatar: "📦"
-    is_builtin: true
-    i18n:
-      default:
-        name: "Skill Installer"
-        description: "Internal agent that installs an uploaded skill and its dependencies into the sandbox image"
-      zh-CN:
-        name: "技能安装器"
-        description: "把上传的技能及其依赖装进沙箱镜像的内部智能体"
-      zh-TW:
-        name: "技能安裝器"
-        description: "把上傳的技能及其相依套件裝進沙箱鏡像的內部智能體"
-      ja-JP:
-        name: "スキルインストーラー"
-        description: "アップロードされたスキルとその依存関係をサンドボックスイメージにインストールする内部エージェント"
-      ko-KR:
-        name: "스킬 설치 도구"
-        description: "업로드된 스킬과 의존성을 샌드박스 이미지에 설치하는 내부 에이전트"
-    config:
-      agent_mode: "smart-reasoning"
-      agent_type: "custom"
-      system_prompt_id: "skill_installer"
-      temperature: 0.2
-      max_completion_tokens: 24576
-      max_iterations: 30
+      # 自由对话 agent 默认不需要推荐问题——避免预设用户思考方向
+      question_suggestions:
+        starters:
+          enabled: false
+          mode: knowledge
+          count: 6
+          items: []
+        follow_ups:
+          enabled: false
+          mode: hybrid
+          count: 3
+      # No KB auto-selection — Direct Chat talks to the model alone. Users can
+      # still @mention a knowledge base in the input field if they want RAG.
       kb_selection_mode: "none"
       retrieve_kb_only_when_mentioned: false
-      # The install path unions these three in regardless of what is written
-      # here: an install that cannot write its own skill directory cannot
-      # record what it did. They are listed for accuracy, not as the source of
-      # truth. write_skill_file / edit_skill_file reach only the one skill
-      # being installed and are never offered to a tenant-editable agent.
-      allowed_tools:
-        - "shell_exec"
-        - "write_skill_file"
-        - "edit_skill_file"
-      web_search_enabled: false
-      web_search_max_results: 0
-      reflection_enabled: false
-      multi_turn_enabled: true
-      history_turns: 10
-
-
-  # ==========================================================================
-  # 文档智能审查 / 比对 / 生成 / 入库 套件（13 个内置 Agent）
-  # 配套设计文档：docs/poc/document-review-suite/
-  # ==========================================================================
-
-  # ---------- 功能一：基础文档审查 ----------
-
-  - id: "builtin-doc-review-format"
-    avatar: "📐"
-    is_builtin: true
-    i18n:
-      default:
-        name: "Format Reviewer"
-        description: "Check document formatting against the company template library (font, paragraph, numbering, margins)."
-      zh-CN:
-        name: "格式审查"
-        description: "对照公司模板库检查文档的字体、段落、编号、页边距等格式规范。"
-      zh-TW:
-        name: "格式審查"
-        description: "對照公司範本庫檢查文件的字型、段落、編號、邊界等格式規範。"
-      en-US:
-        name: "Format Reviewer"
-        description: "Check document formatting against the company template library."
-      ja-JP:
-        name: "フォーマット審査"
-        description: "社内テンプレートライブラリに基づき書式を審査します。"
-      ko-KR:
-        name: "서식 심사"
-        description: "회사 템플릿 라이브러리에 따라 문서 서식을 검사합니다."
-    config:
-      agent_mode: "smart-reasoning"
-      agent_type: "custom"
-      system_prompt_id: "doc_review_format"
-      temperature: 0.2
-      max_completion_tokens: 8192
-      max_iterations: 20
-      kb_selection_mode: "selected"
-      retrieve_kb_only_when_mentioned: false
-      retain_retrieval_history: false
-      allowed_tools:
-        - "knowledge_search"
-        - "grep_chunks"
-        - "get_document_info"
-      web_search_enabled: false
-      web_search_max_results: 0
-      reflection_enabled: false
-      multi_turn_enabled: true
-      history_turns: 0
-      embedding_top_k: 8
-      keyword_threshold: 0.3
-      vector_threshold: 0.5
-      rerank_top_k: 8
-      rerank_threshold: 0.3
+      faq_priority_enabled: false
       enable_query_expansion: false
       enable_rewrite: false
+      fallback_strategy: "model"
+      display_group: "chat"
 
-  - id: "builtin-doc-review-proofread"
-    avatar: "📝"
+  - id: "builtin-doc-review-proofread-chat"
+    avatar: "📋"
     is_builtin: true
     i18n:
       default:
-        name: "Proofreader"
-        description: "Find Chinese typos, punctuation, grammar, and terminology issues using the typo dictionary and glossary."
+        name: "Document & Bid Reviewer"
+        description: "Review documents across four dimensions (typos, formatting, KB template compliance, data consistency) AND compare bidding documents (extract scoring tables, detect deviations/omissions). Optional auto-fix to .docx."
       zh-CN:
-        name: "文本校对"
-        description: "基于易错字 / 异形词库和行业术语库，识别错别字、标点、语法、术语问题。"
+        name: "文档与招投标审查"
+        description: "覆盖两个场景：①四维度文档审查（错别字/格式/模板/数据一致性），②招投标文件智能比对（拆解评分表、识别满足/正偏离/负偏离/缺失）。可按审查结果直接生成修改版 Word。"
       zh-TW:
-        name: "文字校對"
-        description: "依據易錯字、詞庫與術語庫識別錯別字、標點、文法問題。"
+        name: "文檔與招投標審查"
+        description: "覆蓋兩個場景：①四維度文檔審查（錯別字/格式/模板/資料一致性），②招投標文檔智慧比對（拆解評分表、識別滿足/正負偏離/缺失）。可按審查結果直接生成修改版 Word。"
       en-US:
-        name: "Proofreader"
-        description: "Find Chinese typos, punctuation, grammar, and terminology issues."
+        name: "Document & Bid Reviewer"
+        description: "Two scenarios: ①four-dimension document review (typos/format/template/data consistency), ②bid document comparison (extract scoring tables, detect satisfied/positive deviation/negative deviation/missing). Optional auto-fix to .docx."
       ja-JP:
-        name: "テキスト校正"
-        description: "誤字・句読点・文法・用語の問題を検出します。"
+        name: "ドキュメント・入札審査"
+        description: "2つのシナリオ：①4軸文書審査（誤字・書式・テンプレート・データ整合）、②入札文書スマート比較（採点表分解、満足/正負偏离/欠落識別）。審査結果から修正版 Word を直接生成可能。"
       ko-KR:
-        name: "텍스트 교정"
-        description: "오자, 문장 부호, 문법, 용어 문제를 찾아냅니다."
+        name: "문서·입찰 심사"
+        description: "두 가지 시나리오: ①4차원 문서 심사(오자/서식/템플릿/데이터 일관성), ②입찰 문서 스마트 비교(채점표 분해, 만족/정·부편차/누락 식별). 심사 결과로 수정본 Word 직접 생성 가능."
     config:
       agent_mode: "smart-reasoning"
       agent_type: "custom"
-      system_prompt_id: "doc_review_proofread"
+      system_prompt_id: "doc_review_proofread_chat"
       temperature: 0.1
       max_completion_tokens: 8192
-      max_iterations: 20
-      kb_selection_mode: "selected"
+      max_iterations: 50
+      kb_selection_mode: "all"
       retrieve_kb_only_when_mentioned: false
       retain_retrieval_history: false
       allowed_tools:
@@ -381,564 +103,113 @@ builtin_agents:
       rerank_threshold: 0.2
       enable_query_expansion: true
       enable_rewrite: false
+      # Skills + Sandbox：让校对 agent 能在用户要求时调 bid_gen 生成 .docx。
+      # skills_selection_mode="all" 把工作区沙箱里安装的 bid_gen 全部放开。
+      # sandbox_config_id 指向工作区里已有的 contract-review-docker 配置。
+      # initializeSkillsManager 看到沙箱就绪 + skills_selection_mode=all，会自动注入
+      # read_skill / execute_skill_script / shell_exec / write_sandbox_file 等工具。
+      skills_selection_mode: "all"
+      sandbox_config_id: "cd4aff88-0880-424a-826c-3cd44de713e4"
+      question_suggestions:
+        starters:
+          enabled: true
+          mode: hybrid
+          count: 10
+          items:
+            # ── 场景 1: 文档审查（四维度）──
+            - "请检查文档中的错别字、标点和术语问题"
+            - "请检查格式规范：字体、字号、段落缩进、行距、编号样式"
+            - "请核对文档是否满足公司知识库模板要求（章节、必填字段、命名约定）"
+            - "请检查长文档中前后数据一致性（金额、日期、编号、人员）"
+            - "请生成完整的文档审查报告，按四维度分组排序"
+            - "请直接修复所有审查问题，并把修改后的 Word 给我"
+            # ── 场景 2: 招投标比对 ──
+            - "请对比招标文件评分表和我们的投标文件，列出满足/正偏离/负偏离/缺失项"
+            - "请拆解招标文件的商务标评分表（含权重、评分标准、否决项），并打分"
+            - "请拆解招标文件的技术标评分表，检查我们的技术应答是否漏项或违规"
+            - "请检查投标报价是否超过最高限价，项目经理/资质是否符合招标要求"
+            - "请把比对结果写为修订痕迹到投标文件 docx，并给出修改优先级"
 
-  - id: "builtin-doc-review-consistency"
-    avatar: "🔍"
+      # 对话专用：四维度文档审查，Markdown 报告给终端用户阅读。
+      # display_group=chat 让它出现在聊天下拉。
+      # 沙箱工具 (read_skill / execute_skill_script / write_sandbox_file 等) 不在 allowed_tools 字段过滤，
+      # 由 initializeSkillsManager 单独注入（依赖 skills_selection_mode="all" + sandbox_config_id）。
+      display_group: "chat"
+
+  - id: "builtin-doc-generation-chat"
+    avatar: "📝"
     is_builtin: true
     i18n:
       default:
-        name: "Consistency Checker"
-        description: "Cross-check monetary amounts, dates, IDs, and personnel references across the entire document."
+        name: "Bid Document Writer"
+        description: "Write tender / commercial / technical bid responses grounded in scoring criteria, historical bids, industry standards, and enterprise qualifications. Markdown → optional docx."
       zh-CN:
-        name: "一致性检查"
-        description: "全文交叉比对金额、日期、编号、人员等实体的前后一致性。"
+        name: "投标文件编写"
+        description: "编写投标 / 商务响应 / 技术应答的智能体；基于招标文件评分项与历史标书、行业规范、企业资质材料，生成满足评标办法的投标文件草稿，可转 docx。"
       zh-TW:
-        name: "一致性檢查"
-        description: "全文交叉比對金額、日期、編號、人員等實體的一致性。"
+        name: "投標文件編寫"
+        description: "編寫投標 / 商務回應 / 技術應答的智能體；基於招標文件評分項與歷史標書、行業規範、企業資質材料，生成滿足評標辦法的投標文件草稿，可轉 docx。"
       en-US:
-        name: "Consistency Checker"
-        description: "Cross-check monetary amounts, dates, IDs, and personnel references."
+        name: "Bid Document Writer"
+        description: "Write tender / commercial / technical bid responses grounded in scoring criteria, historical bids, industry standards, and enterprise qualifications. Markdown → optional docx."
       ja-JP:
-        name: "整合性チェック"
-        description: "金額・日付・番号・人物参照の全文整合性を検証します。"
+        name: "入札ドキュメント作成"
+        description: "入札 / 商務応答 / 技術応答を作成するエージェント。入札評価項目と歷史入札、業界規範、企業資格情報に基づき、評価基準を満たす入札ドラフトを生成、docx 出力可。"
       ko-KR:
-        name: "일관성 검사"
-        description: "금액, 날짜, 번호, 인물의 전체 문서 일관성을 교차 검증합니다."
+        name: "입찰 문서 작성"
+        description: "입찰 / 상업 응답 / 기술 응답 작성 에이전트. 평가 항목과 과거 입찰, 업계 규범, 기업 자격 자료로 평가 기준에 맞는 입찰 초안을 생성하고 docx 변환 가능."
     config:
       agent_mode: "smart-reasoning"
       agent_type: "custom"
-      system_prompt_id: "doc_review_consistency"
-      temperature: 0.1
-      max_completion_tokens: 8192
-      max_iterations: 20
-      kb_selection_mode: "none"
-      retrieve_kb_only_when_mentioned: false
-      retain_retrieval_history: false
-      allowed_tools:
-        - "grep_chunks"
-        - "list_knowledge_chunks"
-        - "get_document_info"
-      web_search_enabled: false
-      web_search_max_results: 0
-      reflection_enabled: false
-      multi_turn_enabled: true
-      history_turns: 0
-      embedding_top_k: 0
-      keyword_threshold: 0
-      vector_threshold: 0
-      rerank_top_k: 0
-      rerank_threshold: 0
-
-  - id: "builtin-doc-review-dispatcher"
-    avatar: "🧭"
-    is_builtin: true
-    i18n:
-      default:
-        name: "Document Review Dispatcher"
-        description: "Route the document to format / proofread / consistency agents and merge their outputs."
-      zh-CN:
-        name: "文档审查调度"
-        description: "把待审查文档分发到格式 / 校对 / 一致性三个 Agent 并汇总报告。"
-      zh-TW:
-        name: "文件審查調度"
-        description: "將待審查文件分派至三個專業 Agent 並彙整報告。"
-      en-US:
-        name: "Document Review Dispatcher"
-        description: "Route the document to format / proofread / consistency agents."
-      ja-JP:
-        name: "文書審査ディスパッチャ"
-        description: "文書を専門エージェントに振り分けて結果を統合します。"
-      ko-KR:
-        name: "문서 심사 디스패처"
-        description: "문서를 전문 에이전트에 라우팅하고 결과를 병합합니다."
-    config:
-      agent_mode: "smart-reasoning"
-      agent_type: "custom"
-      system_prompt_id: "doc_review_dispatcher"
-      temperature: 0.3
-      max_completion_tokens: 8192
-      max_iterations: 5
-      kb_selection_mode: "none"
-      retrieve_kb_only_when_mentioned: false
-      retain_retrieval_history: false
-      allowed_tools: []
-      web_search_enabled: false
-      web_search_max_results: 0
-      reflection_enabled: false
-      multi_turn_enabled: true
-      history_turns: 0
-
-  # ---------- 功能二：招投标文件智能比对 ----------
-
-  - id: "builtin-bid-parser"
-    avatar: "📋"
-    is_builtin: true
-    i18n:
-      default:
-        name: "Bid Parser"
-        description: "Decompose the tender document into qualifications, scoring rules, technical specs, and knockout clauses."
-      zh-CN:
-        name: "招标解析"
-        description: "结构化拆解招标文件，提取资质要求、评分细则、技术参数、废标条款。"
-      zh-TW:
-        name: "招標解析"
-        description: "結構化拆解招標文件，提取資格、評分、技術規格與廢標條款。"
-      en-US:
-        name: "Bid Parser"
-        description: "Decompose the tender document into qualifications, scoring rules, technical specs, and knockout clauses."
-      ja-JP:
-        name: "入札解析"
-        description: "入札文書を資格・配点・技術仕様・失格条項に分解します。"
-      ko-KR:
-        name: "입찰解析"
-        description: "입찰 문서를 자격, 배점, 기술 사양, 결격 조항으로 분해합니다."
-    config:
-      agent_mode: "smart-reasoning"
-      agent_type: "custom"
-      system_prompt_id: "bid_parser"
-      temperature: 0.1
-      max_completion_tokens: 12288
-      max_iterations: 25
-      kb_selection_mode: "selected"
-      retrieve_kb_only_when_mentioned: false
-      retain_retrieval_history: false
-      allowed_tools:
-        - "knowledge_search"
-        - "grep_chunks"
-        - "get_document_info"
-      web_search_enabled: false
-      web_search_max_results: 0
-      reflection_enabled: false
-      multi_turn_enabled: true
-      history_turns: 0
-      embedding_top_k: 8
-      keyword_threshold: 0.3
-      vector_threshold: 0.5
-      rerank_top_k: 8
-      rerank_threshold: 0.3
-      enable_query_expansion: true
-      enable_rewrite: true
-
-  - id: "builtin-bid-scorer"
-    avatar: "📊"
-    is_builtin: true
-    i18n:
-      default:
-        name: "Scoring Table Structurer"
-        description: "Decompose the scoring table into (item, max_score, requirement) tuples."
-      zh-CN:
-        name: "评分表结构化"
-        description: "把评分表拆解为「评分项-分值-要求」三元组，确保 1:1 对应不漏项。"
-      zh-TW:
-        name: "評分表結構化"
-        description: "將評分表拆解為三元組，確保 1:1 對應不漏項。"
-      en-US:
-        name: "Scoring Table Structurer"
-        description: "Decompose the scoring table into (item, max_score, requirement) tuples."
-      ja-JP:
-        name: "配点表構造化"
-        description: "配点表を三つ組に分解し、漏れを防ぎます。"
-      ko-KR:
-        name: "배점표 구조화"
-        description: "배점표를 (항목, 만점, 요구사항) 튜플로 분해합니다."
-    config:
-      agent_mode: "smart-reasoning"
-      agent_type: "custom"
-      system_prompt_id: "bid_scorer"
-      temperature: 0.05
-      max_completion_tokens: 12288
-      max_iterations: 25
-      kb_selection_mode: "none"
-      retrieve_kb_only_when_mentioned: false
-      retain_retrieval_history: false
-      allowed_tools:
-        - "grep_chunks"
-        - "list_knowledge_chunks"
-      web_search_enabled: false
-      web_search_max_results: 0
-      reflection_enabled: false
-      multi_turn_enabled: true
-      history_turns: 0
-      embedding_top_k: 0
-      keyword_threshold: 0
-      vector_threshold: 0
-      rerank_top_k: 0
-      rerank_threshold: 0
-
-  - id: "builtin-bid-comparator"
-    avatar: "⚖️"
-    is_builtin: true
-    i18n:
-      default:
-        name: "Item-by-item Comparator"
-        description: "For each scoring item, locate the corresponding response in the bid document and judge fulfill / positive deviation / negative deviation / missing."
-      zh-CN:
-        name: "逐项比对"
-        description: "对每个评分项在投标文件中检索应答，判断满足 / 正偏离 / 负偏离 / 缺失。"
-      zh-TW:
-        name: "逐項比對"
-        description: "對每個評分項檢索投標回應，判斷滿足 / 正偏離 / 負偏離 / 缺失。"
-      en-US:
-        name: "Item-by-item Comparator"
-        description: "For each scoring item, locate the corresponding response and judge."
-      ja-JP:
-        name: "項目別比較"
-        description: "各採点項目について入札回答を検索し判定します。"
-      ko-KR:
-        name: "항목별 비교"
-        description: "각 배점 항목에 대해 입찰 응답을 찾아 판정합니다."
-    config:
-      agent_mode: "smart-reasoning"
-      agent_type: "custom"
-      system_prompt_id: "bid_comparator"
-      temperature: 0.2
-      max_completion_tokens: 8192
-      max_iterations: 30
-      kb_selection_mode: "none"
-      retrieve_kb_only_when_mentioned: false
-      retain_retrieval_history: false
-      allowed_tools:
-        - "grep_chunks"
-        - "list_knowledge_chunks"
-      web_search_enabled: false
-      web_search_max_results: 0
-      reflection_enabled: false
-      multi_turn_enabled: true
-      history_turns: 0
-      embedding_top_k: 0
-      keyword_threshold: 0
-      vector_threshold: 0
-      rerank_top_k: 0
-      rerank_threshold: 0
-
-  - id: "builtin-bid-risker"
-    avatar: "⚠️"
-    is_builtin: true
-    i18n:
-      default:
-        name: "Risk Annotator"
-        description: "Annotate risk levels (high / medium / low) and modification suggestions for missing or negatively-deviated items, citing historical bid cases."
-      zh-CN:
-        name: "风险标注"
-        description: "对缺失 / 负偏离项标注 high / medium / low 风险等级与修改建议，引用历史废标案例。"
-      zh-TW:
-        name: "風險標註"
-        description: "為缺失或負偏離項標註風險等級並引用歷史案例。"
-      en-US:
-        name: "Risk Annotator"
-        description: "Annotate risk levels and modification suggestions, citing historical bid cases."
-      ja-JP:
-        name: "リスク注釈"
-        description: "欠落 / 負偏差項目にリスク等級を付与し、修正案を提示します。"
-      ko-KR:
-        name: "리스크 주석"
-        description: "누락 / 부정 편차 항목에 위험 등급과 수정 제안을 부여합니다."
-    config:
-      agent_mode: "smart-reasoning"
-      agent_type: "custom"
-      system_prompt_id: "bid_risker"
-      temperature: 0.3
-      max_completion_tokens: 8192
-      max_iterations: 20
-      kb_selection_mode: "selected"
-      retrieve_kb_only_when_mentioned: false
-      retain_retrieval_history: false
-      allowed_tools:
-        - "knowledge_search"
-        - "grep_chunks"
-      web_search_enabled: false
-      web_search_max_results: 0
-      reflection_enabled: false
-      multi_turn_enabled: true
-      history_turns: 0
-      embedding_top_k: 12
-      keyword_threshold: 0.4
-      vector_threshold: 0.55
-      rerank_top_k: 12
-      rerank_threshold: 0.4
-
-  # ---------- 功能三：知识文档自动生成 ----------
-
-  - id: "builtin-gen-plan"
-    avatar: "🛠️"
-    is_builtin: true
-    i18n:
-      default:
-        name: "Plan Generator"
-        description: "Generate a technical plan draft from new project parameters, using historical bids and templates. Marks unverifiable items as placeholders."
-      zh-CN:
-        name: "方案生成"
-        description: "根据新项目参数检索历史标书/模板生成技术方案，未核实信息用 {{待填:xxx}} 占位。"
-      zh-TW:
-        name: "方案生成"
-        description: "依新專案參數檢索歷史標書/範本生成技術方案，未核實項以佔位符標記。"
-      en-US:
-        name: "Plan Generator"
-        description: "Generate a technical plan draft from new project parameters."
-      ja-JP:
-        name: "方案生成"
-        description: "新規プロジェクトパラメータから技術方案を生成し、未確認項目はプレースホルダ化します。"
-      ko-KR:
-        name: "방안 생성"
-        description: "신규 프로젝트 매개변수에서 기술 방안을 생성하고 미확인 항목은 자리표시자로 표시합니다."
-    config:
-      agent_mode: "smart-reasoning"
-      agent_type: "custom"
-      system_prompt_id: "gen_plan"
+      system_prompt_id: "bid_writer_chat"
       temperature: 0.5
-      max_completion_tokens: 16384
+      max_completion_tokens: 8192
       max_iterations: 30
-      kb_selection_mode: "selected"
+      kb_selection_mode: "all"
       retrieve_kb_only_when_mentioned: false
-      retain_retrieval_history: true
+      retain_retrieval_history: false
       allowed_tools:
         - "knowledge_search"
         - "grep_chunks"
-        - "list_knowledge_chunks"
         - "get_document_info"
+        # 文件读取 + 图片提取：在 Stage 1 之前的预处理流程用到
+        # - kb_get_file：把 KB 里的原始投标文件（PDF/DOCX/XLSX）落到 /workspace/input
+        # - kb_get_image：把 KB 文件里附带的图片（figure / 表格截图）落到 /workspace/output/images
+        # - wiki_read_page：读 wiki 摘要页（如果 KB 文档有 wiki summary，优先走这条）
+        - "kb_get_file"
+        - "kb_get_image"
+        - "wiki_read_page"
       web_search_enabled: false
       web_search_max_results: 0
       reflection_enabled: false
       multi_turn_enabled: true
-      history_turns: 0
-      embedding_top_k: 10
-      keyword_threshold: 0.3
-      vector_threshold: 0.5
-      rerank_top_k: 10
-      rerank_threshold: 0.3
+      history_turns: 3
+      embedding_top_k: 5
+      keyword_threshold: 0.2
+      vector_threshold: 0.4
+      rerank_top_k: 5
+      rerank_threshold: 0.2
       enable_query_expansion: true
-      enable_rewrite: true
+      enable_rewrite: false
+      # Skills + Sandbox：让生成 agent 能调用 office-template-fill 把 Markdown 草稿转为 docx
+      skills_selection_mode: "all"
+      sandbox_config_id: "cd4aff88-0880-424a-826c-3cd44de713e4"
+      question_suggestions:
+        starters:
+          enabled: true
+          mode: hybrid
+          count: 8
+          items:
+            - "帮我拆解这份招标文件的评分表（商务 / 技术 / 经济），列出权重和否决项"
+            - "基于这份招标文件，按评分项生成投标应答草稿（商务响应）"
+            - "针对评分项 T-001 技术方案完整性，从历史标书里找参考段落写应答"
+            - "检查我的投标报价是否超过最高限价，并和预算金额比对"
+            - "列出本轮投标草稿里所有 `{{待填:xxx}}` 字段，并给出建议补充来源"
+            - "把这份招标的应答草稿转成 docx（保留原招标文件结构）"
+            - "在投标文件中找出与资质要求不一致的地方，标 high 风险"
+            - "生成针对否决项的应答，确保满足所有 knockout=true 的项"
 
-  - id: "builtin-gen-report"
-    avatar: "📑"
-    is_builtin: true
-    i18n:
-      default:
-        name: "Report Generator"
-        description: "Generate government-facing / executive report materials following the official report template library."
-      zh-CN:
-        name: "汇报材料生成"
-        description: "面向政府 / 上级的标准化汇报材料生成，遵循汇报模板库的章节与文风要求。"
-      zh-TW:
-        name: "匯報材料生成"
-        description: "面向政府 / 上級的標準化匯報材料生成。"
-      en-US:
-        name: "Report Generator"
-        description: "Generate government-facing / executive report materials."
-      ja-JP:
-        name: "報告資料生成"
-        description: "政府向け公式報告資料を生成します。"
-      ko-KR:
-        name: "보고 자료 생성"
-        description: "정부 / 상급자 대상 표준 보고 자료를 생성합니다."
-    config:
-      agent_mode: "smart-reasoning"
-      agent_type: "custom"
-      system_prompt_id: "gen_report"
-      temperature: 0.6
-      max_completion_tokens: 16384
-      max_iterations: 30
-      kb_selection_mode: "selected"
-      retrieve_kb_only_when_mentioned: false
-      retain_retrieval_history: true
-      allowed_tools:
-        - "knowledge_search"
-        - "grep_chunks"
-        - "list_knowledge_chunks"
-        - "get_document_info"
-      web_search_enabled: false
-      web_search_max_results: 0
-      reflection_enabled: false
-      multi_turn_enabled: true
-      history_turns: 0
-      embedding_top_k: 10
-      keyword_threshold: 0.3
-      vector_threshold: 0.5
-      rerank_top_k: 10
-      rerank_threshold: 0.3
-      enable_query_expansion: true
-      enable_rewrite: true
+      # 对话专用：文档生成智能体，从 KB 中检索参考资料并生成 Markdown 草稿。
+      # display_group=chat 让它出现在聊天下拉。
+      display_group: "chat"
 
-  - id: "builtin-gen-reviewer"
-    avatar: "🛡️"
-    is_builtin: true
-    i18n:
-      default:
-        name: "Generation Reviewer"
-        description: "Verify generated content for factual accuracy (against KB), compliance, and format. Hard gate: no pass, no human delivery."
-      zh-CN:
-        name: "校核"
-        description: "对生成内容做事实 / 合规 / 格式三项校验。硬约束：不通过则不进入人工确认环节。"
-      zh-TW:
-        name: "校核"
-        description: "對生成內容做事實 / 合規 / 格式三項校驗；不通過則不交付。"
-      en-US:
-        name: "Generation Reviewer"
-        description: "Verify generated content for factual accuracy, compliance, and format."
-      ja-JP:
-        name: "生成レビュー"
-        description: "生成内容の事実・コンプライアンス・書式を検証します。"
-      ko-KR:
-        name: "생성 검토"
-        description: "생성된 콘텐츠의 사실 / 규정 / 서식을 검증합니다."
-    config:
-      agent_mode: "smart-reasoning"
-      agent_type: "custom"
-      system_prompt_id: "gen_reviewer"
-      temperature: 0.1
-      max_completion_tokens: 8192
-      max_iterations: 15
-      kb_selection_mode: "all"
-      retrieve_kb_only_when_mentioned: false
-      retain_retrieval_history: true
-      allowed_tools:
-        - "knowledge_search"
-        - "grep_chunks"
-        - "query_knowledge_graph"
-      web_search_enabled: false
-      web_search_max_results: 0
-      reflection_enabled: false
-      multi_turn_enabled: true
-      history_turns: 0
-      embedding_top_k: 15
-      keyword_threshold: 0.3
-      vector_threshold: 0.5
-      rerank_top_k: 15
-      rerank_threshold: 0.3
-
-  # ---------- 功能四：内部知识库构建与应用 ----------
-
-  - id: "builtin-kb-ingest"
-    avatar: "📥"
-    is_builtin: true
-    i18n:
-      default:
-        name: "Document Indexer"
-        description: "Parse unstructured documents, extract metadata (project, category, phase), and write chunks into the knowledge base."
-      zh-CN:
-        name: "文档入库"
-        description: "解析非结构化文档，提取项目 / 类别 / 阶段等元数据并写入知识库。"
-      zh-TW:
-        name: "文件入庫"
-        description: "解析非結構化文件並提取元資料，寫入知識庫。"
-      en-US:
-        name: "Document Indexer"
-        description: "Parse unstructured documents, extract metadata, and write chunks into the knowledge base."
-      ja-JP:
-        name: "文書取り込み"
-        description: "非構造化文書を解析し、メタデータを抽出してナレッジベースに書き込みます。"
-      ko-KR:
-        name: "문서 인덱싱"
-        description: "비정형 문서를 파싱하고 메타데이터를 추출하여 지식 베이스에 기록합니다."
-    config:
-      agent_mode: "smart-reasoning"
-      agent_type: "custom"
-      system_prompt_id: "kb_ingest"
-      temperature: 0.1
-      max_completion_tokens: 8192
-      max_iterations: 20
-      kb_selection_mode: "none"
-      retrieve_kb_only_when_mentioned: false
-      retain_retrieval_history: false
-      allowed_tools:
-        - "get_document_info"
-        - "list_knowledge_chunks"
-      web_search_enabled: false
-      web_search_max_results: 0
-      reflection_enabled: false
-      multi_turn_enabled: true
-      history_turns: 0
-
-  - id: "builtin-kb-associator"
-    avatar: "🔗"
-    is_builtin: true
-    i18n:
-      default:
-        name: "Knowledge Associator"
-        description: "Identify cross-document associations (same category / problem type / project phase) and update the knowledge graph."
-      zh-CN:
-        name: "知识关联"
-        description: "识别文档间关联（同专业、同问题类型、同阶段），更新知识图谱。"
-      zh-TW:
-        name: "知識關聯"
-        description: "識別文件間的關聯並更新知識圖譜。"
-      en-US:
-        name: "Knowledge Associator"
-        description: "Identify cross-document associations and update the knowledge graph."
-      ja-JP:
-        name: "知識関連付け"
-        description: "文書間の関連を識別しナレッジグラフを更新します。"
-      ko-KR:
-        name: "지식 연결"
-        description: "문서 간 연관성을 식별하고 지식 그래프를 업데이트합니다."
-    config:
-      agent_mode: "smart-reasoning"
-      agent_type: "custom"
-      system_prompt_id: "kb_associator"
-      temperature: 0.2
-      max_completion_tokens: 8192
-      max_iterations: 30
-      kb_selection_mode: "all"
-      retrieve_kb_only_when_mentioned: false
-      retain_retrieval_history: false
-      allowed_tools:
-        - "knowledge_search"
-        - "query_knowledge_graph"
-        - "list_knowledge_chunks"
-      web_search_enabled: false
-      web_search_max_results: 0
-      reflection_enabled: false
-      multi_turn_enabled: true
-      history_turns: 0
-      embedding_top_k: 12
-      keyword_threshold: 0.3
-      vector_threshold: 0.5
-      rerank_top_k: 12
-      rerank_threshold: 0.3
-
-  - id: "builtin-kb-advisor"
-    avatar: "💡"
-    is_builtin: true
-    i18n:
-      default:
-        name: "Proactive Advisor"
-        description: "When a new project starts, retrieve related historical issues and generate a checklist of cautions, each linked to source documents."
-      zh-CN:
-        name: "主动提醒"
-        description: "新项目启动时检索关联历史问题，生成注意事项清单，每条挂历史文档引用。"
-      zh-TW:
-        name: "主動提醒"
-        description: "新專案啟動時檢索關聯歷史問題，產出注意事項清單。"
-      en-US:
-        name: "Proactive Advisor"
-        description: "Retrieve related historical issues and generate a checklist of cautions for new projects."
-      ja-JP:
-        name: "能動アドバイザー"
-        description: "新規プロジェクト開始時に関連履歴を検索し、注意事項リストを生成します。"
-      ko-KR:
-        name: "능동 조언"
-        description: "신규 프로젝트 시작 시 관련 이력 문제를 검색하고 주의사항 목록을 생성합니다."
-    config:
-      agent_mode: "smart-reasoning"
-      agent_type: "custom"
-      system_prompt_id: "kb_advisor"
-      temperature: 0.3
-      max_completion_tokens: 8192
-      max_iterations: 20
-      kb_selection_mode: "all"
-      retrieve_kb_only_when_mentioned: false
-      retain_retrieval_history: false
-      allowed_tools:
-        - "knowledge_search"
-        - "query_knowledge_graph"
-        - "grep_chunks"
-      web_search_enabled: false
-      web_search_max_results: 0
-      reflection_enabled: false
-      multi_turn_enabled: true
-      history_turns: 0
-      embedding_top_k: 20
-      keyword_threshold: 0.3
-      vector_threshold: 0.5
-      rerank_top_k: 20
-      rerank_threshold: 0.4

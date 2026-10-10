@@ -61,6 +61,18 @@ func (r *customAgentRepository) DeleteAgent(ctx context.Context, id string, tena
 	return r.db.WithContext(ctx).Where("id = ? AND tenant_id = ?", id, tenantID).Delete(&types.CustomAgent{}).Error
 }
 
+// HardDeleteAgent deletes an agent and any soft-deleted rows for the same
+// (id, tenant_id) key. Unlike DeleteAgent — which leaves a `deleted_at`
+// tombstone so user-initiated deletions stay auditable — this is the right
+// primitive for "reset to YAML default" flows where the goal is for the
+// next read to fall through to the registry without any DB row shadowing
+// it. The remaining soft-deleted row from a prior reset would otherwise
+// keep the (id, tenant_id) unique constraint busy, blocking subsequent
+// INSERTs in the same session.
+func (r *customAgentRepository) HardDeleteAgent(ctx context.Context, id string, tenantID uint64) error {
+	return r.db.WithContext(ctx).Unscoped().Where("id = ? AND tenant_id = ?", id, tenantID).Delete(&types.CustomAgent{}).Error
+}
+
 // CountByModelID counts active agents whose config references modelID.
 func (r *customAgentRepository) CountByModelID(
 	ctx context.Context, tenantID uint64, modelID string,

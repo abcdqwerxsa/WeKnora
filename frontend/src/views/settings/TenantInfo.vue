@@ -134,6 +134,27 @@
           </div>
         </div>
 
+        <!-- 是否允许注册时直接加入此工作区（is_joinable）。
+             Owner 才能改；其他角色看到这个开关但禁用。后端强制只有 Owner
+             能进 PUT /tenants/:id，UI 这层只是把入口藏起来防误操作。 -->
+        <div class="setting-row" data-guide="tenant-joinable">
+          <div class="setting-info">
+            <label>{{ $t('tenant.details.joinableLabel') }}</label>
+            <p class="desc">{{ $t('tenant.details.joinableDescription') }}</p>
+          </div>
+          <div class="setting-control">
+            <t-switch
+              :model-value="tenantInfo?.is_joinable ?? false"
+              :loading="savingJoinable"
+              :disabled="!canEditTenant || savingJoinable"
+              @change="onJoinableChange"
+            />
+            <span v-if="!canEditTenant" class="joinable-readonly-hint">
+              {{ $t('tenant.details.joinableOwnerOnly') }}
+            </span>
+          </div>
+        </div>
+
         <!-- Tenant creation time -->
         <div class="setting-row">
           <div class="setting-info">
@@ -443,6 +464,9 @@ const saving = ref(false)
 const deleteConfirmName = ref('')
 const deleteTenantVisible = ref(false)
 const deletingTenant = ref(false)
+// is_joinable 切换走独立状态：它不依赖 dialog，也不和 saveTenantName /
+// saveTenantDescription 复用 saving，避免一次失败把整组请求都堵掉。
+const savingJoinable = ref(false)
 const editNameTrimmed = computed(() => editName.value.trim())
 // 保存按钮可点条件：非空、改了内容、不在保存中。
 // 后端 name 字段没有 uniqueIndex 也没有重名校验，所以这里不做"是否已存在"的判断；
@@ -575,6 +599,44 @@ const saveTenantName = async () => {
     MessagePlugin.error(err?.message || t('tenant.details.editNameFailed'))
   } finally {
     saving.value = false
+  }
+}
+
+// is_joinable 开关直接走 updateTenant。前端在错误时回滚 UI 状态，避免
+// 开关停留在和服务端不一致的值上。canEditTenant 在 UI 上已经禁用
+// 非 owner 的开关，这里再二次校验是 defense-in-depth。
+const onJoinableChange = async (next: boolean) => {
+  if (!tenantInfo.value?.id) return
+  if (!canEditTenant.value) {
+    MessagePlugin.warning(t('tenant.details.joinableOwnerOnly'))
+    return
+  }
+  const previous = tenantInfo.value.is_joinable ?? false
+  if (next === previous) return
+
+  // 乐观更新：先反映到本地，立即给用户视觉反馈。
+  tenantInfo.value = { ...tenantInfo.value, is_joinable: next }
+  savingJoinable.value = true
+  try {
+    const resp = await updateTenantApi(Number(tenantInfo.value.id), { is_joinable: next })
+    if (resp.success && resp.data) {
+      // 用服务端回执覆盖，避免响应里其它字段（updated_at 等）漂移。
+      tenantInfo.value = { ...tenantInfo.value, ...resp.data }
+      MessagePlugin.success(
+        next
+          ? t('tenant.details.joinableEnabledSuccess')
+          : t('tenant.details.joinableDisabledSuccess'),
+      )
+    } else {
+      // 回滚到点击前的值。
+      tenantInfo.value = { ...tenantInfo.value, is_joinable: previous }
+      MessagePlugin.error(resp.message || t('tenant.details.joinableFailed'))
+    }
+  } catch (err: any) {
+    tenantInfo.value = { ...tenantInfo.value, is_joinable: previous }
+    MessagePlugin.error(err?.message || t('tenant.details.joinableFailed'))
+  } finally {
+    savingJoinable.value = false
   }
 }
 
@@ -828,6 +890,13 @@ onMounted(() => {
   &.is-empty {
     color: var(--td-text-color-placeholder);
   }
+}
+
+// is_joinable 开关在非 owner 角色下被禁用，附一行灰字解释为什么不能改。
+.joinable-readonly-hint {
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
+  margin-left: 8px;
 }
 
 .leave-space-panel {

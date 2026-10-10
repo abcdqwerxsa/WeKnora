@@ -4,9 +4,17 @@ import type { ModelConfig } from '@/api/model'
 export type AgentNotReadyReasonKey = 'summary_model' | 'rerank_model' | 'allowed_tools'
 
 /**
- * An agent is chat-ready only when it explicitly references a usable chat
- * model. Merely having some built-in/default model in the tenant must not hide
- * incomplete agent configuration.
+ * An agent is chat-ready when it has a usable chat model configured, or when
+ * its creator intentionally deferred model selection to the conversation
+ * (C-mode, 2026-09-10) and the tenant has at least one KnowledgeQA model
+ * available for backend fallback.
+ *
+ *   - If config.model_id is set, the referenced model must exist locally
+ *     (KnowledgeQA type) unless this is a shared agent whose model lives in
+ *     the source tenant — in that case the backend does the existence check.
+ *   - If config.model_id is empty, we consider the agent ready as long as
+ *     there's any local KnowledgeQA model the backend can fall back to
+ *     (KB summary_model_id -> tenant default -> first available).
  *
  * For shared agents the model belongs to the source tenant, so the caller can
  * require a non-empty ID but must leave existence validation to the backend.
@@ -17,7 +25,12 @@ export function agentHasConfiguredChatModel(
   sourceModelIsRemote = false,
 ): boolean {
   const modelID = config?.model_id?.trim()
-  if (!modelID) return false
+  if (!modelID) {
+    // C-mode: empty model_id is acceptable when a local KnowledgeQA fallback
+    // exists. Backend's resolveChatModelID picks the right model at request
+    // time (request override -> KB -> tenant default).
+    return models.some(model => model.type === 'KnowledgeQA')
+  }
   if (sourceModelIsRemote) return true
   return models.some(model => model.type === 'KnowledgeQA' && model.id === modelID)
 }

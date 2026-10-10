@@ -29,9 +29,9 @@ func TestApplyAuthAndTenantDefaults_DisableRegistrationDrivesRegistrationMode(t 
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("DISABLE_REGISTRATION", tc.disable)
 			// Other tenant env vars must not leak between cases.
-			t.Setenv("WEKNORA_TENANT_ENABLE_RBAC", "")
-			t.Setenv("WEKNORA_TENANT_MAX_OWNED_PER_USER", "")
-			t.Setenv("WEKNORA_TENANT_SELF_SERVICE_CREATION_ENABLED", "")
+			t.Setenv("LUOSA_TENANT_ENABLE_RBAC", "")
+			t.Setenv("LUOSA_TENANT_MAX_OWNED_PER_USER", "")
+			t.Setenv("LUOSA_TENANT_SELF_SERVICE_CREATION_ENABLED", "")
 
 			cfg := &Config{Auth: &AuthConfig{RegistrationMode: tc.cfgMode}}
 			applyAuthAndTenantDefaults(cfg)
@@ -45,7 +45,7 @@ func TestApplyAuthAndTenantDefaults_DisableRegistrationDrivesRegistrationMode(t 
 
 func TestApplyAuthAndTenantDefaults_SelfServiceTenantCreation(t *testing.T) {
 	t.Run("defaults enabled", func(t *testing.T) {
-		t.Setenv("WEKNORA_TENANT_SELF_SERVICE_CREATION_ENABLED", "")
+		t.Setenv("LUOSA_TENANT_SELF_SERVICE_CREATION_ENABLED", "")
 		cfg := &Config{Tenant: &TenantConfig{}}
 
 		applyAuthAndTenantDefaults(cfg)
@@ -56,7 +56,7 @@ func TestApplyAuthAndTenantDefaults_SelfServiceTenantCreation(t *testing.T) {
 	})
 
 	t.Run("environment disables yaml default", func(t *testing.T) {
-		t.Setenv("WEKNORA_TENANT_SELF_SERVICE_CREATION_ENABLED", "false")
+		t.Setenv("LUOSA_TENANT_SELF_SERVICE_CREATION_ENABLED", "false")
 		on := true
 		cfg := &Config{Tenant: &TenantConfig{SelfServiceCreationEnabled: &on}}
 
@@ -70,7 +70,7 @@ func TestApplyAuthAndTenantDefaults_SelfServiceTenantCreation(t *testing.T) {
 
 func TestApplyAuthAndTenantDefaults_DefaultTenantMode(t *testing.T) {
 	t.Run("historical default creates a personal tenant", func(t *testing.T) {
-		t.Setenv("WEKNORA_AUTH_DEFAULT_TENANT_MODE", "")
+		t.Setenv("LUOSA_AUTH_DEFAULT_TENANT_MODE", "")
 		cfg := &Config{Auth: &AuthConfig{}}
 
 		applyAuthAndTenantDefaults(cfg)
@@ -81,7 +81,7 @@ func TestApplyAuthAndTenantDefaults_DefaultTenantMode(t *testing.T) {
 	})
 
 	t.Run("environment overrides yaml", func(t *testing.T) {
-		t.Setenv("WEKNORA_AUTH_DEFAULT_TENANT_MODE", AuthDefaultTenantModeTenantless)
+		t.Setenv("LUOSA_AUTH_DEFAULT_TENANT_MODE", AuthDefaultTenantModeTenantless)
 		cfg := &Config{Auth: &AuthConfig{DefaultTenantMode: AuthDefaultTenantModeCreatePersonal}}
 
 		applyAuthAndTenantDefaults(cfg)
@@ -92,7 +92,7 @@ func TestApplyAuthAndTenantDefaults_DefaultTenantMode(t *testing.T) {
 	})
 
 	t.Run("invalid environment value fails validation", func(t *testing.T) {
-		t.Setenv("WEKNORA_AUTH_DEFAULT_TENANT_MODE", "create_magic")
+		t.Setenv("LUOSA_AUTH_DEFAULT_TENANT_MODE", "create_magic")
 		cfg := &Config{Auth: &AuthConfig{}}
 
 		applyAuthAndTenantDefaults(cfg)
@@ -105,46 +105,46 @@ func TestApplyAuthAndTenantDefaults_DefaultTenantMode(t *testing.T) {
 
 // TestApplyAuthAndTenantDefaults_CrossTenantAccess is a regression test for the
 // env-binding gap: viper.AutomaticEnv has no SetEnvPrefix, so
-// WEKNORA_TENANT_ENABLE_CROSS_TENANT_ACCESS is never bound to the nested struct
+// LUOSA_TENANT_ENABLE_CROSS_TENANT_ACCESS is never bound to the nested struct
 // automatically. applyAuthAndTenantDefaults must read it explicitly (like RBAC);
 // without that, only config.yaml's enable_cross_tenant_access would take effect
 // and the documented env override would be silently ignored.
 func TestApplyAuthAndTenantDefaults_CrossTenantAccess(t *testing.T) {
 	t.Run("environment true enables cross-tenant access", func(t *testing.T) {
-		t.Setenv("WEKNORA_TENANT_ENABLE_CROSS_TENANT_ACCESS", "true")
+		t.Setenv("LUOSA_TENANT_ENABLE_CROSS_TENANT_ACCESS", "true")
 		cfg := &Config{Tenant: &TenantConfig{EnableCrossTenantAccess: false}}
 
 		applyAuthAndTenantDefaults(cfg)
 
 		if !cfg.Tenant.EnableCrossTenantAccess {
-			t.Fatal("WEKNORA_TENANT_ENABLE_CROSS_TENANT_ACCESS=true should enable cross-tenant access")
+			t.Fatal("LUOSA_TENANT_ENABLE_CROSS_TENANT_ACCESS=true should enable cross-tenant access")
 		}
 	})
 
 	t.Run("environment false overrides yaml true", func(t *testing.T) {
-		t.Setenv("WEKNORA_TENANT_ENABLE_CROSS_TENANT_ACCESS", "false")
+		t.Setenv("LUOSA_TENANT_ENABLE_CROSS_TENANT_ACCESS", "false")
 		cfg := &Config{Tenant: &TenantConfig{EnableCrossTenantAccess: true}}
 
 		applyAuthAndTenantDefaults(cfg)
 
 		if cfg.Tenant.EnableCrossTenantAccess {
-			t.Fatal("WEKNORA_TENANT_ENABLE_CROSS_TENANT_ACCESS=false should disable cross-tenant access")
+			t.Fatal("LUOSA_TENANT_ENABLE_CROSS_TENANT_ACCESS=false should disable cross-tenant access")
 		}
 	})
 
 	t.Run("case-insensitive TRUE also enables", func(t *testing.T) {
-		t.Setenv("WEKNORA_TENANT_ENABLE_CROSS_TENANT_ACCESS", "TRUE")
+		t.Setenv("LUOSA_TENANT_ENABLE_CROSS_TENANT_ACCESS", "TRUE")
 		cfg := &Config{Tenant: &TenantConfig{EnableCrossTenantAccess: false}}
 
 		applyAuthAndTenantDefaults(cfg)
 
 		if !cfg.Tenant.EnableCrossTenantAccess {
-			t.Fatal("WEKNORA_TENANT_ENABLE_CROSS_TENANT_ACCESS=TRUE should enable cross-tenant access (case-insensitive)")
+			t.Fatal("LUOSA_TENANT_ENABLE_CROSS_TENANT_ACCESS=TRUE should enable cross-tenant access (case-insensitive)")
 		}
 	})
 
 	t.Run("unset leaves yaml value untouched", func(t *testing.T) {
-		t.Setenv("WEKNORA_TENANT_ENABLE_CROSS_TENANT_ACCESS", "")
+		t.Setenv("LUOSA_TENANT_ENABLE_CROSS_TENANT_ACCESS", "")
 		cfg := &Config{Tenant: &TenantConfig{EnableCrossTenantAccess: true}}
 
 		applyAuthAndTenantDefaults(cfg)
@@ -157,23 +157,23 @@ func TestApplyAuthAndTenantDefaults_CrossTenantAccess(t *testing.T) {
 
 func TestApplyAuthAndTenantDefaults_ComplexPasswordEnabledEnv(t *testing.T) {
 	t.Run("1 enables via ParseBool", func(t *testing.T) {
-		t.Setenv("WEKNORA_AUTH_COMPLEX_PASSWORD_ENABLED", "1")
+		t.Setenv("LUOSA_AUTH_COMPLEX_PASSWORD_ENABLED", "1")
 		cfg := &Config{Auth: &AuthConfig{}}
 		applyAuthAndTenantDefaults(cfg)
 		if !cfg.Auth.ComplexPasswordEnabled {
-			t.Fatal("WEKNORA_AUTH_COMPLEX_PASSWORD_ENABLED=1 should enable complex passwords")
+			t.Fatal("LUOSA_AUTH_COMPLEX_PASSWORD_ENABLED=1 should enable complex passwords")
 		}
 	})
 	t.Run("false disables", func(t *testing.T) {
-		t.Setenv("WEKNORA_AUTH_COMPLEX_PASSWORD_ENABLED", "false")
+		t.Setenv("LUOSA_AUTH_COMPLEX_PASSWORD_ENABLED", "false")
 		cfg := &Config{Auth: &AuthConfig{ComplexPasswordEnabled: true}}
 		applyAuthAndTenantDefaults(cfg)
 		if cfg.Auth.ComplexPasswordEnabled {
-			t.Fatal("WEKNORA_AUTH_COMPLEX_PASSWORD_ENABLED=false should disable complex passwords")
+			t.Fatal("LUOSA_AUTH_COMPLEX_PASSWORD_ENABLED=false should disable complex passwords")
 		}
 	})
 	t.Run("unset leaves yaml", func(t *testing.T) {
-		t.Setenv("WEKNORA_AUTH_COMPLEX_PASSWORD_ENABLED", "")
+		t.Setenv("LUOSA_AUTH_COMPLEX_PASSWORD_ENABLED", "")
 		cfg := &Config{Auth: &AuthConfig{ComplexPasswordEnabled: true}}
 		applyAuthAndTenantDefaults(cfg)
 		if !cfg.Auth.ComplexPasswordEnabled {

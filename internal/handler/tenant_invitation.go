@@ -301,7 +301,7 @@ func (h *TenantInvitationHandler) CreateInvitation(c *gin.Context) {
 	// Auto-accept switch (tenant.auto_accept_invitation): skip the pending
 	// invitation and add the already-registered invitee as a member.
 	if h.systemSettingSvc != nil &&
-		h.systemSettingSvc.GetBool(ctx, "tenant.auto_accept_invitation", "WEKNORA_TENANT_AUTO_ACCEPT_INVITATION", false) {
+		h.systemSettingSvc.GetBool(ctx, "tenant.auto_accept_invitation", "LUOSA_TENANT_AUTO_ACCEPT_INVITATION", false) {
 		if h.memberService == nil {
 			logger.Errorf(ctx, "auto_accept_invitation enabled but memberService is nil; tenant=%d", tenantID)
 			c.Error(apperrors.NewInternalServerError("failed to add member"))

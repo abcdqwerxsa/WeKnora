@@ -12,7 +12,7 @@ import (
 
 const (
 	authComplexPasswordEnabledSettingKey = "auth.complex_password_enabled"
-	authComplexPasswordEnabledEnvName    = "WEKNORA_AUTH_COMPLEX_PASSWORD_ENABLED"
+	authComplexPasswordEnabledEnvName    = "LUOSA_AUTH_COMPLEX_PASSWORD_ENABLED"
 
 	upperChars           = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 	lowerChars           = "abcdefghijklmnopqrstuvwxyz"

@@ -19,23 +19,23 @@ import (
 //
 // The name is stable across releases; skills reference it via os.getenv(...)
 // so they never hard-code the path.
-const artifactOutputEnvVar = "WEKNORA_SKILL_OUTPUT_DIR"
+const artifactOutputEnvVar = "LUOSA_SKILL_OUTPUT_DIR"
 
 // sessionInputEnvVar points skill scripts at user-uploaded files restored into
 // the current session's Cube. Inputs are separate from generated artifacts.
-const sessionInputEnvVar = "WEKNORA_SESSION_INPUT_DIR"
+const sessionInputEnvVar = "LUOSA_SESSION_INPUT_DIR"
 
 // artifactHistoryEnvVar is the name of the environment variable that points
 // to the root artifact output directory (/workspace/output). Skill scripts
 // can use this to self-discover artifacts from prior runs when they need to
 // chain without LLM mediation.
-const artifactHistoryEnvVar = "WEKNORA_SKILL_HISTORY_ROOT"
+const artifactHistoryEnvVar = "LUOSA_SKILL_HISTORY_ROOT"
 
 // skillDirEnvVar points a script at its own directory inside the sandbox
 // image. Installed skills run with /workspace as WorkDir, so this is how a
 // script reaches the data and helpers that were installed beside it. The
 // install-time verification pass exports the same name.
-const skillDirEnvVar = "WEKNORA_SKILL_DIR"
+const skillDirEnvVar = "LUOSA_SKILL_DIR"
 
 // pythonPathEnvVar / nodePathEnvVar carry the per-session extra-packages
 // overlay (see sandbox.SessionSkillPackageDir). They are injected rather than
@@ -46,7 +46,7 @@ const nodePathEnvVar = "NODE_PATH"
 // InjectedSandboxEnvVars is every name ExecuteScript writes into the sandbox
 // environment. The skill-env declaration blacklist must reject these so a
 // stored value cannot redirect artifacts, the skill directory, or the session
-// input tree. Credential names such as WEKNORA_API_KEY are not in this list.
+// input tree. Credential names such as LUOSA_API_KEY are not in this list.
 func InjectedSandboxEnvVars() []string {
 	return []string{
 		artifactOutputEnvVar,
@@ -59,7 +59,7 @@ func InjectedSandboxEnvVars() []string {
 }
 
 // defaultArtifactOutputDir is used when neither the environment variable
-// (WEKNORA_SKILL_OUTPUT_DIR) nor the ExecuteConfig.Env has an override.
+// (LUOSA_SKILL_OUTPUT_DIR) nor the ExecuteConfig.Env has an override.
 // /workspace/output sits inside the base sandbox image's writable tree and
 // is guaranteed to survive across Execute calls for the same session (Cube
 // SessionBoundManager keeps the MicroVM alive between calls).
@@ -71,7 +71,7 @@ const defaultArtifactOutputDir = "/workspace/output"
 // draining artifacts after Execute returns.
 //
 // Resolution order (first usable wins):
-//  1. WEKNORA_SKILL_OUTPUT_DIR from the host environment (ops override), when
+//  1. LUOSA_SKILL_OUTPUT_DIR from the host environment (ops override), when
 //     it names a directory inside the session workspace.
 //  2. defaultArtifactOutputDir.
 //
@@ -364,8 +364,8 @@ func (m *Manager) ExecuteScript(ctx context.Context, skillName, scriptPath strin
 	// Compute the artifact output directory. All skills share the same root
 	// directory (/workspace/output/) to enable collaboration and file sharing
 	// between different skill executions in the same session.
-	// Skill scripts read the directory via WEKNORA_SKILL_OUTPUT_DIR; the
-	// root (for cross-run discovery) is available via WEKNORA_SKILL_HISTORY_ROOT.
+	// Skill scripts read the directory via LUOSA_SKILL_OUTPUT_DIR; the
+	// root (for cross-run discovery) is available via LUOSA_SKILL_HISTORY_ROOT.
 	outputDir := m.SkillOutputDir(sessionID, skillName)
 	env := map[string]string{
 		artifactOutputEnvVar:  outputDir,
@@ -392,12 +392,12 @@ func (m *Manager) ExecuteScript(ctx context.Context, skillName, scriptPath strin
 	// linger where the next person could read them with `env`.
 	//
 	// The resolver runs after the artifact keys above are seeded, so
-	// ApplyResolvedEnv's skip-existing rule protects WEKNORA_SKILL_OUTPUT_DIR
-	// and WEKNORA_SKILL_HISTORY_ROOT (always) plus WEKNORA_SESSION_INPUT_DIR
+	// ApplyResolvedEnv's skip-existing rule protects LUOSA_SKILL_OUTPUT_DIR
+	// and LUOSA_SKILL_HISTORY_ROOT (always) plus LUOSA_SESSION_INPUT_DIR
 	// (when a session file store exists). skillDirEnvVar is set later inside
 	// buildSkillExecuteConfig by an unconditional write. The write-time
 	// blacklist of skills.InjectedSandboxEnvVars (service.validateUserEnvName)
-	// is what covers a name that was not seeded on this path. Other WEKNORA_*
+	// is what covers a name that was not seeded on this path. Other LUOSA_*
 	// names (API keys, base URLs) are ordinary credentials a skill may declare.
 	if m.envResolver != nil {
 		resolved, missing, err := m.envResolver.ResolveEnv(ctx, skillName)

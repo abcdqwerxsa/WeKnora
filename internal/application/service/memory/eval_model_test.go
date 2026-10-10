@@ -16,15 +16,15 @@ import (
 // model row — just an endpoint.
 func newEvalChatModel(modelID string) (chat.Chat, error) {
 	baseURL := strings.TrimSpace(firstNonEmpty(
-		os.Getenv("WEKNORA_MEMORY_EVAL_BASE_URL"),
+		os.Getenv("LUOSA_MEMORY_EVAL_BASE_URL"),
 		os.Getenv("OPENAI_BASE_URL"),
 	))
 	apiKey := strings.TrimSpace(firstNonEmpty(
-		os.Getenv("WEKNORA_MEMORY_EVAL_API_KEY"),
+		os.Getenv("LUOSA_MEMORY_EVAL_API_KEY"),
 		os.Getenv("OPENAI_API_KEY"),
 	))
 	if baseURL == "" {
-		return nil, errors.New("set WEKNORA_MEMORY_EVAL_BASE_URL (or OPENAI_BASE_URL)")
+		return nil, errors.New("set LUOSA_MEMORY_EVAL_BASE_URL (or OPENAI_BASE_URL)")
 	}
 	return chat.NewChat(&chat.ChatConfig{
 		Source:    types.ModelSourceRemote,

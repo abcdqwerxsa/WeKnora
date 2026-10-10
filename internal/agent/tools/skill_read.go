@@ -27,7 +27,7 @@ var readSkillTool = BaseTool{
   That listing is how you discover ` + "`scripts/generate_ppt.py`" + ` and similar.
 - Then call ` + "`read_skill(skill_name=..., file_path=\"scripts/...\")`" + ` to
   read one file. ` + "`file_path`" + ` is relative inside the skill, not an
-  absolute ` + "`/opt/weknora/tenant/skills/...`" + ` path.
+  absolute ` + "`/opt/luosa/tenant/skills/...`" + ` path.
 - Do NOT use ` + "`list_sandbox_files`" + `, ` + "`read_sandbox_file`" + `, or
   ` + "`ls`" + ` on the skill install directory. Those tools only see
   ` + "`/workspace/output`" + ` and ` + "`/workspace/input`" + `; the skill tree also
@@ -48,7 +48,7 @@ var readSkillTool = BaseTool{
 // ReadSkillInput defines the input parameters for the read_skill tool
 type ReadSkillInput struct {
 	SkillName string `json:"skill_name" jsonschema:"Name of the skill to read"`
-	FilePath  string `json:"file_path,omitempty" jsonschema:"Optional relative path inside the skill (e.g. scripts/generate_ppt.py). Omit to load SKILL.md and list files. Do not pass /opt/weknora/tenant/skills/... or /workspace paths."`
+	FilePath  string `json:"file_path,omitempty" jsonschema:"Optional relative path inside the skill (e.g. scripts/generate_ppt.py). Omit to load SKILL.md and list files. Do not pass /opt/luosa/tenant/skills/... or /workspace paths."`
 }
 
 // ReadSkillTool allows the agent to read skill content on demand
@@ -313,7 +313,7 @@ func skillEnvironmentSection(skillDir string) string {
 }
 
 // skillRelativeFilePath maps a model-supplied path onto a relative path
-// inside skillName. Absolute /opt/weknora/tenant/skills/<name>/... paths and
+// inside skillName. Absolute /opt/luosa/tenant/skills/<name>/... paths and
 // a redundant "<name>/..." prefix are accepted so a copied ls line still
 // works. Workspace paths are rejected here; they belong to other tools.
 func skillRelativeFilePath(skillName, filePath string) (string, error) {

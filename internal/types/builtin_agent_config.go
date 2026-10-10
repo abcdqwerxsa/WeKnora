@@ -149,6 +149,27 @@ func ApplyBuiltinAgentLocalization(ctx context.Context, agent *CustomAgent) {
 		agent.Description = localized.Description
 	}
 	agent.Avatar = localized.Avatar
+	// Apply display_group overlay from YAML so new fields propagate to agents
+	// seeded into DB before the field existed. We only override when the DB
+	// value is empty (treat empty as "unset, follow YAML") — that way users
+	// who already set display_group in the editor keep their choice.
+	if localized.Config.DisplayGroup != "" && agent.Config.DisplayGroup == "" {
+		agent.Config.DisplayGroup = localized.Config.DisplayGroup
+	}
+	// system_prompt uses the same "empty in DB ⇒ follow YAML" convention:
+	// the save path strips it whenever it equals the YAML default so the
+	// tenant's view doesn't freeze to today's YAML snapshot. Without this
+	// overlay a re-open would show an empty prompt to operators, which
+	// would tempt them to type one back in — exactly the regression we
+	// removed by stripping on save. We only overlay when both sides have
+	// a meaningful default and the tenant hasn't explicitly customised
+	// the prompt (system_prompt_id signals explicit customisation intent
+	// even when system_prompt itself is empty).
+	if localized.Config.SystemPrompt != "" &&
+		agent.Config.SystemPrompt == "" &&
+		agent.Config.SystemPromptID == "" {
+		agent.Config.SystemPrompt = localized.Config.SystemPrompt
+	}
 }
 
 var builtinAgentEntriesTestMu sync.Mutex

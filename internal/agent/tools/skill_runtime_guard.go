@@ -11,7 +11,7 @@ import (
 // Session skill trees are snapshotted read-only (root-owned, mode 555). uv
 // venv often has no pip. Skills that lazily pip-install extras on first use
 // cannot write that venv; session agents must use the /workspace overlay
-// instead of chown / ensurepip / pip into /opt/weknora/tenant/skills.
+// instead of chown / ensurepip / pip into /opt/luosa/tenant/skills.
 //
 // That rule is enforced by the filesystem, not by inspecting commands: the
 // kernel already refuses the write. What the model needs is a readable reason

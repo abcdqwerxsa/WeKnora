@@ -456,7 +456,7 @@ func TestJsonToMarkdown_SingleElementArray(t *testing.T) {
 func TestJsonToMarkdown_RealisticConfig(t *testing.T) {
 	input := `{
   "app": {"name": "WeKnora", "version": "2.0.0", "debug": false},
-  "database": {"host": "localhost", "port": 5432, "name": "weknora_db", "pool_size": 10},
+  "database": {"host": "localhost", "port": 5432, "name": "luosa_db", "pool_size": 10},
   "redis": {"host": "localhost", "port": 6379},
   "features": {"json_upload": true, "multimodel": true, "graph_extraction": false}
 }`

@@ -167,20 +167,20 @@ chmod +x scripts/cloud-image/*.sh
 sudo bash /opt/weknora-tools/scripts/cloud-image/prepare.sh
 
 # 想 pin 特定版本（推荐, 保证镜像可复现）
-sudo WEKNORA_REF=v0.5.0 bash /opt/weknora-tools/scripts/cloud-image/prepare.sh
+sudo LUOSA_REF=v0.5.0 bash /opt/weknora-tools/scripts/cloud-image/prepare.sh
 
 # 中国大陆机器三件套: 同时绕开 GitHub / get.docker.com / Docker Hub 的境外 CDN
 # (以腾讯云为例, 阿里云 / 华为云换对应镜像即可)
 sudo \
-  WEKNORA_REF=v0.5.0 \
-  WEKNORA_GH_PROXY=https://gh-proxy.com/ \
+  LUOSA_REF=v0.5.0 \
+  LUOSA_GH_PROXY=https://gh-proxy.com/ \
   DOCKER_INSTALL_MIRROR=https://mirrors.tencent.com/docker-ce/linux/ubuntu \
   DOCKER_REGISTRY_MIRROR=https://mirror.ccs.tencentyun.com \
   bash /opt/weknora-tools/scripts/cloud-image/prepare.sh
 ```
 
 > 三个变量分别解决三个不同的境外 CDN 不可达问题:
-> - `WEKNORA_GH_PROXY`：加速 **GitHub tarball** 下载（`prepare.sh` 步骤 2，运行时文件）
+> - `LUOSA_GH_PROXY`：加速 **GitHub tarball** 下载（`prepare.sh` 步骤 2，运行时文件）
 > - `DOCKER_INSTALL_MIRROR`：绕开 **`get.docker.com`**，改用 apt + docker-ce 镜像源装 Docker（步骤 1）
 > - `DOCKER_REGISTRY_MIRROR`：加速 **Docker Hub** 镜像拉取（步骤 4，`wechatopenai/weknora-*`）
 >
@@ -249,13 +249,13 @@ sudo bash /opt/weknora-tools/scripts/cloud-image/cleanup.sh
 镜像里没有 git 仓库，升级直接重跑 `prepare.sh`（会覆盖 4 个运行时文件，**不动 `.env` 和 docker volume 数据**）：
 
 ```bash
-sudo WEKNORA_REF=v0.6.0 bash /opt/weknora-tools/scripts/cloud-image/prepare.sh
+sudo LUOSA_REF=v0.6.0 bash /opt/weknora-tools/scripts/cloud-image/prepare.sh
 sudo bash    /opt/weknora-tools/scripts/cloud-image/cleanup.sh   # 制作新镜像前
 ```
 
 > **打新镜像时想顺便清掉旧版本镜像层**（每个旧 weknora-* tag 几百 MB，4 个镜像 ~2-4GB）：
 > ```bash
-> sudo PRUNE_OLD_IMAGES=true WEKNORA_REF=v0.6.0 \
+> sudo PRUNE_OLD_IMAGES=true LUOSA_REF=v0.6.0 \
 >   bash /opt/weknora-tools/scripts/cloud-image/prepare.sh
 > ```
 > 默认 `false` 是为了保留回滚路径。打镜像前确认新版本稳定后再开。

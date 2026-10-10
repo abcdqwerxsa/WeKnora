@@ -59,7 +59,7 @@ func oidcVerifyCfg(jwksURL string) *config.OIDCAuthConfig {
 	return &config.OIDCAuthConfig{
 		JwksURI:   jwksURL,
 		IssuerURL: "https://idp.example",
-		ClientID:  "weknora-client",
+		ClientID:  "luosa-client",
 		UserInfoMapping: &config.OIDCUserInfoMapping{
 			Username: "name",
 			Email:    "email",
@@ -99,7 +99,7 @@ func TestVerifyOIDCIDToken_ValidTokenAccepted(t *testing.T) {
 	defer jwks.Close()
 
 	cfg := oidcVerifyCfg(jwks.URL)
-	idToken := signedIDToken(t, key, "kid-1", baseClaims("https://idp.example", "weknora-client"))
+	idToken := signedIDToken(t, key, "kid-1", baseClaims("https://idp.example", "luosa-client"))
 
 	svc := &userService{}
 	claims, err := svc.verifyOIDCIDToken(context.Background(), cfg, idToken)
@@ -126,12 +126,12 @@ func TestVerifyOIDCIDToken_TamperedPayloadRejected(t *testing.T) {
 
 	cfg := oidcVerifyCfg(jwks.URL)
 
-	valid := signedIDToken(t, key, "kid-1", baseClaims("https://idp.example", "weknora-client"))
+	valid := signedIDToken(t, key, "kid-1", baseClaims("https://idp.example", "luosa-client"))
 
 	// Swap the payload for a forged one (admin@example.com) while keeping the
 	// original header + signature.
 	parts := strings.Split(valid, ".")
-	forgedPayload := baseClaims("https://idp.example", "weknora-client")
+	forgedPayload := baseClaims("https://idp.example", "luosa-client")
 	forgedPayload["email"] = "admin@example.com"
 	forgedPayload["sub"] = "attacker"
 	pb, _ := json.Marshal(forgedPayload)
@@ -157,7 +157,7 @@ func TestVerifyOIDCIDToken_WrongSignerRejected(t *testing.T) {
 
 	cfg := oidcVerifyCfg(jwks.URL)
 	// Attacker signs with their own key but claims kid-1.
-	forged := signedIDToken(t, attackerKey, "kid-1", baseClaims("https://idp.example", "weknora-client"))
+	forged := signedIDToken(t, attackerKey, "kid-1", baseClaims("https://idp.example", "luosa-client"))
 
 	svc := &userService{}
 	if _, err := svc.verifyOIDCIDToken(context.Background(), cfg, forged); err == nil {
@@ -191,7 +191,7 @@ func TestVerifyOIDCIDToken_ExpiredRejected(t *testing.T) {
 	defer jwks.Close()
 
 	cfg := oidcVerifyCfg(jwks.URL)
-	claims := baseClaims("https://idp.example", "weknora-client")
+	claims := baseClaims("https://idp.example", "luosa-client")
 	claims["exp"] = time.Now().Add(-time.Hour).Unix()
 	expired := signedIDToken(t, key, "kid-1", claims)
 
@@ -212,7 +212,7 @@ func TestVerifyOIDCIDToken_MissingExpRejected(t *testing.T) {
 	defer jwks.Close()
 
 	cfg := oidcVerifyCfg(jwks.URL)
-	claims := baseClaims("https://idp.example", "weknora-client")
+	claims := baseClaims("https://idp.example", "luosa-client")
 	delete(claims, "exp")
 	token := signedIDToken(t, key, "kid-1", claims)
 
@@ -233,7 +233,7 @@ func TestVerifyOIDCIDToken_MissingSubRejected(t *testing.T) {
 	defer jwks.Close()
 
 	cfg := oidcVerifyCfg(jwks.URL)
-	claims := baseClaims("https://idp.example", "weknora-client")
+	claims := baseClaims("https://idp.example", "luosa-client")
 	delete(claims, "sub")
 	token := signedIDToken(t, key, "kid-1", claims)
 
@@ -255,7 +255,7 @@ func TestVerifyOIDCIDToken_MissingIssuerRejected(t *testing.T) {
 
 	cfg := oidcVerifyCfg(jwks.URL)
 	cfg.IssuerURL = ""
-	token := signedIDToken(t, key, "kid-1", baseClaims("https://idp.example", "weknora-client"))
+	token := signedIDToken(t, key, "kid-1", baseClaims("https://idp.example", "luosa-client"))
 
 	svc := &userService{}
 	if _, err := svc.verifyOIDCIDToken(context.Background(), cfg, token); err == nil {
@@ -278,7 +278,7 @@ func TestVerifyOIDCIDToken_EmptyKidDoesNotStealMatchingKey(t *testing.T) {
 	defer jwks.Close()
 
 	cfg := oidcVerifyCfg(jwks.URL)
-	token := signedIDToken(t, idpKey, "kid-1", baseClaims("https://idp.example", "weknora-client"))
+	token := signedIDToken(t, idpKey, "kid-1", baseClaims("https://idp.example", "luosa-client"))
 
 	svc := &userService{}
 	if _, err := svc.verifyOIDCIDToken(context.Background(), cfg, token); err != nil {
@@ -300,7 +300,7 @@ func TestVerifyOIDCIDToken_MultipleKeysRequireKid(t *testing.T) {
 	jwks := jwksServerFromKeys(t, rsaJWK(keyA, "kid-a"), rsaJWK(keyB, "kid-b"))
 	defer jwks.Close()
 
-	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, baseClaims("https://idp.example", "weknora-client"))
+	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, baseClaims("https://idp.example", "luosa-client"))
 	token, err := tok.SignedString(keyA)
 	if err != nil {
 		t.Fatal(err)
@@ -360,7 +360,7 @@ func TestResolveOIDCUserInfo_UserinfoFailureDoesNotFallBackToUnsignedToken(t *te
 	cfg := oidcVerifyCfg("")
 	cfg.JwksURI = ""
 	cfg.UserInfoEndpoint = userinfo.URL
-	forged := unsignedJWT(baseClaims("https://idp.example", "weknora-client"))
+	forged := unsignedJWT(baseClaims("https://idp.example", "luosa-client"))
 
 	svc := &userService{}
 	_, err := svc.resolveOIDCUserInfo(context.Background(), cfg, &oidcTokenResponse{
@@ -389,7 +389,7 @@ func TestResolveOIDCUserInfo_VerifiedIDTokenUsedWhenUserinfoFails(t *testing.T) 
 
 	cfg := oidcVerifyCfg(jwks.URL)
 	cfg.UserInfoEndpoint = userinfo.URL
-	idToken := signedIDToken(t, key, "kid-1", baseClaims("https://idp.example", "weknora-client"))
+	idToken := signedIDToken(t, key, "kid-1", baseClaims("https://idp.example", "luosa-client"))
 
 	svc := &userService{}
 	info, err := svc.resolveOIDCUserInfo(context.Background(), cfg, &oidcTokenResponse{

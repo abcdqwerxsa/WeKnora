@@ -19,6 +19,10 @@ type TenantResponse struct {
 	Business            string                     `json:"business"`
 	StorageQuota        int64                      `json:"storage_quota"`
 	StorageUsed         int64                      `json:"storage_used"`
+	// IsJoinable gates whether this tenant shows up in the registration
+	// form's department dropdown (GET /auth/available-departments). Owners
+	// flip it from the workspace settings page; everyone else can read.
+	IsJoinable          bool                       `json:"is_joinable"`
 	ContextConfig       *types.ContextConfig       `json:"context_config,omitempty"`
 	WebSearchConfig     *types.WebSearchConfig     `json:"web_search_config,omitempty"`
 	ParserEngineConfig  *types.ParserEngineConfig  `json:"parser_engine_config,omitempty"`
@@ -53,6 +57,7 @@ func NewTenantResponseWithRole(tenant *types.Tenant, role types.TenantRole) *Ten
 		Business:          tenant.Business,
 		StorageQuota:      tenant.StorageQuota,
 		StorageUsed:       tenant.StorageUsed,
+		IsJoinable:        tenant.IsJoinable,
 		ContextConfig:     tenant.ContextConfig,
 		ChatHistoryConfig: tenant.ChatHistoryConfig,
 		RetrievalConfig:   tenant.RetrievalConfig,

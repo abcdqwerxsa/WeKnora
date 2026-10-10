@@ -42,6 +42,12 @@ export const SYSTEM_GLOBAL_AUDIT_ACTIONS = [
   'system.queue_task_run_now',
   'system.queue_task_cancelled',
   'system.queue_archived_purged',
+  // AuditActionSystemUserCreated is reused by the PendingUsers
+  // approval flow (system_admin/approve route). The handler tags
+  // Details with {"event":"user_approved",...} so the same action
+  // string covers both "create user via admin console" and
+  // "approve self-registered user".
+  'system.user_created',
 ] as const
 
 /** Knowledge-base activity feed (KB settings → activity). */

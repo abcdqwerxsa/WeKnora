@@ -23,7 +23,6 @@ export interface UploadConfirmResult {
   mode: UploadConfirmMode
   tagIds?: string[]
   files?: File[]
-  urls?: string[]
   manual?: UploadConfirmManualSource
   reparse?: UploadConfirmReparseSource
   /**
@@ -40,7 +39,6 @@ export interface OpenUploadConfirmOptions {
   kbInfo: any
   tagIds?: string[]
   files?: File[]
-  urls?: string[]
   manual?: UploadConfirmManualSource
   reparse?: UploadConfirmReparseSource
   acceptFileTypes?: string
@@ -57,7 +55,6 @@ export const useUploadConfirmStore = defineStore('uploadConfirm', {
     mode: 'file' as UploadConfirmMode,
     kbInfo: null as any,
     files: [] as File[],
-    urls: [] as string[],
     tagIds: [] as string[],
     manual: null as UploadConfirmManualSource | null,
     reparse: null as UploadConfirmReparseSource | null,
@@ -76,7 +73,6 @@ export const useUploadConfirmStore = defineStore('uploadConfirm', {
         this.mode = options.mode
         this.kbInfo = options.kbInfo
         this.files = options.files ? [...options.files] : []
-        this.urls = options.urls ? [...options.urls] : []
         this.tagIds = options.tagIds
           ? [...options.tagIds]
           : [...(options.manual?.tagIds || [])]
@@ -106,7 +102,6 @@ export const useUploadConfirmStore = defineStore('uploadConfirm', {
       this.mode = 'file'
       this.kbInfo = null
       this.files = []
-      this.urls = []
       this.tagIds = []
       this.manual = null
       this.reparse = null

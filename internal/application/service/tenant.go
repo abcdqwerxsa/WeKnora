@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"sort"
 	"time"
 
 	werrors "github.com/Tencent/WeKnora/internal/errors"
@@ -164,6 +165,21 @@ func (s *tenantService) UpdateTenant(ctx context.Context, tenant *types.Tenant) 
 	return tenant, nil
 }
 
+// SetTenantJoinable toggles tenants.is_joinable. Routed through the repo's
+// dedicated column update so we don't fall into GORM's "skip zero-value
+// bool" trap when toggling joinable=true → false. Returns the reloaded
+// tenant so the caller can return fresh state without a second round-trip.
+func (s *tenantService) SetTenantJoinable(ctx context.Context, id uint64, joinable bool) (*types.Tenant, error) {
+	if err := s.repo.UpdateTenantJoinable(ctx, id, joinable); err != nil {
+		logger.ErrorWithFields(ctx, err, map[string]interface{}{
+			"tenant_id": id,
+		})
+		return nil, err
+	}
+	logger.Infof(ctx, "Tenant joinable updated, ID: %d, is_joinable: %t", id, joinable)
+	return s.repo.GetTenantByID(ctx, id)
+}
+
 // DeleteTenant removes a tenant by their ID
 func (s *tenantService) DeleteTenant(ctx context.Context, id uint64) error {
 	logger.Info(ctx, "Start deleting tenant")
@@ -202,8 +218,18 @@ func (s *tenantService) DeleteTenant(ctx context.Context, id uint64) error {
 	return nil
 }
 
+// CountTenants returns how many tenant rows exist. Used by
+// UserService.Register to detect the very first user on a fresh
+// deployment (count == 0 → promote to SystemAdmin + create the default
+// workspace); every subsequent user must pick an existing workspace
+// instead. Thin pass-through to the repo's COUNT query — see
+// tenantRepository.CountTenants for index / soft-delete notes.
+func (s *tenantService) CountTenants(ctx context.Context) (int64, error) {
+	return s.repo.CountTenants(ctx)
+}
+
 // ListAllTenants lists all tenants (for users with cross-tenant access permission)
-// This method returns all tenants without filtering, intended for admin users
+// This function returns all tenants without filtering, intended for admin users
 func (s *tenantService) ListAllTenants(ctx context.Context) ([]*types.Tenant, error) {
 	tenants, err := s.repo.ListTenants(ctx)
 	if err != nil {
@@ -213,6 +239,32 @@ func (s *tenantService) ListAllTenants(ctx context.Context) ([]*types.Tenant, er
 
 	logger.Infof(ctx, "All tenants list retrieved successfully, total: %d", len(tenants))
 	return tenants, nil
+}
+
+// ListJoinableTenants returns tenants flagged is_joinable=true and active.
+// Backed by the same repo.ListTenants as the admin path; we filter
+// in-service so callers can use the slim result without dragging in
+// inactive rows. Ordered by name (stable for UI).
+func (s *tenantService) ListJoinableTenants(ctx context.Context) ([]*types.Tenant, error) {
+	tenants, err := s.repo.ListTenants(ctx)
+	if err != nil {
+		logger.ErrorWithFields(ctx, err, nil)
+		return nil, err
+	}
+	out := make([]*types.Tenant, 0, len(tenants))
+	for _, t := range tenants {
+		if t == nil {
+			continue
+		}
+		if !t.IsJoinable || t.Status != "active" {
+			continue
+		}
+		out = append(out, t)
+	}
+	// Stable sort by name so the dropdown doesn't reshuffle between
+	// page loads (helps autofill / browser-side caching).
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
 }
 
 // BulkSetStorageQuota delegates to the repository. Validation is

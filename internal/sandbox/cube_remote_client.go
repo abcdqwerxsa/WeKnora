@@ -1030,7 +1030,7 @@ func buildShellLine(cmd string, args []string) string {
 // callers actually need to pipe data.
 func wrapWithStdin(line, stdin string) string {
 	// Use a heredoc delimiter unlikely to appear in caller data.
-	const delim = "WEKNORA_STDIN_EOF"
+	const delim = "LUOSA_STDIN_EOF"
 	// Escape lines containing the delimiter defensively.
 	safe := strings.ReplaceAll(stdin, delim, "")
 	return "cat <<'" + delim + "' | " + line + "\n" + safe + "\n" + delim

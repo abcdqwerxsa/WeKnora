@@ -16,7 +16,7 @@ import (
 // from the ./web directory if it exists. Must be called BEFORE auth middleware
 // so static files are served without authentication.
 func serveFrontendStatic(r *gin.Engine) {
-	webDir := os.Getenv("WEKNORA_WEB_DIR")
+	webDir := os.Getenv("LUOSA_WEB_DIR")
 	if webDir == "" {
 		webDir = "./web"
 	}

@@ -19,7 +19,7 @@ COPY nginx-api-proxy.conf /etc/nginx/api-proxy.conf
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
-ENV MAX_FILE_SIZE_MB=50
+ENV MAX_FILE_SIZE_MB=1024
 
 EXPOSE 80
 

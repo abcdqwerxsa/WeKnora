@@ -84,6 +84,15 @@ type CustomAgentService interface {
 	// It is independent of whether starter suggestions are enabled and is used
 	// as a source/fallback for contextual follow-up generation.
 	GetKnowledgeSuggestedQuestions(ctx context.Context, agentID string, kbIDs []string, knowledgeIDs []string, tagScopes []types.TagScope, limit int) ([]types.SuggestedQuestion, error)
+
+	// ResetBuiltinAgentToDefault discards the persisted DB row for a built-in
+	// agent so subsequent reads fall back to the YAML registry. Other tenant
+	// customisations on the row are preserved in the returned registry view
+	// (which is read-only by definition) but not in storage; callers that
+	// want to keep customisations must save through UpdateAgent instead.
+	// No-op when the agent is not a built-in ID — callers should reject that
+	// case at the router/handler layer.
+	ResetBuiltinAgentToDefault(ctx context.Context, id string) (*types.CustomAgent, error)
 }
 
 // CustomAgentRepository defines the custom agent repository interface
@@ -132,6 +141,13 @@ type CustomAgentRepository interface {
 	// Returns:
 	//   - Possible errors such as record not existing, database errors, etc.
 	DeleteAgent(ctx context.Context, id string, tenantID uint64) error
+
+	// HardDeleteAgent removes an agent AND any soft-deleted row sharing
+	// the same (id, tenant_id) primary key. Used by the "reset to YAML
+	// default" flow, which must free the unique-constraint slot so the
+	// next save can INSERT cleanly. Distinct from DeleteAgent (soft
+	// delete preserves audit history for user-initiated deletions).
+	HardDeleteAgent(ctx context.Context, id string, tenantID uint64) error
 
 	// CountByModelID counts active agents in the tenant whose config references
 	// the given model ID (chat, rerank, VLM, ASR, query-understand, etc.).

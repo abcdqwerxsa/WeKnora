@@ -56,7 +56,7 @@ func (e *MissingSkillEnvError) Error() string {
 // This is the second layer of reserved-name protection. Task 2's write-time
 // blacklist is the first, but a value written before that blacklist existed
 // would still be in the database, and letting it land on
-// WEKNORA_SKILL_OUTPUT_DIR would silently redirect the turn's artifacts to a
+// LUOSA_SKILL_OUTPUT_DIR would silently redirect the turn's artifacts to a
 // directory nobody drains. Skipping existing keys makes that impossible
 // regardless of what is stored.
 func ApplyResolvedEnv(env, resolved map[string]string) {

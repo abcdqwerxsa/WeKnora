@@ -25,7 +25,7 @@ func getMaxMessageSize() int {
 			return size * 1024 * 1024
 		}
 	}
-	return 50 * 1024 * 1024
+	return 1024 * 1024 * 1024 // default 1 GiB
 }
 
 // GRPCDocumentReader implements DocumentReader over gRPC.

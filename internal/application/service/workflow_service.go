@@ -20,6 +20,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Tencent/WeKnora/internal/agent/tools"
 	wfengine "github.com/Tencent/WeKnora/internal/agent/workflow"
 	"github.com/Tencent/WeKnora/internal/agent/workflow/nodes"
 	apprepo "github.com/Tencent/WeKnora/internal/application/repository"
@@ -27,6 +28,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/mcp"
 	"github.com/Tencent/WeKnora/internal/models/chat"
+	"github.com/Tencent/WeKnora/internal/models/rerank"
 	"github.com/Tencent/WeKnora/internal/sandbox"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
@@ -70,6 +72,9 @@ var (
 	// ErrWorkflowNotPublishable: publish prerequisites failed (wraps the
 	// reason, e.g. DSL does not compile).
 	ErrWorkflowNotPublishable = errors.New("workflow cannot be published")
+	// ErrWorkflowNodeNotRunnable: the requested node cannot run in
+	// isolation (missing from the draft, Start, or an Iteration node).
+	ErrWorkflowNodeNotRunnable = errors.New("this node cannot be run in isolation")
 )
 
 // workflowDSLShape is the minimal structural view used to validate the DSL
@@ -163,6 +168,18 @@ func validateWorkflowFields(name, description, status string, dsl types.JSON) er
 	return nil
 }
 
+// AgentServiceRef defers AgentService resolution to first use.
+// WorkflowService and AgentService depend on each other only at run time
+// (the workflow Agent node calls AgentService.CreateAgentEngine; AgentService
+// builds workflow tools off WorkflowService), but wiring both through their
+// constructors is a cycle uber/dig rejects at startup. WorkflowService holds
+// this ref; NewAgentService fills it when the container is invoked, which
+// main guarantees completes before the HTTP server accepts traffic.
+type AgentServiceRef struct{ svc interfaces.AgentService }
+
+func (r *AgentServiceRef) Set(svc interfaces.AgentService) { r.svc = svc }
+func (r *AgentServiceRef) Get() interfaces.AgentService    { return r.svc }
+
 // workflowService implements interfaces.WorkflowService.
 type workflowService struct {
 	repo     interfaces.WorkflowRepository
@@ -178,8 +195,18 @@ type workflowService struct {
 	// sandboxes resolves the tenant's sandbox backend for the Code node
 	// (nil in Lite mode → the node fails with a clear message).
 	sandboxes sandbox.TenantSandboxResolver
-	// agents runs one ReAct turn for the Agent node (nil → clear node error).
-	agents interfaces.AgentService
+	// agents runs one ReAct turn for the Agent node. Held via AgentServiceRef
+	// to break the WorkflowService ⇄ AgentService constructor cycle (see
+	// AgentServiceRef). Resolved at run time; nil → clear node error.
+	agents *AgentServiceRef
+	// customAgents backs the Agent node's agent_id reuse path: load a tenant
+	// CustomAgent and run it through the same engine entry chat uses.
+	customAgents interfaces.CustomAgentService
+	// tempDocs resolves workflow run attachments (uploaded at run time).
+	// nil in deployments without a TemporaryDocumentService wired — the
+	// attachmentPrompt helper detects that and returns a clear error
+	// instead of nil-panicking on the first attachment.
+	tempDocs interfaces.TemporaryDocumentService
 	// mcpClients + mcpServices back the MCPTool node adapter. mcpClients is
 	// a one-method view of *mcp.MCPManager so tests can fake the client pool.
 	mcpClients  mcpClientProvider
@@ -210,7 +237,8 @@ func NewWorkflowService(
 	webSearch interfaces.WebSearchService,
 	webSearchProviders interfaces.WebSearchProviderRepository,
 	sandboxes sandbox.TenantSandboxResolver,
-	agents interfaces.AgentService,
+	agents *AgentServiceRef,
+	customAgents interfaces.CustomAgentService,
 	mcpManager *mcp.MCPManager,
 	mcpServices interfaces.MCPServiceService,
 ) interfaces.WorkflowService {
@@ -229,12 +257,16 @@ func NewWorkflowService(
 		webSearchProviders: webSearchProviders,
 		sandboxes:          sandboxes,
 		agents:             agents,
+		customAgents:       customAgents,
 		mcpClients:         mcpManager,
 		mcpServices:        mcpServices,
 		redis:              redisClient,
 		ckptKV:             ckptKV,
 		runs:               newWorkflowRunBroker(),
 		cancels:            newWorkflowRunCancels(),
+		// tempDocs intentionally nil until a TemporaryDocumentService is
+		// wired through the dependency graph. attachmentPrompt guards.
+		tempDocs:           nil,
 	}
 }
 
@@ -518,6 +550,7 @@ func (s *workflowService) RunWorkflow(ctx context.Context, id string, req *types
 	if err != nil {
 		return nil, err
 	}
+	dropFloatingComponents(normalized)
 	if verr := validateRunInputs(normalized, req); verr != nil {
 		return nil, verr
 	}
@@ -566,7 +599,134 @@ func (s *workflowService) RunWorkflow(ctx context.Context, id string, req *types
 		return run, nil
 	}
 
-	return run, s.executeWorkflowRun(ctx, run, wf, normalized, req)
+	return run, s.executeWorkflowRun(ctx, run, wf, normalized, req, nil)
+}
+
+// RunWorkflowNode executes a SINGLE node of the workflow's DRAFT DSL with
+// injected upstream outputs (n8n-style step debugging): the editor passes
+// inputs (upstream nodeID -> param -> value, usually the previous run's
+// recorded outputs); they are seeded into the run's canvas state so
+// {upstream@param} template refs resolve without executing the upstreams.
+// Runs synchronously and persists a workflow_runs row like RunWorkflow —
+// the trace/SSE/history machinery then applies unchanged.
+// synthesizeStartSeeds backfills seed entries for Start components so
+// {start@query}-style refs resolve in single-node runs. In a full run the
+// Start node echoes the request (query/files) plus field defaults; in a
+// node run it never executes, so an editor that sends no (or partial)
+// upstream inputs would leave every Start ref unresolved. The synthesis
+// mirrors startNode.Invoke minus the live request: query/files get neutral
+// empty values, declared fields fall back to their defaults. User-supplied
+// seed values always win (only missing keys are filled).
+func synthesizeStartSeeds(dsl *wfengine.DSL, seed map[string]map[string]any) {
+	for id, comp := range dsl.Components {
+		if comp == nil || !strings.EqualFold(comp.Obj.ComponentName, nodes.ComponentStart) {
+			continue
+		}
+		out := seed[id]
+		if out == nil {
+			out = map[string]any{}
+			seed[id] = out
+		}
+		if _, ok := out["query"]; !ok {
+			out["query"] = ""
+		}
+		if _, ok := out["files"]; !ok {
+			out["files"] = []any{}
+		}
+		for _, f := range parseStartFields(comp.Obj.Params) {
+			if f.Name == "" || f.Default == "" {
+				continue
+			}
+			if _, ok := out[f.Name]; !ok {
+				out[f.Name] = f.Default
+			}
+		}
+	}
+}
+
+// parseStartFields decodes params.fields into the engine's StartField shape
+// via a JSON round-trip (params arrive as generic maps from the DSL doc).
+func parseStartFields(params map[string]any) []nodes.StartField {
+	raw, ok := params["fields"]
+	if !ok || raw == nil {
+		return nil
+	}
+	blob, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var fields []nodes.StartField
+	if err := json.Unmarshal(blob, &fields); err != nil {
+		return nil
+	}
+	return fields
+}
+
+func (s *workflowService) RunWorkflowNode(ctx context.Context, id, nodeID string, req *types.RunWorkflowNodeRequest) (*types.WorkflowRun, error) {
+	tenantID, ok := types.TenantIDFromContext(ctx)
+	if !ok || tenantID == 0 {
+		return nil, ErrWorkflowTenantRequired
+	}
+	if req == nil {
+		req = &types.RunWorkflowNodeRequest{}
+	}
+	wf, err := s.repo.GetWorkflowByIDAndTenant(ctx, id, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	// Editor-only debug affordance: always the DRAFT DSL (a published
+	// snapshot may lag the node being debugged), gated like other draft runs.
+	if !canDebugUnpublished(ctx, wf) {
+		return nil, ErrWorkflowNotDebuggable
+	}
+	normalized, err := s.normalizeDSLBytes(wf.DSL)
+	if err != nil {
+		return nil, err
+	}
+	comp, ok := normalized.Components[nodeID]
+	if !ok {
+		return nil, fmt.Errorf("%w: node %q is not in the draft DSL", ErrWorkflowNodeNotRunnable, nodeID)
+	}
+	if strings.EqualFold(comp.Obj.ComponentName, nodes.ComponentStart) {
+		return nil, fmt.Errorf("%w: the Start node has nothing to inject and nothing to debug", ErrWorkflowNodeNotRunnable)
+	}
+	if strings.EqualFold(comp.Obj.ComponentName, nodes.ComponentIteration) {
+		return nil, fmt.Errorf("%w: Iteration nodes need their loop body context; run the whole workflow instead", ErrWorkflowNodeNotRunnable)
+	}
+
+	// Sub-DSL: the lone node, no edges — it is both the entry and the
+	// terminal, which is exactly the shape Compile validates for. Variables
+	// carry over so {env.*} refs keep working.
+	cp := *comp
+	cp.Upstream = []string{}
+	cp.Downstream = []string{}
+	sub := &wfengine.DSL{
+		Version:    normalized.Version,
+		Variables:  normalized.Variables,
+		Components: map[string]*wfengine.Component{nodeID: &cp},
+	}
+
+	// Normalize the injected upstream outputs to the engine's wire shape.
+	seed := make(map[string]map[string]any, len(req.Inputs))
+	for upstreamID, params := range req.Inputs {
+		if m, ok := params.(map[string]any); ok {
+			seed[upstreamID] = m
+		}
+	}
+	synthesizeStartSeeds(normalized, seed)
+
+	inputDoc, _ := json.Marshal(map[string]any{"node_id": nodeID, "inputs": req.Inputs})
+	run := &types.WorkflowRun{
+		ID:         uuid.New().String(),
+		TenantID:   tenantID,
+		WorkflowID: id,
+		Status:     types.WorkflowRunStatusPending,
+		Input:      types.JSON(inputDoc),
+	}
+	if err := s.repo.CreateWorkflowRun(ctx, run); err != nil {
+		return nil, err
+	}
+	return run, s.executeWorkflowRun(ctx, run, wf, sub, &types.RunWorkflowRequest{}, seed)
 }
 
 // ProcessWorkflowRun is the asynq handler for types.TypeWorkflowRun.
@@ -619,7 +779,7 @@ func (s *workflowService) ProcessWorkflowRun(ctx context.Context, t *asynq.Task)
 	}
 	req := &types.RunWorkflowRequest{Query: payload.Query, Files: payload.Files, Inputs: payload.Inputs, Async: true}
 	// Execution errors are already persisted as the run's terminal state.
-	_ = s.executeWorkflowRun(ctx, run, wf, normalized, req)
+	_ = s.executeWorkflowRun(ctx, run, wf, normalized, req, nil)
 	return nil
 }
 
@@ -640,7 +800,54 @@ func (s *workflowService) normalizeDSLBytes(raw types.JSON) (*wfengine.DSL, erro
 // normalizeWorkflowDSL unmarshals and normalizes the stored DSL document.
 // Shape errors are ErrWorkflowInvalidDSL (400 semantics, no run row).
 func (s *workflowService) normalizeWorkflowDSL(wf *types.Workflow) (*wfengine.DSL, error) {
-	return s.normalizeDSLBytes(dslForRun(wf))
+	normalized, err := s.normalizeDSLBytes(dslForRun(wf))
+	if err != nil {
+		return nil, err
+	}
+	// Full-graph view: stray floating nodes are dropped so they neither
+	// block validation nor dangle in a compiled graph. Consumed by the async
+	// run handler and publish checks; node-run sub-DSLs bypass this.
+	dropFloatingComponents(normalized)
+	return normalized, nil
+}
+
+// dropFloatingComponents removes top-level components with no incoming
+// and no outgoing edges (a stray node left on the canvas) so they neither
+// count as graph entries nor dangle unreachable inside the compiled eino
+// graph. Iteration components and loop-body members (Parent set) are
+// exempt — a floating Iteration still runs its nested body, and a
+// single-node body is the legal "one entry + one terminal" shape inside
+// its parent. Node-run sub-DSLs never pass through here: their single node
+// IS the floating shape by construction.
+func dropFloatingComponents(dsl *wfengine.DSL) {
+	if dsl == nil {
+		return
+	}
+	targeted := map[string]bool{}
+	for _, comp := range dsl.Components {
+		if comp == nil {
+			continue
+		}
+		for _, d := range comp.Downstream {
+			targeted[d] = true
+		}
+	}
+	for id, comp := range dsl.Components {
+		if comp == nil {
+			delete(dsl.Components, id)
+			continue
+		}
+		// Iteration components are exempt — their executable body lives in
+		// the nested graph, so an outer-floating Iteration is still runnable.
+		// Body members (Parent set) are exempt too — a single-node body is
+		// the legal "one entry + one terminal" shape inside its parent.
+		if comp.Parent != "" || strings.EqualFold(comp.Obj.ComponentName, nodes.ComponentIteration) {
+			continue
+		}
+		if !targeted[id] && len(comp.Downstream) == 0 {
+			delete(dsl.Components, id)
+		}
+	}
 }
 
 // answerStreamSource reports the node id whose LLM deltas are the live
@@ -681,6 +888,7 @@ func (s *workflowService) executeWorkflowRun(
 	wf *types.Workflow,
 	normalized *wfengine.DSL,
 	req *types.RunWorkflowRequest,
+	seedOutputs map[string]map[string]any,
 ) error {
 	run.Status = types.WorkflowRunStatusRunning
 	if err := s.repo.UpdateWorkflowRun(ctx, run); err != nil {
@@ -819,6 +1027,7 @@ func (s *workflowService) executeWorkflowRun(
 		// re-invoked. Lite mode (nil KV) degrades to fresh runs.
 		CheckpointID: run.ID,
 		Inputs:       req.Inputs,
+		SeedOutputs:  seedOutputs,
 	})
 	if rerr != nil {
 		s.failWorkflowRunWithTrace(ctx, run, rerr, traceJSON)
@@ -844,6 +1053,10 @@ func (s *workflowService) executeWorkflowRun(
 	run.Status = types.WorkflowRunStatusSucceeded
 	run.Output = types.JSON(outJSON)
 	run.Trace = traceJSON()
+	// A resumed run may carry the failed attempt's error text; success is
+	// terminal and the row must not keep advertising the old failure (the
+	// map-based repo update persists "" verbatim).
+	run.Error = ""
 	if uerr := s.repo.UpdateWorkflowRun(ctx, run); uerr != nil {
 		logger.Errorf(ctx, "workflow run %s terminal update failed: %v", run.ID, uerr)
 		return uerr
@@ -1247,7 +1460,7 @@ func (s *workflowService) runWebSearch(ctx context.Context, req nodes.WebSearchR
 // codeInputEnvVar carries the rendered variables object into the sandbox.
 // Env, not stdin: stdin passes the injection validator and arbitrary user
 // variable values could trip it on false positives.
-const codeInputEnvVar = "WEKNORA_WORKFLOW_INPUT"
+const codeInputEnvVar = "LUOSA_WORKFLOW_INPUT"
 
 // runCode adapts the engine's CodeFunc onto the tenant's sandbox backend.
 // Empty SessionID selects the ephemeral one-shot sandbox (allocated for this
@@ -1356,7 +1569,7 @@ func tail(s string, n int) string {
 // turn: synthetic session/message ids, no history, no session or message
 // persistence; the engine's event bus is a throwaway with no subscribers.
 func (s *workflowService) runAgent(ctx context.Context, req nodes.AgentRequest) (string, error) {
-	if s.agents == nil {
+	if s.agents == nil || s.agents.Get() == nil {
 		return "", errors.New("workflow Agent: agent runtime unavailable")
 	}
 	if s.models == nil {
@@ -1365,6 +1578,9 @@ func (s *workflowService) runAgent(ctx context.Context, req nodes.AgentRequest) 
 	tenantID, ok := types.TenantIDFromContext(ctx)
 	if !ok || tenantID == 0 {
 		return "", ErrWorkflowTenantRequired
+	}
+	if id := strings.TrimSpace(req.AgentID); id != "" {
+		return s.runPlatformAgent(ctx, tenantID, id, req.Prompt)
 	}
 	modelID := strings.TrimSpace(req.Model)
 	if modelID == "" {
@@ -1395,7 +1611,7 @@ func (s *workflowService) runAgent(ctx context.Context, req nodes.AgentRequest) 
 		}
 	}
 	// A throwaway event bus keeps engine-internal streaming a no-op.
-	engine, err := s.agents.CreateAgentEngine(ctx, cfg, chatModel, nil, event.NewEventBus(), "workflow-agent-node", "")
+	engine, err := s.agents.Get().CreateAgentEngine(ctx, cfg, chatModel, nil, event.NewEventBus(), "workflow-agent-node", "")
 	if err != nil {
 		return "", fmt.Errorf("workflow Agent: engine setup failed: %w", err)
 	}
@@ -1404,6 +1620,138 @@ func (s *workflowService) runAgent(ctx context.Context, req nodes.AgentRequest) 
 	}
 	// llmContext nil = fresh single turn; synthetic ids are logging metadata only.
 	state, err := engine.Execute(ctx, "workflow-agent-node", "workflow-agent-node", req.Prompt, nil)
+	if err != nil {
+		return "", fmt.Errorf("workflow Agent: turn failed: %w", err)
+	}
+	if state == nil || strings.TrimSpace(state.FinalAnswer) == "" {
+		return "", errors.New("workflow Agent: turn produced no final answer")
+	}
+	return state.FinalAnswer, nil
+}
+
+// runPlatformAgent runs one stateless turn of a tenant CustomAgent inside a
+// workflow node: load the agent by id, rebuild the full AgentConfig the same
+// way the chat path does (session_agent_qa.buildAgentConfig), and drive the
+// same CreateAgentEngine entry. Deliberate divergences from chat:
+//   - MultiTurn/History stay off — a workflow node is a single call and its
+//     context flows through the canvas state, not a session;
+//   - per-turn @Skill / @MCP scoping has no workflow equivalent, so the
+//     agent's own selection is used verbatim;
+//   - KB sharing across tenants is not resolved here: search targets are
+//     bound to the running workspace;
+//   - sandbox/skills support is partial: TenantSkills (installed skill
+//     lists) are not populated and remote sandbox backends need a real
+//     sessions row to pin, so skill tools and remote sandboxes degrade to
+//     a warn-and-skip (local backends still get shell/file tools under the
+//     per-agent sandbox key below);
+//   - no global LLMCallTimeout fallback / tenant WebSearchConfig override /
+//     model-window MaxContextTokens sizing, and a missing RerankModelID
+//     silently runs KB search without rerank (chat errors instead).
+//
+// ponytail: KB-share target resolution + TenantSkills population omitted;
+// port session_knowledge_qa buildSearchTargets / skillsForRun if
+// cross-tenant KB or sandbox-skill agents must run fully in workflows.
+func (s *workflowService) runPlatformAgent(ctx context.Context, tenantID uint64, agentID, prompt string) (string, error) {
+	if s.customAgents == nil {
+		return "", errors.New("workflow Agent: custom agent service unavailable")
+	}
+	ca, err := s.customAgents.GetAgentByID(ctx, agentID)
+	if err != nil {
+		return "", fmt.Errorf("workflow Agent: load agent %q: %w", agentID, err)
+	}
+	if ca == nil {
+		return "", fmt.Errorf("workflow Agent: agent %q not found in this workspace", agentID)
+	}
+	ca.EnsureDefaults()
+	// Guard the UI filter server-side: quick-answer agents are chat RAG
+	// presets (context-template driven), running them through the ReAct
+	// engine would ignore half their config.
+	if ca.Config.AgentMode == types.AgentModeQuickAnswer {
+		return "", fmt.Errorf("workflow Agent: agent %q is a quick-answer agent (only smart-reasoning agents can be reused in workflows)", agentID)
+	}
+
+	modelID := strings.TrimSpace(ca.Config.ModelID)
+	if modelID == "" {
+		if modelID, err = s.defaultChatModelID(ctx); err != nil {
+			return "", err
+		}
+	}
+	chatModel, err := s.models.GetChatModel(ctx, modelID)
+	if err != nil {
+		return "", fmt.Errorf("workflow Agent: model %q unavailable: %w", modelID, err)
+	}
+	var rerankModel rerank.Reranker
+	if strings.TrimSpace(ca.Config.RerankModelID) != "" && len(ca.Config.KnowledgeBases) > 0 {
+		if rerankModel, err = s.models.GetRerankModel(ctx, ca.Config.RerankModelID); err != nil {
+			return "", fmt.Errorf("workflow Agent: rerank model %q unavailable: %w", ca.Config.RerankModelID, err)
+		}
+	}
+
+	cfg := &types.AgentConfig{
+		MaxIterations:               ca.Config.MaxIterations,
+		Temperature:                 ca.Config.Temperature,
+		MaxCompletionTokens:         ca.Config.MaxCompletionTokens,
+		LLMCallTimeout:              ca.Config.LLMCallTimeout,
+		Thinking:                    ca.Config.Thinking,
+		CitationEnabled:             ca.Config.CitationEnabled,
+		WebSearchEnabled:            ca.Config.WebSearchEnabled,
+		WebSearchMaxResults:         ca.Config.WebSearchMaxResults,
+		WebSearchProviderID:         ca.Config.WebSearchProviderID,
+		MemoryEnabled:               ca.Config.MemoryEnabled,
+		MCPSelectionMode:            ca.Config.MCPSelectionMode,
+		MCPServices:                 ca.Config.MCPServices,
+		MCPAuthWaitTimeout:          ca.Config.MCPAuthWaitTimeout,
+		RetrieveKBOnlyWhenMentioned: ca.Config.RetrieveKBOnlyWhenMentioned,
+		RetainRetrievalHistory:      ca.Config.RetainRetrievalHistory,
+		VLMModelID:                  ca.Config.VLMModelID,
+		SandboxConfigID:             ca.Config.SandboxConfigID,
+		KnowledgeBases:              ca.Config.KnowledgeBases,
+	}
+	if ca.Config.SystemPrompt != "" {
+		cfg.UseCustomSystemPrompt = true
+		cfg.SystemPrompt = ca.Config.SystemPrompt
+	}
+	if len(ca.Config.AllowedTools) > 0 {
+		cfg.AllowedTools = ca.Config.AllowedTools
+	} else {
+		cfg.AllowedTools = tools.DefaultAllowedTools()
+	}
+	// Skills/sandbox selection mirrors configureSkillsFromAgent (chat path).
+	switch ca.Config.SkillsSelectionMode {
+	case "all":
+		cfg.SkillsEnabled = true
+	case "selected":
+		if len(ca.Config.SelectedSkills) > 0 {
+			cfg.SkillsEnabled = true
+			cfg.AllowedSkills = ca.Config.SelectedSkills
+		}
+	}
+	if cfg.WebSearchMaxResults == 0 {
+		cfg.WebSearchMaxResults = 5
+	}
+	if cfg.WebSearchProviderID == "" && s.webSearchProviders != nil {
+		if p, perr := s.webSearchProviders.GetDefault(ctx, tenantID); perr == nil && p != nil {
+			cfg.WebSearchProviderID = p.ID
+		}
+	}
+	for _, kbID := range ca.Config.KnowledgeBases {
+		cfg.SearchTargets = append(cfg.SearchTargets, &types.SearchTarget{
+			Type:            types.SearchTargetTypeKnowledgeBase,
+			KnowledgeBaseID: kbID,
+			TenantID:        tenantID,
+		})
+	}
+
+	// Throwaway event bus: engine-internal streaming is a no-op. The synthetic
+	// per-agent session id keeps each reused agent on its own sandbox key (no
+	// cross-agent file contamination on local backends); remote backends that
+	// need a real sessions row fail the pin and degrade to warn-and-skip.
+	workflowSessionID := "workflow-agent-" + agentID
+	engine, err := s.agents.Get().CreateAgentEngine(ctx, cfg, chatModel, rerankModel, event.NewEventBus(), workflowSessionID, "")
+	if err != nil {
+		return "", fmt.Errorf("workflow Agent: engine setup failed: %w", err)
+	}
+	state, err := engine.Execute(ctx, workflowSessionID, workflowSessionID, prompt, nil)
 	if err != nil {
 		return "", fmt.Errorf("workflow Agent: turn failed: %w", err)
 	}
@@ -1505,6 +1853,89 @@ type mcpClientProvider interface {
 	GetOrCreateClient(ctx context.Context, service *types.MCPService) (mcp.MCPClient, error)
 }
 
+// WorkflowAttachmentScope derives the temporary-document session scope for
+// a workflow's run attachments. Deterministic on both the upload side (the
+// run-attachments endpoints) and the resolve side (run execution), so no
+// real chat session is needed.
+//
+// The temporary_documents.session_id column is VARCHAR(36) (sized for chat
+// session UUIDs), so the scope compacts the workflow UUID: "wf-" + the 32
+// hex chars (dashes stripped) = 35 chars. Uniqueness is preserved (same
+// UUID, minus cosmetic dashes).
+func WorkflowAttachmentScope(workflowID string) string {
+	return "wf-" + strings.ReplaceAll(workflowID, "-", "")
+}
+
+// attachmentPrompt resolves run files into the prompt section prepended to
+// the system message. Errors surface loudly: silently dropping attached
+// documents would produce confidently wrong answers.
+func (s *workflowService) attachmentPrompt(ctx context.Context, scope, query string, files []string) (string, error) {
+	if s.tempDocs == nil {
+		return "", errors.New("workflow: run attachments are not available on this deployment")
+	}
+	tenantID, _ := types.TenantIDFromContext(ctx)
+	res, err := s.tempDocs.ResolveForPrompt(ctx, tenantID, scope, files, query)
+	if err != nil {
+		return "", fmt.Errorf("workflow: resolve run attachments: %w", err)
+	}
+	if len(res.Attachments) == 0 {
+		return "", nil
+	}
+	atts := make(types.MessageAttachments, 0, len(res.Attachments))
+	atts = append(atts, res.Attachments...)
+	return atts.BuildPrompt(), nil
+}
+
+func (s *workflowService) runLLMWithAttachments(ctx context.Context, scope, query string, files []string, req nodes.LLMRequest) (string, error) {
+	extra, aerr := s.attachmentPrompt(ctx, scope, query, files)
+	if aerr != nil {
+		return "", aerr
+	}
+	if extra != "" {
+		req.SystemPrompt = strings.Join(nonEmpty(req.SystemPrompt, extra), "\n\n")
+	}
+	return s.runLLM(ctx, req)
+}
+
+func (s *workflowService) runLLMStreamWithAttachments(ctx context.Context, scope, query string, files []string, req nodes.LLMRequest, onDelta func(string)) (string, error) {
+	extra, aerr := s.attachmentPrompt(ctx, scope, query, files)
+	if aerr != nil {
+		return "", aerr
+	}
+	if extra != "" {
+		req.SystemPrompt = strings.Join(nonEmpty(req.SystemPrompt, extra), "\n\n")
+	}
+	return s.runLLMStream(ctx, req, onDelta)
+}
+
+func (s *workflowService) runAgentWithAttachments(ctx context.Context, scope, query string, files []string, req nodes.AgentRequest) (string, error) {
+	extra, aerr := s.attachmentPrompt(ctx, scope, query, files)
+	if aerr != nil {
+		return "", aerr
+	}
+	if extra != "" {
+		if strings.TrimSpace(req.AgentID) != "" {
+			// agent_id mode ignores SystemPrompt; the rendered prompt is the
+			// only text reaching the turn, so attachments ride on it.
+			req.Prompt = strings.Join(nonEmpty(req.Prompt, extra), "\n\n")
+		} else {
+			req.SystemPrompt = strings.Join(nonEmpty(req.SystemPrompt, extra), "\n\n")
+		}
+	}
+	return s.runAgent(ctx, req)
+}
+
+// nonEmpty filters empty strings.
+func nonEmpty(parts ...string) []string {
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // runLLMStream is the streaming sibling of runLLM: identical resolution
 // and message assembly, but consumes ChatStream and forwards each chunk to
 // onDelta while accumulating the full text. Errors mid-stream fail the call
@@ -1527,9 +1958,14 @@ func (s *workflowService) runLLMStream(ctx context.Context, req nodes.LLMRequest
 		msgs = append(msgs, chat.Message{Role: "system", Content: req.SystemPrompt})
 	}
 	msgs = append(msgs, chat.Message{Role: "user", Content: req.Prompt})
-	opts := &chat.ChatOptions{Temperature: req.Temperature}
+	opts := &chat.ChatOptions{Temperature: req.Temperature, ExplicitTemperature: req.TemperatureSet}
 	if req.MaxTokens > 0 {
-		opts.MaxCompletionTokens = req.MaxTokens
+		// MaxTokens (wire: max_tokens), not MaxCompletionTokens: most
+		// OpenAI-compatible backends (Ollama, DeepSeek, vLLM, proxies)
+		// ignore max_completion_tokens (#2604). OpenAI o-series/GPT-5 is
+		// still covered — shapeOpenAIReasoning migrates max_tokens at
+		// request-shaping time.
+		opts.MaxTokens = req.MaxTokens
 	}
 	ch, err := model.ChatStream(ctx, msgs, opts)
 	if err != nil {
@@ -1537,11 +1973,18 @@ func (s *workflowService) runLLMStream(ctx context.Context, req nodes.LLMRequest
 	}
 	var b strings.Builder
 	for resp := range ch {
-		if resp.Content != "" {
-			b.WriteString(resp.Content)
-			if onDelta != nil {
-				onDelta(resp.Content)
-			}
+		if resp.Content == "" {
+			continue
+		}
+		// Only the answer track becomes node output: thinking models emit
+		// their reasoning as ResponseTypeThinking frames on this same channel,
+		// and error/tool frames must not leak into the recorded content either.
+		if resp.ResponseType != types.ResponseTypeAnswer && resp.ResponseType != "" {
+			continue
+		}
+		b.WriteString(resp.Content)
+		if onDelta != nil {
+			onDelta(resp.Content)
 		}
 	}
 	if b.Len() == 0 {
@@ -1574,9 +2017,11 @@ func (s *workflowService) runLLM(ctx context.Context, req nodes.LLMRequest) (str
 		msgs = append(msgs, chat.Message{Role: "system", Content: req.SystemPrompt})
 	}
 	msgs = append(msgs, chat.Message{Role: "user", Content: req.Prompt})
-	opts := &chat.ChatOptions{Temperature: req.Temperature}
+	opts := &chat.ChatOptions{Temperature: req.Temperature, ExplicitTemperature: req.TemperatureSet}
 	if req.MaxTokens > 0 {
-		opts.MaxCompletionTokens = req.MaxTokens
+		// See runLLMStream: max_tokens is the field OpenAI-compatible
+		// backends actually honor.
+		opts.MaxTokens = req.MaxTokens
 	}
 	resp, err := model.Chat(ctx, msgs, opts)
 	if err != nil {

@@ -33,23 +33,34 @@
         </div>
       </template>
       <template v-else>
-        <div
-          v-for="row in rows"
-          :key="row.path || '__root__'"
-          class="kb-folder-row"
-          :class="{
-            active: selectedPath === row.path,
-            'is-root': row.kind === 'root',
-            'is-editable': canEdit && row.kind === 'folder',
-            'is-menu-open': menuOpenPath === row.path,
-          }"
-          :style="{ '--kb-folder-depth': row.depth }"
-          :title="row.kind === 'root' ? t('knowledgeBase.folderTree.rootRowTip') : row.path"
-          role="button"
-          tabindex="0"
-          @click="emit('select', row.path)"
-          @keydown.enter="emit('select', row.path)"
-        >
+        <template v-for="row in rows" :key="row.kind === 'separator' ? row.id : (row.kind === 'file' ? `file-${row.file.id}` : (row.path || '__root__'))">
+          <div
+            v-if="row.kind === 'separator'"
+            class="kb-folder-separator"
+            :style="{ '--kb-folder-depth': row.depth }"
+            role="separator"
+          >
+            <span class="kb-folder-separator__line" aria-hidden="true" />
+            <span class="kb-folder-separator__label">{{ row.label }}</span>
+            <span class="kb-folder-separator__line" aria-hidden="true" />
+          </div>
+          <div
+            v-else
+            class="kb-folder-row"
+            :class="{
+              active: row.kind === 'folder' && selectedPath === row.path,
+              'is-root': row.kind === 'root',
+              'is-editable': canEdit && row.kind === 'folder',
+              'is-menu-open': row.kind === 'folder' && menuOpenPath === row.path,
+              'is-file': row.kind === 'file',
+            }"
+            :style="{ '--kb-folder-depth': row.depth }"
+            :title="row.kind === 'root' ? t('knowledgeBase.folderTree.rootRowTip') : row.path"
+            role="button"
+            tabindex="0"
+            @click="onRowActivate(row)"
+            @keydown.enter="onRowActivate(row)"
+          >
           <span
             v-if="row.hasChildren"
             class="kb-folder-row__toggle"
@@ -79,7 +90,7 @@
             @keydown.esc="cancelRename"
             @blur="commitRename(row)"
           />
-          <template v-else>
+          <template v-else-if="row.kind === 'folder'">
             <span class="kb-folder-row__label">
               {{ row.kind === 'root' ? t('knowledgeBase.folderTree.rootRow') : row.name }}
             </span>
@@ -114,7 +125,22 @@
               </t-popup>
             </span>
           </template>
-        </div>
+          <template v-else-if="row.kind === 'file'">
+            <span class="kb-folder-row__file-icon" aria-hidden="true">
+              <t-icon :name="getFileIcon(row.file)" />
+            </span>
+            <span class="kb-folder-row__file-name" :title="row.file.file_name">
+              {{ row.file.file_name }}
+            </span>
+            <span
+              v-if="row.file.parse_status && row.file.parse_status !== 'success' && row.file.parse_status !== 'completed'"
+              class="kb-folder-row__file-status"
+              :class="`is-${row.file.parse_status}`"
+              :title="row.file.parse_status"
+            />
+          </template>
+          </div>
+        </template>
       </template>
     </div>
   </aside>
@@ -131,15 +157,49 @@ import {
   ROOT_FOLDER_PATH,
   type FolderRow,
 } from '../folderTree'
+import { getFileIcon } from '@/utils/files'
+
+type SidebarFile = {
+  id: string
+  file_name?: string
+  file_type?: string
+  parse_status?: string
+  folder_path?: string
+}
+
+type FileRow = {
+  kind: 'file'
+  file: SidebarFile
+  depth: number
+}
+
+// Separator header between sub-folders and files of the selected folder.
+// It is part of the row stream so it lines up with the existing v-for, but
+// it carries no path / id of its own and renders as a "── 文件 ──" line
+// instead of a clickable folder row. Files are now a separate section from
+// the collapsible tree, so collapsing a folder no longer hides them.
+type SeparatorRow = {
+  kind: 'separator'
+  id: string
+  label: string
+  depth: number
+}
+
+type AnyRow = FolderRow | FileRow | SeparatorRow
 
 const props = withDefaults(defineProps<{
   tree: KnowledgeFolderTree | null
   /** Selected folder path; the empty string is the knowledge base top level. */
   selectedPath: string
+  /** Documents stored directly under the selected folder. They render under
+   *  the selected folder row, after its sub-folders, so the sidebar mirrors
+   *  the main list — clickable to open the document drawer. */
+  files?: SidebarFile[]
   loading?: boolean
   collapsed?: boolean
   canEdit?: boolean
 }>(), {
+  files: () => [],
   loading: false,
   collapsed: false,
   canEdit: false,
@@ -149,6 +209,7 @@ const emit = defineEmits<{
   select: [path: string]
   'update:collapsed': [collapsed: boolean]
   rename: [payload: { from: string; to: string }]
+  'open-file': [item: SidebarFile]
 }>()
 
 const { t } = useI18n()
@@ -162,7 +223,40 @@ const menuOpenPath = ref<string | null>(null)
 const renameValue = ref('')
 const renameInputRef = ref<HTMLInputElement | HTMLInputElement[] | null>(null)
 
-const rows = computed(() => buildFolderRows(props.tree, expanded.value))
+const rows = computed<AnyRow[]>(() => {
+  const fr = buildFolderRows(props.tree, expanded.value)
+  // Files render as a separate "files" section under the selected folder,
+  // NOT as children inside the collapsible tree. The chevron now controls
+  // sub-folders only — collapsing the selected folder leaves the file list
+  // visible, because that list is "what's in this folder" (working context)
+  // rather than "what's inside this tree node".
+  if (!props.files?.length) return fr
+  // The selected folder has to be visible in the tree to anchor the files;
+  // when an ancestor of the selected folder is collapsed, the folder row
+  // itself is hidden and the files would float in space. Drop the files in
+  // that case — the user explicitly hid the branch.
+  const selIdx = fr.findIndex(
+    (r) => (r.kind === 'folder' || r.kind === 'root') && r.path === props.selectedPath,
+  )
+  if (selIdx < 0) return fr
+  const selRow = fr[selIdx]
+  // Splice after the selected folder's own sub-folders so the order is:
+  // folder → its sub-folders → "── 文件 ──" → its files → siblings.
+  let ins = selIdx + 1
+  while (ins < fr.length && fr[ins].depth > selRow.depth) ins++
+  const separator: SeparatorRow = {
+    kind: 'separator',
+    id: `files-${props.selectedPath}`,
+    label: t('knowledgeBase.folderTree.filesHeader', { count: props.files.length }),
+    depth: selRow.depth,
+  }
+  const fileRows: FileRow[] = props.files.map((f) => ({
+    kind: 'file',
+    file: f,
+    depth: selRow.depth + 1,
+  }))
+  return [...fr.slice(0, ins), separator, ...fileRows, ...fr.slice(ins)]
+})
 
 const isExpanded = (path: string) => expanded.value.has(path)
 
@@ -175,6 +269,19 @@ const toggle = (path: string) => {
   if (next.has(path)) next.delete(path)
   else next.add(path)
   expanded.value = next
+}
+
+// Clicking a folder row both selects it and expands it, so the files inside
+// become visible at the same time. The chevron is the only way to collapse:
+// clicking it hides sub-folders and the files together, matching how file
+// managers behave. Files route straight to the document drawer.
+const onRowActivate = (row: AnyRow) => {
+  if (row.kind === 'file') {
+    emit('open-file', row.file)
+    return
+  }
+  if (!expanded.value.has(row.path)) toggle(row.path)
+  emit('select', row.path)
 }
 
 const startRename = async (row: FolderRow) => {
@@ -469,5 +576,76 @@ watch(
   font-family: var(--app-font-family);
   font-size: 13px;
   outline: none;
+}
+.kb-folder-row__file-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+  flex-shrink: 0;
+  color: var(--td-text-color-secondary);
+  font-size: 14px;
+}
+.kb-folder-row__file-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--td-text-color-primary);
+}
+.kb-folder-row__file-status {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--td-success-color);
+  margin-left: 6px;
+}
+.kb-folder-row__file-status.is-failed,
+.kb-folder-row__file-status.is-error {
+  background: var(--td-error-color);
+}
+.kb-folder-row__file-status.is-parsing,
+.kb-folder-row__file-status.is-processing,
+.kb-folder-row__file-status.is-pending {
+  background: var(--td-brand-color);
+}
+.kb-folder-row__file-status.is-draft {
+  background: var(--td-warning-color);
+}
+.kb-folder-row.is-file {
+  cursor: pointer;
+}
+.kb-folder-row.is-file:hover {
+  background: var(--td-bg-color-container-hover);
+}
+
+.kb-folder-separator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 22px;
+  padding: 0 calc(8px + var(--kb-folder-depth, 0) * var(--kb-folder-indent));
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--td-text-color-placeholder);
+  user-select: none;
+}
+
+.kb-folder-separator__line {
+  flex: 1;
+  height: 1px;
+  background: var(--td-component-stroke);
+  min-width: 0;
+}
+
+.kb-folder-separator__label {
+  flex: 0 0 auto;
+  text-transform: uppercase;
 }
 </style>

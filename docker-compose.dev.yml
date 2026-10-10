@@ -104,6 +104,45 @@ services:
       - minio
       - full
 
+  # One-shot MinIO bucket init（dev compose 对称版）。等 minio 健康后用 mc 客户端
+  # 幂等建桶；行为与生产 minio-bucket-init 一致，凭据从 .env 透传（MINIO_ACCESS_KEY_ID /
+  # MINIO_SECRET_ACCESS_KEY / MINIO_BUCKET_NAME），不硬编码。
+  minio-bucket-init:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    container_name: WeKnora-minio-bucket-init-dev
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        echo "[minio-bucket-init-dev] ensuring bucket '${MINIO_BUCKET_NAME}' exists at ${MINIO_ENDPOINT}..."
+        attempt=0
+        until mc alias set local "$${MINIO_ENDPOINT}" "$${MINIO_ACCESS_KEY_ID}" "$${MINIO_SECRET_ACCESS_KEY}" >/dev/null 2>&1; do
+          attempt=$$((attempt + 1))
+          if [ $$attempt -ge 30 ]; then
+            echo "[minio-bucket-init-dev] failed to reach minio at $${MINIO_ENDPOINT} after 30 attempts" >&2
+            exit 1
+          fi
+          echo "[minio-bucket-init-dev] minio not ready, retry $$attempt/30..."
+          sleep 2
+        done
+        mc mb -p "local/$${MINIO_BUCKET_NAME}" || echo "[minio-bucket-init-dev] bucket already exists, skipping."
+        echo "[minio-bucket-init-dev] bucket '$${MINIO_BUCKET_NAME}' ready."
+        mc ls local/
+    environment:
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio:9000}
+      MINIO_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY_ID:-minioadmin}
+      MINIO_SECRET_ACCESS_KEY: ${MINIO_SECRET_ACCESS_KEY:-minioadmin}
+      MINIO_BUCKET_NAME: ${MINIO_BUCKET_NAME:-luosa-files}
+    networks:
+      - WeKnora-network-dev
+    restart: "no"
+    profiles:
+      - minio
+      - full
+
   qdrant:
     image: qdrant/qdrant:v1.16.2
     container_name: WeKnora-qdrant-dev
@@ -226,7 +265,7 @@ services:
 
   # Sandbox 镜像：仅用于 build/pull，非常驻服务；本地 app 执行 Skills 时按需 docker run 该镜像，用毕即释
   sandbox:
-    image: ${WEKNORA_IMAGE_PREFIX:-wechatopenai/}weknora-sandbox:${WEKNORA_VERSION:-latest}
+    image: wechatopenai/weknora-sandbox:${LUOSA_VERSION:-latest}
     container_name: WeKnora-sandbox-dev
     build:
       context: .
@@ -240,7 +279,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.docreader
-    image: ${WEKNORA_IMAGE_PREFIX:-wechatopenai/}weknora-docreader:${WEKNORA_VERSION:-latest}
+    image: wechatopenai/weknora-docreader:${LUOSA_VERSION:-latest}
     container_name: WeKnora-docreader-dev
     ports:
       - "${DOCREADER_PORT:-50051}:50051"
@@ -266,7 +305,7 @@ services:
       - GRPC_AUTH_TOKEN=${GRPC_AUTH_TOKEN:-}
       # ========== gRPC 服务参数 ==========
       - DOCREADER_GRPC_MAX_WORKERS=${DOCREADER_GRPC_MAX_WORKERS:-4}
-      - DOCREADER_GRPC_MAX_FILE_SIZE_MB=${DOCREADER_GRPC_MAX_FILE_SIZE_MB:-${MAX_FILE_SIZE_MB:-50}}
+      - DOCREADER_GRPC_MAX_FILE_SIZE_MB=${DOCREADER_GRPC_MAX_FILE_SIZE_MB:-${MAX_FILE_SIZE_MB:-1024}}
       - DOCREADER_GRPC_PORT=${DOCREADER_GRPC_PORT:-50051}
       # ========== 解析通用 ==========
       - DOCREADER_DOCX_MAX_PAGES=${DOCREADER_DOCX_MAX_PAGES:-0}

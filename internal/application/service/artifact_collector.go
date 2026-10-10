@@ -29,6 +29,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/tracing/langfuse"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
+	"github.com/Tencent/WeKnora/internal/utils"
 	"github.com/google/uuid"
 )
 
@@ -64,11 +65,18 @@ type ArtifactCollectorConfig struct {
 	MaxFileBytes int64
 }
 
-// defaultMaxArtifactFileBytes caps a single artifact at 50 MiB. Larger files
-// stream from the sandbox in a single ReadFile call today, so we cap here to
-// protect the process from OOM. The cap can be raised via config once the
-// sandbox client learns to stream to disk.
-const defaultMaxArtifactFileBytes int64 = 50 * 1024 * 1024
+// defaultMaxArtifactFileBytes caps a single artifact. Larger files stream
+// from the sandbox in a single ReadFile call today, so we cap here to protect
+// the process from OOM. The cap can be raised via config once the sandbox
+// client learns to stream to disk. Defaults to GetMaxArtifactFileSize() so the
+// value tracks MAX_FILE_SIZE_MB / MAX_ARTIFACT_FILE_SIZE_MB envs; falls back
+// to 1 GiB when neither is set.
+func defaultMaxArtifactFileBytes() int64 {
+	if size := utils.GetMaxArtifactFileSize(); size > 0 {
+		return size
+	}
+	return 1024 * 1024 * 1024
+}
 
 // Resource binding coordinates for collected artifacts. The owner is the
 // assistant message that produced the file (mirrors how knowledge uploads
@@ -206,7 +214,7 @@ func (c *ArtifactCollector) sessionSource(ctx context.Context, sessionID string)
 // ArtifactCollectorConfig without hitting empty-value edge cases.
 func newBoundedConfig(cfg ArtifactCollectorConfig) ArtifactCollectorConfig {
 	if cfg.MaxFileBytes <= 0 {
-		cfg.MaxFileBytes = defaultMaxArtifactFileBytes
+		cfg.MaxFileBytes = defaultMaxArtifactFileBytes()
 	}
 	return cfg
 }

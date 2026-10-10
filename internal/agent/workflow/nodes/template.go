@@ -8,7 +8,7 @@ import (
 
 // VarRefPattern matches the workflow variable-reference syntax:
 //
-//	{nodeId@param}   — output param of an earlier node (id: [a-zA-Z0-9_:]+)
+//	{nodeId@param}   — output param of an earlier node (id: [a-zA-Z0-9_:-]+)
 //	{sys.query}      — runtime request fields (sys.* namespace)
 //	{sys.files}
 //	{env.x}          — deployment-time constants (env.* namespace)
@@ -16,7 +16,8 @@ import (
 // The shape mirrors RAGFlow's variable_ref_patt (minus loop item/index,
 // which this engine does not ship yet). Repeated braces and surrounding
 // whitespace are tolerated: "{{ ref }}" resolves the same as "{ref}".
-var VarRefPattern = regexp.MustCompile(`\{+\s*([a-zA-Z0-9_:]+@[A-Za-z0-9_.-]+|sys\.[A-Za-z0-9_.]+|env\.[A-Za-z0-9_.]+)\s*\}+`)
+// Node ids include "-": the frontend's makeNodeId generates "llm-abc123".
+var VarRefPattern = regexp.MustCompile(`\{+\s*([a-zA-Z0-9_:-]+@[A-Za-z0-9_.-]+|sys\.[A-Za-z0-9_.]+|env\.[A-Za-z0-9_.]+)\s*\}+`)
 
 // ExtractRefs returns the unique references (without braces) in s, in
 // first-occurrence order. Pure regex — no state access.
@@ -82,10 +83,27 @@ func lookupRef(ref string, st StateView) (any, error) {
 		if !ok || nodeID == "" || param == "" {
 			return nil, fmt.Errorf("malformed node reference %q", ref)
 		}
-		if v, ok := st.GetOutput(nodeID, param); ok {
-			return v, nil
+		// A dotted param addresses a nested key of a map output, e.g.
+		// {agg@values.picked} — the first segment is the output name (output
+		// names never contain dots), the rest walk map keys. A plain param
+		// keeps the exact-match behaviour.
+		segs := strings.Split(param, ".")
+		v, ok := st.GetOutput(nodeID, segs[0])
+		if !ok {
+			return nil, fmt.Errorf("node %s has no output %q yet", nodeID, segs[0])
 		}
-		return nil, fmt.Errorf("node %s has no output %q yet", nodeID, param)
+		for _, key := range segs[1:] {
+			m, isMap := v.(map[string]any)
+			if !isMap {
+				return nil, fmt.Errorf("node %s output %q is not a map, cannot address %q", nodeID, segs[0], key)
+			}
+			next, found := m[key]
+			if !found {
+				return nil, fmt.Errorf("node %s output %q has no key %q", nodeID, segs[0], key)
+			}
+			v = next
+		}
+		return v, nil
 	}
 }
 

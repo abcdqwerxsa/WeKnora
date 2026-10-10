@@ -68,7 +68,7 @@ help:
 	@echo "  package-mac-app   构建并打包 macOS 桌面应用 (.app)"
 
 # Go related variables
-BINARY_NAME=WeKnora
+BINARY_NAME=LuoSA
 MAIN_PATH=./cmd/server
 
 # Docker related variables

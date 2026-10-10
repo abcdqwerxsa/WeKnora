@@ -11,12 +11,12 @@
 #      凭证仍可在 ${ENV_FILE} 中查到。
 set -euo pipefail
 
-WEKNORA_DIR="${WEKNORA_DIR:-/opt/WeKnora}"
-ENV_FILE="${WEKNORA_DIR}/.env"
-ENV_TEMPLATE="${WEKNORA_DIR}/.env.example"
+LUOSA_DIR="${LUOSA_DIR:-/opt/WeKnora}"
+ENV_FILE="${LUOSA_DIR}/.env"
+ENV_TEMPLATE="${LUOSA_DIR}/.env.example"
 CRED_FILE="/root/weknora-credentials.txt"
 LOG_FILE="/var/log/weknora-firstboot.log"
-MARKER="${WEKNORA_DIR}/.firstboot.done"
+MARKER="${LUOSA_DIR}/.firstboot.done"
 
 # 提前打开 LOG_FILE, 同时把 stderr 也复制一份到 systemd journal 方便调试
 # (单纯 exec >> LOG_FILE 时, 脚本一开始的失败会因为 stderr 已被吞掉而看不到)
@@ -77,15 +77,15 @@ replace JWT_SECRET      "${JWT}"
 replace SYSTEM_AES_KEY  "${SYS_AES}"
 replace GIN_MODE        "release"
 
-# 把 prepare.sh 阶段记录在 .cloud-image-meta 里的 WEKNORA_REF 还原为 .env 的
-# WEKNORA_VERSION, 否则 docker compose 会落回 :latest 默认值, 导致镜像版本
+# 把 prepare.sh 阶段记录在 .cloud-image-meta 里的 LUOSA_REF 还原为 .env 的
+# LUOSA_VERSION, 否则 docker compose 会落回 :latest 默认值, 导致镜像版本
 # 与 prepare 时拉取的版本不一致。
-META_FILE="${WEKNORA_DIR}/.cloud-image-meta"
+META_FILE="${LUOSA_DIR}/.cloud-image-meta"
 if [[ -f "${META_FILE}" ]]; then
-  META_REF=$(grep -E '^WEKNORA_REF=' "${META_FILE}" | tail -1 | cut -d= -f2- || true)
+  META_REF=$(grep -E '^LUOSA_REF=' "${META_FILE}" | tail -1 | cut -d= -f2- || true)
   if [[ -n "${META_REF}" ]]; then
-    replace WEKNORA_VERSION "${META_REF}"
-    echo "restored WEKNORA_VERSION=${META_REF} from ${META_FILE}"
+    replace LUOSA_VERSION "${META_REF}"
+    echo "restored LUOSA_VERSION=${META_REF} from ${META_FILE}"
   fi
 fi
 
@@ -97,7 +97,7 @@ touch "${MARKER}"
 chmod 0600 "${MARKER}"
 
 echo "env updated, marker written, starting docker compose..."
-cd "${WEKNORA_DIR}"
+cd "${LUOSA_DIR}"
 "${DOCKER_BIN}" compose up -d
 
 # 尝试拿公网 IP, 失败就用内网
@@ -115,7 +115,7 @@ cat >"${CRED_FILE}" <<INFO
 
 注册后如需关闭后续注册, 编辑 ${ENV_FILE}:
     DISABLE_REGISTRATION=true
-然后执行:  cd ${WEKNORA_DIR} && docker compose up -d
+然后执行:  cd ${LUOSA_DIR} && docker compose up -d
 
 下列随机凭证已写入 ${ENV_FILE}, 请妥善保存(仅 root 可读):
   DB_PASSWORD     = ${DB_PWD}

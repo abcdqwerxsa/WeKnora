@@ -274,7 +274,7 @@ func TestSetMineRejectsUnusableNames(t *testing.T) {
 	svc, repo := newUserEnvFixture(t)
 	ctx := userEnvCtx(userEnvTenantID, "alice")
 
-	for _, name := range []string{"PATH", "WEKNORA_SKILL_OUTPUT_DIR", "lower_case", "HAS SPACE", ""} {
+	for _, name := range []string{"PATH", "LUOSA_SKILL_OUTPUT_DIR", "lower_case", "HAS SPACE", ""} {
 		t.Run(name, func(t *testing.T) {
 			require.Error(t, svc.SetMineSandbox(ctx, "cfg-1", name, "whatever"))
 		})
@@ -438,7 +438,7 @@ func TestCaptureSkillEnvSkipsUndeclaredAndReservedNames(t *testing.T) {
 			"USER_TOKEN":        "keep-me",
 			"INVENTED":          "no",
 			"PATH":              "/bin",
-			"WEKNORA_SKILL_DIR": "no",
+			"LUOSA_SKILL_DIR": "no",
 		}))
 
 	require.Len(t, repo.userEnvs, 1)

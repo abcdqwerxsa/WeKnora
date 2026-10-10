@@ -14,6 +14,7 @@ import (
 	"go.uber.org/dig"
 
 	"github.com/Tencent/WeKnora/internal/logger"
+	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 )
 
@@ -30,7 +31,7 @@ import (
 //   - Safe to leave set: once at least one system admin exists, the env
 //     var stops granting privileges. That prevents a UI revoke from being
 //     silently undone on the next restart.
-const bootstrapEnvVar = "WEKNORA_BOOTSTRAP_SYSTEM_ADMIN_EMAIL"
+const bootstrapEnvVar = "LUOSA_BOOTSTRAP_SYSTEM_ADMIN_EMAIL"
 
 // runStartupBootstrap consults the env and applies any one-shot
 // bootstrap actions. Currently it only handles system-admin promotion;
@@ -50,6 +51,29 @@ func runStartupBootstrap(c *dig.Container) {
 		}
 	}); err != nil {
 		logger.Warnf(ctx, "[bootstrap] failed to resolve TenantAPIKeyService: %v", err)
+	}
+
+	// Default tenant seed: on a fresh deployment, /auth/available-
+	// departments returns an empty list, which leaves the registration
+	// form's department dropdown with no selectable workspace. Seed a
+	// "Default Workspace" (is_joinable=true) so the first user can pick
+	// it and land in a real workspace instead of the create_personal
+	// fallback path. Idempotent: skipped on subsequent restarts.
+	//
+	// DISABLED 2026-09-30: UserService.Register now decides the very
+	// first user's home workspace itself — see the CountTenants +
+	// CreatePersonal branch there. Seeding a tenant here BEFORE the
+	// first registration makes CountTenants() return 1, which breaks
+	// the bootstrap-admin rule (the registrant is no longer "first").
+	// Keep the seedDefaultTenant function below in case a future
+	// deployment needs to recover a deleted default workspace, but do
+	// NOT call it from startup.
+	if false {
+		if err := c.Invoke(func(tenantSvc interfaces.TenantService) {
+			seedDefaultTenant(ctx, tenantSvc)
+		}); err != nil {
+			logger.Warnf(ctx, "[bootstrap] failed to resolve TenantService: %v", err)
+		}
 	}
 
 	email := strings.TrimSpace(os.Getenv(bootstrapEnvVar))
@@ -122,4 +146,38 @@ func bootstrapSystemAdmin(ctx context.Context, userSvc interfaces.UserService, e
 	logger.Infof(ctx,
 		"[bootstrap] promoted user %s (%s) to system admin via %s",
 		user.ID, email, bootstrapEnvVar)
+}
+
+// seedDefaultTenant creates a "Default Workspace" tenant on a fresh
+// deployment so /auth/available-departments (which the registration
+// form's department dropdown calls) returns at least one option. With
+// at least one joinable tenant in place, the registration flow stays
+// on the join_existing branch and the user lands in a real workspace
+// instead of the create_personal fallback path.
+//
+// Idempotent: if any tenant already exists, this is a no-op so it can
+// run on every startup without polluting a populated system.
+func seedDefaultTenant(ctx context.Context, tenantSvc interfaces.TenantService) {
+	tenants, err := tenantSvc.ListAllTenants(ctx)
+	if err != nil {
+		logger.Warnf(ctx, "[bootstrap] failed to list tenants: %v", err)
+		return
+	}
+	if len(tenants) > 0 {
+		logger.Infof(ctx,
+			"[bootstrap] %d tenant(s) already exist, skipping default tenant seed",
+			len(tenants))
+		return
+	}
+	defaultTenant := &types.Tenant{
+		Name:        "Default Workspace",
+		Description: "系统首次启动自动创建的默认空间。新注册用户可加入此处。",
+		IsJoinable:  true,
+	}
+	if _, err := tenantSvc.CreateTenant(ctx, defaultTenant); err != nil {
+		logger.Warnf(ctx, "[bootstrap] failed to create default tenant: %v", err)
+		return
+	}
+	logger.Infof(ctx,
+		"[bootstrap] created default tenant 'Default Workspace' (is_joinable=true)")
 }

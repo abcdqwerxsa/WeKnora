@@ -60,3 +60,10 @@ miniprogram/project.private.config.json
 
 # Staging dir for the Docker sandbox self-check probe (removed after each run)
 .weknora-sandbox-check-*
+
+# Local-dev / scratch artifacts (never commit, leave on disk)
+docker/Dockerfile.sandbox.bak-20260914
+frontend/pnpm-lock.yaml
+output/
+ppt/
+scripts/auto-tag/auto_tag_documents.py

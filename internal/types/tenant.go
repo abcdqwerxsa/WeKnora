@@ -92,6 +92,13 @@ type Tenant struct {
 	Description string `yaml:"description"         json:"description"`
 	// Status
 	Status string `yaml:"status"              json:"status"              gorm:"default:'active'"`
+	// Whether this tenant is selectable as a "department" on the public
+	// /auth/register form. FALSE hides it from GET /auth/available-departments
+	// and rejects tenant_id values that point at it during registration.
+	// Only SystemAdmin / Owner can flip the flag — keeps accidental
+	// workspace-as-public-recruitment surfaces from leaking into the
+	// dropdown.
+	IsJoinable bool `yaml:"is_joinable"         json:"is_joinable"         gorm:"default:false"`
 	// Retriever engines
 	RetrieverEngines RetrieverEngines `yaml:"retriever_engines"   json:"retriever_engines"   gorm:"type:json"`
 	// Business
@@ -785,7 +792,7 @@ type VolumeMountConfig struct {
 	Enabled bool `json:"enabled"`
 
 	// MountPath is the sandbox-internal path where the volume is mounted.
-	// Default: /weknora/tenant/skills (customizable per use case).
+	// Default: /luosa/tenant/skills (customizable per use case).
 	MountPath string `json:"mount_path,omitempty"`
 
 	// Provider identifies the volume backend. Currently "e2b" or "cube".

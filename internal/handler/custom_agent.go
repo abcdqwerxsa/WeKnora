@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	stderrors "errors"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -457,6 +458,55 @@ func (h *CustomAgentHandler) DeleteAgent(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "Agent deleted successfully",
+	})
+}
+
+// ResetBuiltinAgent godoc
+// @Summary      重置内置智能体到 YAML 默认
+// @Description  删除内置智能体在当前租户下的 DB 持久化行，使其后续读取回退到 YAML 注册表（最新版本）。仅对内置智能体生效；返回的是 YAML 注册表视图。
+// @Tags         智能体
+// @Accept       json
+// @Produce      json
+// @Param        id   path      string  true  "智能体ID"
+// @Success      200  {object}  map[string]interface{}  "重置成功，返回 YAML 视图"
+// @Failure      400  {object}  errors.AppError         "请求参数错误"
+// @Failure      404  {object}  errors.AppError         "智能体不存在或不是内置"
+// @Security     Bearer
+// @Security     ApiKeyAuth
+// @Router       /agents/{id}/reset-default [post]
+func (h *CustomAgentHandler) ResetBuiltinAgent(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	id := secutils.SanitizeForLog(c.Param("id"))
+	if id == "" {
+		logger.Error(ctx, "Agent ID is empty")
+		c.Error(errors.NewBadRequestError("Agent ID cannot be empty"))
+		return
+	}
+
+	if _, ok := types.TenantIDFromContext(ctx); !ok {
+		c.Error(errors.NewUnauthorizedError("Unauthorized"))
+		return
+	}
+
+	logger.Infof(ctx, "Resetting built-in agent to YAML default, ID: %s", id)
+
+	agent, err := h.service.ResetBuiltinAgentToDefault(ctx, id)
+	if err != nil {
+		if stderrors.Is(err, service.ErrAgentNotFound) {
+			c.Error(errors.NewNotFoundError("Built-in agent not found or not registered"))
+			return
+		}
+		logger.ErrorWithFields(ctx, err, map[string]interface{}{
+			"agent_id": id,
+		})
+		c.Error(errors.NewInternalServerError("Failed to reset built-in agent"))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    agent,
 	})
 }
 

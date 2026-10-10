@@ -185,6 +185,56 @@ func (r *userRepository) ListSystemAdmins(ctx context.Context, offset, limit int
 	return users, total, nil
 }
 
+// CountSystemAdmins returns the number of users with is_system_admin=true.
+// Hits idx_users_is_system_admin (added in migration 000052), so even on a
+// large users table the COUNT is O(log n) on the small admin subset. Used
+// by Register's bootstrap-admin path: if the count is zero, the registrant
+// is the very first user and gets promoted to admin; otherwise they go
+// through the normal approval queue.
+//
+// Race note: two simultaneous registrations on a brand-new database could
+// both observe count == 0 and both be promoted. Acceptable — worst case
+// is two admins on day-zero, never a deadlock. The alternative (a
+// transactional FOR UPDATE) would lock the users table on every
+// registration, which is overkill given the racy window is sub-second.
+func (r *userRepository) CountSystemAdmins(ctx context.Context) (int64, error) {
+	var count int64
+	if err := r.db.WithContext(ctx).
+		Model(&types.User{}).
+		Where("is_system_admin = ?", true).
+		Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+// ListPendingApprovalUsers returns users with is_approved = false. Used
+// by the SystemAdmin approval queue. The migration added an index on
+// users.is_approved (idx_users_is_approved) so the query stays cheap
+// even after the platform accumulates thousands of self-registrations.
+// Excludes deleted rows automatically via GORM's soft-delete filter.
+func (r *userRepository) ListPendingApprovalUsers(ctx context.Context, offset, limit int) ([]*types.User, int64, error) {
+	var users []*types.User
+	var total int64
+
+	base := r.db.WithContext(ctx).Model(&types.User{}).Where("is_approved = ?", false)
+	if err := base.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	query := base.Order("created_at DESC, id ASC")
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+	if offset > 0 {
+		query = query.Offset(offset)
+	}
+	if err := query.Find(&users).Error; err != nil {
+		return nil, 0, err
+	}
+	return users, total, nil
+}
+
 // RevokeSystemAdmin revokes system-admin privileges inside a transaction.
 // It locks the current admin rows before counting so concurrent revokes
 // cannot both observe "two admins" and leave the platform with zero.

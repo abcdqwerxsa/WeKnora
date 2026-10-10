@@ -55,7 +55,7 @@ var reservedEnvNames = map[string]bool{
 
 func init() {
 	// The names ExecuteScript actually writes, not a guessed prefix. Output
-	// dir, history root and skill dir currently share WEKNORA_SKILL_, but
+	// dir, history root and skill dir currently share LUOSA_SKILL_, but
 	// SESSION_INPUT_DIR does not; pulling the list from skills keeps the
 	// blacklist aligned when a fifth injected name appears.
 	for _, name := range skills.InjectedSandboxEnvVars() {
@@ -63,10 +63,10 @@ func init() {
 	}
 }
 
-// reservedEnvPrefix covers future WEKNORA_SKILL_* names the sandbox may start
+// reservedEnvPrefix covers future LUOSA_SKILL_* names the sandbox may start
 // injecting before the exact list above is updated. Credential names a skill
-// reads — WEKNORA_API_KEY, WEKNORA_BASE_URL, WEKNORA_HOST — are outside it.
-const reservedEnvPrefix = "WEKNORA_SKILL_"
+// reads — LUOSA_API_KEY, LUOSA_BASE_URL, LUOSA_HOST — are outside it.
+const reservedEnvPrefix = "LUOSA_SKILL_"
 
 // declaredSkillEnv is one entry as the installer agent wrote it.
 //

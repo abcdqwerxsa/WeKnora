@@ -242,8 +242,8 @@ func (s *TenantSkillService) execVerify(
 			WorkDir: sandbox.SessionWorkspaceRoot,
 			Timeout: installCommandTimeout,
 			Env: map[string]string{
-				"WEKNORA_SKILL_DIR":        skillDir,
-				"WEKNORA_SKILL_OUTPUT_DIR": sandbox.SessionOutputRoot,
+				"LUOSA_SKILL_DIR":        skillDir,
+				"LUOSA_SKILL_OUTPUT_DIR": sandbox.SessionOutputRoot,
 			},
 		})
 	if err != nil {

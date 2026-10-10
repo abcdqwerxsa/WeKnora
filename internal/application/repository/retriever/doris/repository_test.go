@@ -55,7 +55,7 @@ func newTestRepo(t *testing.T) (*dorisRepository, sqlmock.Sqlmock, *httptest.Ser
 		username:      "u",
 		password:      "p",
 		database:      "weknora",
-		tableBaseName: "weknora_embeddings",
+		tableBaseName: "luosa_embeddings",
 	}
 
 	cleanup := func() {
@@ -200,7 +200,7 @@ func TestPartialUpdateRows_HappyPath(t *testing.T) {
 
 	require.NotNil(t, captured)
 	assert.Equal(t, http.MethodPut, captured.Method)
-	assert.Equal(t, "/api/weknora/weknora_embeddings_768/_stream_load", captured.URL.Path)
+	assert.Equal(t, "/api/luosa/weknora_embeddings_768/_stream_load", captured.URL.Path)
 
 	assert.Equal(t, "true", captured.Header.Get("partial_columns"))
 	assert.Equal(t, "true", captured.Header.Get("strip_outer_array"))
@@ -407,7 +407,7 @@ func TestKeywordsRetrieve_SQLShape(t *testing.T) {
 	defer cleanup()
 
 	mock.ExpectQuery(`SELECT TABLE_NAME FROM information_schema.tables`).
-		WithArgs("weknora", "weknora_embeddings\\_%").
+		WithArgs("weknora", "luosa_embeddings\\_%").
 		WillReturnRows(sqlmock.NewRows([]string{"TABLE_NAME"}).
 			AddRow("weknora_embeddings_768"))
 
@@ -444,12 +444,12 @@ func TestBatchUpdateChunkEnabledStatus_RewritesRows(t *testing.T) {
 	repo := &dorisRepository{
 		db:            db,
 		database:      "weknora",
-		tableBaseName: "weknora_embeddings",
+		tableBaseName: "luosa_embeddings",
 	}
 	primeCompatMode(repo, dorisCompatModeInnerProductDuplicate, nil)
 
 	mock.ExpectQuery(`SELECT TABLE_NAME FROM information_schema.tables`).
-		WithArgs("weknora", "weknora_embeddings\\_%").
+		WithArgs("weknora", "luosa_embeddings\\_%").
 		WillReturnRows(sqlmock.NewRows([]string{"TABLE_NAME"}).AddRow("weknora_embeddings_768"))
 	mock.ExpectQuery(`SELECT id, content, source_id, source_type, chunk_id, knowledge_id, knowledge_base_id, tag_id, is_enabled, embedding FROM .*weknora_embeddings_768.* WHERE chunk_id IN`).
 		WithArgs("c1").
@@ -476,7 +476,7 @@ func TestBatchUpdateChunkEnabledStatus_LegacyModeUsesPartialUpdate(t *testing.T)
 	primeCompatMode(repo, dorisCompatModeLegacy, nil)
 
 	mock.ExpectQuery(`SELECT TABLE_NAME FROM information_schema.tables`).
-		WithArgs("weknora", "weknora_embeddings\\_%").
+		WithArgs("weknora", "luosa_embeddings\\_%").
 		WillReturnRows(sqlmock.NewRows([]string{"TABLE_NAME"}).AddRow("weknora_embeddings_768"))
 	mock.ExpectQuery(`SELECT id, chunk_id FROM .*weknora_embeddings_768.* WHERE chunk_id IN`).
 		WithArgs("c1").
@@ -495,7 +495,7 @@ func TestEnsureTable_DDLShape(t *testing.T) {
 	repo := &dorisRepository{
 		db:             db,
 		database:       "weknora",
-		tableBaseName:  "weknora_embeddings",
+		tableBaseName:  "luosa_embeddings",
 		bucketsNum:     5,
 		replicationNum: 2,
 	}
@@ -530,7 +530,7 @@ func TestEnsureTable_DDLShape_LegacyMode(t *testing.T) {
 	repo := &dorisRepository{
 		db:             db,
 		database:       "weknora",
-		tableBaseName:  "weknora_embeddings",
+		tableBaseName:  "luosa_embeddings",
 		bucketsNum:     5,
 		replicationNum: 2,
 	}
@@ -561,7 +561,7 @@ func TestBatchSave_SQLShape(t *testing.T) {
 	repo := &dorisRepository{
 		db:            db,
 		database:      "weknora",
-		tableBaseName: "weknora_embeddings",
+		tableBaseName: "luosa_embeddings",
 	}
 	primeCompatMode(repo, dorisCompatModeInnerProductDuplicate, nil)
 	repo.initializedTables.Store(3, true) // 跳过 ensureTable
@@ -604,7 +604,7 @@ func TestBatchSave_SQLShape_LegacyMode(t *testing.T) {
 	repo := &dorisRepository{
 		db:            db,
 		database:      "weknora",
-		tableBaseName: "weknora_embeddings",
+		tableBaseName: "luosa_embeddings",
 	}
 	primeCompatMode(repo, dorisCompatModeLegacy, nil)
 	repo.initializedTables.Store(3, true)
@@ -642,7 +642,7 @@ func TestResolveCompatMode_RejectsExistingModeSwitch(t *testing.T) {
 	repo.compatModeRequested = dorisCompatModeLegacy
 
 	mock.ExpectQuery(`SELECT TABLE_NAME FROM information_schema.tables`).
-		WithArgs("weknora", "weknora_embeddings\\_%").
+		WithArgs("weknora", "luosa_embeddings\\_%").
 		WillReturnRows(sqlmock.NewRows([]string{"TABLE_NAME"}).AddRow("weknora_embeddings_768"))
 	mock.ExpectQuery(`SHOW CREATE TABLE .*weknora_embeddings_768.*`).
 		WillReturnRows(sqlmock.NewRows([]string{"Table", "Create Table"}).AddRow(
@@ -663,7 +663,7 @@ func TestResolveCompatMode_AutoPrefersInnerProductDuplicate(t *testing.T) {
 	repo.compatModeRequested = dorisCompatModeAuto
 
 	mock.ExpectQuery(`SELECT TABLE_NAME FROM information_schema.tables`).
-		WithArgs("weknora", "weknora_embeddings\\_%").
+		WithArgs("weknora", "luosa_embeddings\\_%").
 		WillReturnRows(sqlmock.NewRows([]string{"TABLE_NAME"}))
 	mock.ExpectQuery(`SELECT inner_product_approximate\(\[1.0\],\[1.0\]\)`).
 		WillReturnRows(sqlmock.NewRows([]string{"v"}).AddRow(1.0))

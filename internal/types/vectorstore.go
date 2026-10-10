@@ -297,17 +297,17 @@ func (c IndexConfig) GetIndexNameOrDefault(engineType RetrieverEngineType) strin
 		if c.CollectionPrefix != "" {
 			return c.CollectionPrefix
 		}
-		return "weknora_embeddings"
+		return "luosa_embeddings"
 	case MilvusRetrieverEngineType:
 		if c.CollectionName != "" {
 			return c.CollectionName
 		}
-		return "weknora_embeddings"
+		return "luosa_embeddings"
 	case TencentVectorDBRetrieverEngineType:
 		if c.CollectionName != "" {
 			return c.CollectionName
 		}
-		return "weknora_embeddings"
+		return "luosa_embeddings"
 	case WeaviateRetrieverEngineType:
 		if c.CollectionPrefix != "" {
 			return c.CollectionPrefix
@@ -322,7 +322,7 @@ func (c IndexConfig) GetIndexNameOrDefault(engineType RetrieverEngineType) strin
 		if c.CollectionName != "" {
 			return c.CollectionName
 		}
-		return "weknora_embeddings"
+		return "luosa_embeddings"
 	default:
 		return c.IndexName
 	}
@@ -694,7 +694,7 @@ func GetVectorStoreTypes() []VectorStoreTypeInfo {
 				{Name: "use_tls", Type: "boolean", Required: false, Description: "Use TLS", Default: false},
 			},
 			IndexFields: []VectorStoreFieldInfo{
-				{Name: "collection_prefix", Type: "string", Required: false, Description: "Collection Prefix", Default: "weknora_embeddings"},
+				{Name: "collection_prefix", Type: "string", Required: false, Description: "Collection Prefix", Default: "luosa_embeddings"},
 				{Name: "shard_number", Type: "number", Required: false, Description: "Shard Number", Default: 1},
 				{Name: "replication_factor", Type: "number", Required: false, Description: "Replication Factor", Default: 1},
 			},
@@ -709,7 +709,7 @@ func GetVectorStoreTypes() []VectorStoreTypeInfo {
 				{Name: "password", Type: "string", Required: false, Sensitive: true, Description: "Password"},
 			},
 			IndexFields: []VectorStoreFieldInfo{
-				{Name: "collection_name", Type: "string", Required: false, Description: "Collection Name", Default: "weknora_embeddings"},
+				{Name: "collection_name", Type: "string", Required: false, Description: "Collection Name", Default: "luosa_embeddings"},
 				{Name: "shards_num", Type: "number", Required: false, Description: "Shards (write parallelism)", Default: 1},
 				{Name: "replica_number", Type: "number", Required: false, Description: "In-memory Replicas (read HA)", Default: 1},
 			},
@@ -724,7 +724,7 @@ func GetVectorStoreTypes() []VectorStoreTypeInfo {
 				{Name: "database", Type: "string", Required: false, Description: "Database", Default: "weknora"},
 			},
 			IndexFields: []VectorStoreFieldInfo{
-				{Name: "collection_name", Type: "string", Required: false, Description: "Collection Name", Default: "weknora_embeddings"},
+				{Name: "collection_name", Type: "string", Required: false, Description: "Collection Name", Default: "luosa_embeddings"},
 				{Name: "shards_num", Type: "number", Required: false, Description: "Shards", Default: 1},
 				{Name: "replica_number", Type: "number", Required: false, Description: "Replicas", Default: tencentVectorDBReplicaNumber},
 			},
@@ -755,7 +755,7 @@ func GetVectorStoreTypes() []VectorStoreTypeInfo {
 				{Name: "password", Type: "string", Required: false, Sensitive: true, Description: "Password"},
 			},
 			IndexFields: []VectorStoreFieldInfo{
-				{Name: "collection_prefix", Type: "string", Required: false, Description: "Table Prefix", Default: "weknora_embeddings"},
+				{Name: "collection_prefix", Type: "string", Required: false, Description: "Table Prefix", Default: "luosa_embeddings"},
 				{Name: "buckets_num", Type: "number", Required: false, Description: "Buckets per table", Default: 10},
 				{Name: "replication_num", Type: "number", Required: false, Description: "Replication Num", Default: 1},
 			},

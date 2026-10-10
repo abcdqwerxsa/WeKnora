@@ -37,6 +37,12 @@ RUN npm install -g pnpm
 # curl is not optional: the sandbox connectivity check probes egress with it,
 # and skills that fetch a URL expect it to be there. The compression tools are
 # here because skill bundles and their assets arrive archived.
+#
+# libicu-dev is a Debian virtual package that pulls the runtime ICU library
+# (libicuNN matching the base image's Debian release). It is required by
+# officecli, which is a .NET self-contained binary — its globalization
+# stack crashes at startup with "Couldn't find a valid ICU package" without
+# libicu present.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     jq \
     curl \
@@ -47,6 +53,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     bzip2 \
     xz-utils \
     zstd \
+    libicu-dev \
+    # Document format conversion (Markdown <-> DOCX/PDF/HTML/...). Models reach
+    # for `pandoc` when scripts need to produce Word/PDF from Markdown or
+    # ingest formats DocReader does not handle directly. Available from the
+    # base image's Debian repo, no extra apt source needed.
+    pandoc \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/*
 
 # Note: Current preloaded skills only use Python stdlib
@@ -66,6 +78,66 @@ RUN groupadd -g 1000 user && \
 # have to keep.
 RUN mkdir -p /workspace/input /workspace/output && \
     chown -R user:user /workspace
+
+# Pre-install Office document generation libraries into the system Python so
+# every session sandbox (Docker backend) ships with them. Skills that build
+# their own venv at install time can still fall back to `import docx` from the
+# system interpreter.
+#
+#   python-docx        - .docx generation (Word)
+#   python-pptx        - .pptx generation (PowerPoint)
+#   openpyxl           - .xlsx read/write (Excel)
+#   Pillow             - image handling for slides/embeds
+#   docxtpl            - Jinja2-style .docx template rendering
+#   matplotlib         - chart generation (embedded as images)
+#   pandas             - tabular data wrangling feeding the above
+#
+# Pin majors so future upstream breakage does not silently break skill scripts.
+RUN uv pip install --system --no-cache \
+    "python-docx>=1.1,<2" \
+    "python-pptx>=0.6,<1" \
+    "openpyxl>=3.1,<4" \
+    "Pillow>=10,<12" \
+    "docxtpl>=0.18,<1" \
+    "matplotlib>=3.8,<4" \
+    "pandas>=2.2,<3" && \
+    python -c "import docx, pptx, openpyxl, PIL, docxtpl, matplotlib, pandas; print('office-doc-gen family libs (used by office-template-fill + document-analyzer):', docx.__version__, pptx.__version__, openpyxl.__version__, PIL.__version__, docxtpl.__version__, matplotlib.__version__, pandas.__version__)"
+
+# Install officecli (officecli.ai CLI): single static binary for AI-driven
+# .docx/.xlsx/.pptx creation / inspection / editing. Sandbox skills call it as
+# `officecli <file> ...` — no Office install needed. Installed to
+# /usr/local/bin so it's on PATH for both the build (root) and the runtime
+# `user` account; USER user is set further down.
+#
+# Mirror primary (d.officecli.ai) with GitHub fallback so the build is
+# reproducible whether or not the mirror is reachable. Version is pinned
+# to the resolved tag at build time via the immutable
+# /releases/download/vX.Y.Z/ path (the install.sh warns that the mutable
+# /releases/latest/download/ can serve a stale binary for up to 4h after
+# a release due to CDN caching).
+RUN set -eux; \
+    if [ ! -x /usr/local/bin/officecli ]; then \
+        ARCH=$(uname -m); \
+        case "$ARCH" in \
+            x86_64)        ASSET=officecli-linux-x64 ;; \
+            aarch64|arm64) ASSET=officecli-linux-arm64 ;; \
+            *) echo "officecli: unsupported arch $ARCH" >&2; exit 1 ;; \
+        esac; \
+        VERSION=$(curl -fsSL --max-time 30 -o /dev/null -w '%{url_effective}' \
+                    https://d.officecli.ai/releases/latest \
+                    | sed 's#.*/tag/v##'); \
+        if [ -z "$VERSION" ]; then \
+            echo "officecli: could not resolve latest version" >&2; exit 1; \
+        fi; \
+        URL_BASE="https://d.officecli.ai/releases/download/v${VERSION}"; \
+        if ! curl -fsSL --max-time 300 --connect-timeout 10 \
+                "${URL_BASE}/${ASSET}" -o /usr/local/bin/officecli; then \
+            URL_BASE="https://github.com/iOfficeAI/OfficeCLI/releases/download/v${VERSION}"; \
+            curl -fsSL --max-time 300 "${URL_BASE}/${ASSET}" -o /usr/local/bin/officecli; \
+        fi; \
+        chmod 0755 /usr/local/bin/officecli; \
+        officecli --version; \
+    fi
 
 WORKDIR /workspace
 USER user

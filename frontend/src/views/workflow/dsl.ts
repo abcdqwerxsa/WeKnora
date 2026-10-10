@@ -19,6 +19,14 @@ import { WORKFLOW_NODE_TYPES } from '../../api/workflowContract'
  * actually reads are seeded; optional numeric knobs stay absent until
  * the user sets them (the engine applies its own defaults).
  */
+/** Canvas annotation nodes (Dify-style sticky notes): purely presentational,
+ * excluded from `components` — the backend keeps them in the graph view. */
+export const NOTE_NODE_TYPE = 'wf-note'
+
+export function isNoteNode(node: { type?: string }): boolean {
+  return node.type === NOTE_NODE_TYPE
+}
+
 export function defaultParams(kind: WorkflowNodeType): Record<string, unknown> {
   switch (kind) {
     case 'Start':
@@ -50,7 +58,7 @@ export function defaultParams(kind: WorkflowNodeType): Record<string, unknown> {
     case 'Iteration':
       return { items: '', item_var: 'item', index_var: 'index', output_ref: '', output_var: 'results' }
     case 'Agent':
-      return { prompt: '', system_prompt: '', model: '', kb_ids: [] as string[], temperature: 0.4 }
+      return { prompt: '', system_prompt: '', model: '', kb_ids: [] as string[], temperature: 0.4, agent_id: '' }
     case 'MCPTool':
       return { service_id: '', tool: '', args: '', timeout_seconds: 30 }
     default:
@@ -174,18 +182,41 @@ export function layoutComponents(components: Record<string, WFComponent>): { nod
 /** Derive `components` from the graph view (edges → upstream/downstream). */
 export function componentsFromGraph(nodes: WFNode[], edges: WFEdge[]): Record<string, WFComponent> {
   const components: Record<string, WFComponent> = {}
-  for (const node of nodes) {
+  const realNodes = nodes.filter((n) => !isNoteNode(n))
+  const noteIds = new Set(nodes.filter(isNoteNode).map((n) => n.id))
+  for (const node of realNodes) {
     const kind = isNodeType(node.type) ? node.type : 'Answer'
     const params = (node.data?.params as Record<string, unknown>) ?? defaultParams(kind)
     const parent = typeof node.data?.parent === 'string' ? (node.data.parent as string) : ''
     components[node.id] = { obj: { component_name: kind, params }, upstream: [], downstream: [], parent }
   }
   for (const edge of edges) {
+    if (noteIds.has(edge.source) || noteIds.has(edge.target)) continue
     const source = components[edge.source]
     const target = components[edge.target]
     if (!source || !target) continue
     if (!source.downstream.includes(edge.target)) source.downstream.push(edge.target)
     if (!target.upstream.includes(edge.source)) target.upstream.push(edge.source)
+  }
+  // Floating (unwired) nodes must NOT reach the execution view: the engine
+  // compiles components and every node with empty upstream counts as an
+  // entry, so a stray node would fail the run with "multiple entries".
+  // Isolated = no incoming AND no outgoing edges AND not an iteration body
+  // AND not an Iteration node itself (a floating Iteration still runs its
+  // nested body — dropping it would orphan the body members whose parent
+  // names it, mirroring the backend dropFloatingComponents exemptions).
+  // If that exclusion would empty the view, keep everything (still saves).
+  const isolated = Object.keys(components).filter((id) => {
+    const comp = components[id]
+    return (
+      comp.upstream.length === 0 &&
+      comp.downstream.length === 0 &&
+      !comp.parent &&
+      comp.obj.component_name !== 'Iteration'
+    )
+  })
+  if (isolated.length > 0 && isolated.length < Object.keys(components).length) {
+    for (const id of isolated) delete components[id]
   }
   return components
 }
@@ -205,7 +236,7 @@ export function normalizeDsl(input: unknown): WorkflowDSL {
   const variables = dsl.variables && typeof dsl.variables === 'object' ? dsl.variables : {}
 
   if (graphUsable) {
-    const nodes = graphNodes
+    const realNodes = graphNodes
       .filter((n) => n && typeof n.id === 'string' && isNodeType(n.type))
       .map((n) => ({
         id: n.id,
@@ -216,10 +247,27 @@ export function normalizeDsl(input: unknown): WorkflowDSL {
           ...(typeof (n.data as Record<string, unknown> | undefined)?.parent === 'string' ? { parent: (n.data as Record<string, unknown>).parent } : {}),
         },
       }))
+    // Annotations ride along in the graph view only (no component twins).
+    const noteNodes = graphNodes
+      .filter((n) => n && typeof n.id === 'string' && isNoteNode(n))
+      .map((n) => ({
+        id: n.id,
+        type: NOTE_NODE_TYPE as WorkflowNodeType,
+        position: { x: Number(n.position?.x) || 0, y: Number(n.position?.y) || 0 },
+        data: { text: typeof (n.data as Record<string, unknown> | undefined)?.text === 'string' ? (n.data as Record<string, unknown>).text : '' },
+      }))
+    const nodes = [...realNodes, ...noteNodes]
     const nodeIds = new Set(nodes.map((n) => n.id))
     const edges = graphEdges
       .filter((e) => e && typeof e.source === 'string' && typeof e.target === 'string' && nodeIds.has(e.source) && nodeIds.has(e.target))
-      .map((e) => ({ id: e.id || `e-${e.source}-${e.target}`, source: e.source, target: e.target }))
+      .map((e) => ({
+        id: e.id || `e-${e.source}-${e.target}`,
+        source: e.source,
+        target: e.target,
+        // Branch identity (routing nodes) rides on the edge — the canvas
+        // renders branch handles from it; the engine ignores it.
+        ...(e.sourceHandle ? { sourceHandle: e.sourceHandle } : {}),
+      }))
     return {
       version: 1,
       graph: { nodes, edges },
@@ -352,12 +400,18 @@ export function validateGraph(nodes: WFNode[], edges: WFEdge[]): GraphIssue[] {
   const ids = new Set(nodes.map((n) => n.id))
 
   const targeted = new Set(edges.map((e) => e.target))
-  const entries = nodes.filter((n) => !targeted.has(n.id))
+  // An entry is an untargeted node that actually STARTS a flow (has an
+  // outgoing edge). A floating node (no edges at all) is not an entry —
+  // it is already covered by the `unreachable` warning below.
+  const entries = nodes.filter((n) => !targeted.has(n.id) && edges.some((e) => e.source === n.id))
   const terminals = nodes.filter((n) => !edges.some((e) => e.source === n.id))
 
   if (entries.length === 0) issues.push({ level: 'error', key: 'noEntry' })
   if (entries.length > 1) {
-    issues.push({ level: 'error', key: 'multipleEntries', values: { count: entries.length, names: entries.map((n) => n.id).join(', ') } })
+    // n8n semantics: a forked start does not block saving. The run engine
+    // still requires exactly one entry and fails with a clear error naming
+    // them; floating nodes are already dropped on the run path.
+    issues.push({ level: 'warning', key: 'multipleEntries', values: { count: entries.length, names: entries.map((n) => n.id).join(', ') } })
   }
   if (terminals.length === 0) issues.push({ level: 'error', key: 'noTerminal' })
   // Multiple terminals are legal (parallel branches need not converge).

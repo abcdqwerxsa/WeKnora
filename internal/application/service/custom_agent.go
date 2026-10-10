@@ -238,12 +238,38 @@ func (s *customAgentService) ListAgents(ctx context.Context) ([]*types.CustomAge
 
 	// Add custom agents
 	for _, agent := range allAgents {
+		if _, hidden := hiddenBuiltinAgentIDs[agent.ID]; hidden {
+			continue
+		}
 		if !types.IsBuiltinAgentID(agent.ID) {
 			result = append(result, agent)
 		}
 	}
 
 	return result, nil
+}
+
+// hiddenBuiltinAgentIDs lists agents that exist in the database (e.g. as
+// seed rows written by skill-install bootstrap) but must NEVER appear in
+// the tenant-facing agent picker returned by ListAgents.
+//
+// These agents are intentionally omitted from types.builtinAgentIDsOrdered
+// so the "default built-in" fallback loop above never resolves them
+// either. They also are NOT registered in BuiltinAgentRegistry, so the
+// existing `!IsBuiltinAgentID` guard below would otherwise let them slip
+// through and show up as selectable chat agents - which is exactly what
+// happened with builtin-skill-installer until this guard was added.
+//
+// Both agents are still fully reachable programmatically via GetAgentByID
+// (resolved through the DB row directly), which is what their actual
+// callers rely on: the skill installer runs from the sandbox-config skill
+// upload flow, the wiki fixer from the wiki editor.
+//
+// If you add another programmatically-invoked agent, put it here AND keep
+// it out of builtinAgentIDsOrdered.
+var hiddenBuiltinAgentIDs = map[string]struct{}{
+	types.BuiltinSkillInstallerID: {},
+	types.BuiltinWikiFixerID:      {},
 }
 
 // UpdateAgent updates an agent's information
@@ -261,6 +287,18 @@ func (s *customAgentService) UpdateAgent(ctx context.Context, agent *types.Custo
 
 	// Handle built-in agents specially using registry
 	if types.IsBuiltinAgentID(agent.ID) {
+		return s.updateBuiltinAgent(ctx, agent, tenantID)
+	}
+	// Hidden builtin agents (builtin-skill-installer, builtin-wiki-fixer) live
+	// only in the DB (their YAML entries are absent because they are not part
+	// of `BuiltinAgentRegistry`) but `IsBuiltinAgentID` therefore returns false
+	// for them and the next guard would reject every config save with
+	// ErrCannotModifyBuiltin. Route them through the same config-only update
+	// path so the installer's model_id (and the wiki fixer's) can be persisted
+	// without lifting the basic-info protection. Their rows still carry
+	// `is_builtin=true`, so the protection below would otherwise still fire on
+	// the first guard above, which is why this explicit ID check is necessary.
+	if _, hidden := hiddenBuiltinAgentIDs[agent.ID]; hidden {
 		return s.updateBuiltinAgent(ctx, agent, tenantID)
 	}
 
@@ -311,10 +349,18 @@ func (s *customAgentService) UpdateAgent(ctx context.Context, agent *types.Custo
 
 // updateBuiltinAgent updates a built-in agent's configuration (but not basic info)
 func (s *customAgentService) updateBuiltinAgent(ctx context.Context, agent *types.CustomAgent, tenantID uint64) (*types.CustomAgent, error) {
+	// Hidden builtin agents (builtin-skill-installer, builtin-wiki-fixer) are
+	// registered in DB but intentionally absent from BuiltinAgentRegistry
+	// (see hiddenBuiltinAgentIDs), so the registry lookup below cannot
+	// resolve them. Skip the registry check and the basic-info initialization
+	// for them: their DB row already carries the canonical name/description,
+	// and the only field an operator can legitimately change is Config.
+	_, isHidden := hiddenBuiltinAgentIDs[agent.ID]
+
 	// Persist locale-independent display fields (the YAML "default" locale) so
 	// read paths that skip builtin localization see a stable language.
 	defaultAgent := types.GetBuiltinAgent(agent.ID, tenantID)
-	if defaultAgent == nil {
+	if defaultAgent == nil && !isHidden {
 		return nil, ErrAgentNotFound
 	}
 
@@ -324,7 +370,36 @@ func (s *customAgentService) updateBuiltinAgent(ctx context.Context, agent *type
 		return nil, err
 	}
 
+	// systemPromptMatchesDefault reports whether the submitted system_prompt
+	// equals the YAML registry's resolved default. When true, persisting it
+	// would lock the agent to the current YAML snapshot — a no-op save that
+	// the user almost certainly did not intend (YAML upgrades would silently
+	// stop reaching the editor). See ResetBuiltinAgentToDefault for the
+	// explicit "discard customisations" entry point.
+	systemPromptMatchesDefault := false
+	if defaultAgent != nil {
+		systemPromptMatchesDefault = strings.TrimSpace(agent.Config.SystemPrompt) ==
+			strings.TrimSpace(defaultAgent.Config.SystemPrompt)
+	}
+
 	if existingAgent != nil {
+		// When the user submits a system_prompt that matches the YAML
+		// registry's resolved default, persisting it verbatim would freeze
+		// the tenant's view to the current YAML snapshot — future YAML
+		// upgrades would silently stop reaching the editor. Strip the
+		// prompt before writing so the DB row stays "thin" on that one
+		// field; ApplyBuiltinAgentLocalization overlays the YAML default
+		// back on read. Other field changes (rerank_model_id, KB selection,
+		// tool allowlist, model_id, …) MUST still land on the row — they
+		// are not subject to YAML drift and dropping them on a no-op save
+		// was the long-standing "rerank model not persisted" bug.
+		//
+		// No row delete here on purpose: previously the branch
+		// HardDeleted the row, which also erased any per-tenant overrides
+		// (rerank_model_id etc.) the user had saved on earlier passes.
+		if systemPromptMatchesDefault {
+			agent.Config.SystemPrompt = ""
+		}
 		// Update existing record - only update config, keep basic info unchanged
 		existingAgent.Config = agent.Config
 		existingAgent.UpdatedAt = time.Now()
@@ -347,12 +422,35 @@ func (s *customAgentService) updateBuiltinAgent(ctx context.Context, agent *type
 		return existingAgent, nil
 	}
 
-	// Create new record for built-in agent with customized config
+	// Create new record for built-in agent with customized config. For hidden
+	// builtins (no registry entry), defaultAgent is nil and we fall back to
+	// the caller's Name/Description/Avatar so a freshly-created tenant does
+	// not panic on a nil dereference when its first installer config save
+	// arrives before any DB row exists.
+	//
+	// If the caller's system_prompt equals the YAML registry default, strip
+	// it before writing so the DB row stays "thin" on that field — keeps
+	// YAML upgrades reaching the tenant without forcing a hard skip of the
+	// whole save (which used to drop every other field change alongside).
+	// ApplyBuiltinAgentLocalization overlays the YAML default back on read.
+	if systemPromptMatchesDefault && defaultAgent != nil {
+		agent.Config.SystemPrompt = ""
+	}
+	name := agent.Name
+	description := agent.Description
+	avatar := agent.Avatar
+	id := agent.ID
+	if defaultAgent != nil {
+		name = defaultAgent.Name
+		description = defaultAgent.Description
+		avatar = defaultAgent.Avatar
+		id = defaultAgent.ID
+	}
 	newAgent := &types.CustomAgent{
-		ID:          defaultAgent.ID,
-		Name:        defaultAgent.Name,
-		Description: defaultAgent.Description,
-		Avatar:      defaultAgent.Avatar,
+		ID:          id,
+		Name:        name,
+		Description: description,
+		Avatar:      avatar,
 		IsBuiltin:   true,
 		TenantID:    tenantID,
 		Config:      agent.Config,
@@ -479,6 +577,64 @@ func (s *customAgentService) CopyAgent(ctx context.Context, id string) (*types.C
 	return newAgent, nil
 }
 
+// ResetBuiltinAgentToDefault deletes the persisted DB row for a built-in
+// agent so subsequent reads return the YAML registry view. The agent must
+// be in BuiltinAgentRegistry (otherwise ErrAgentNotFound); hidden builtins
+// (skill-installer, wiki-fixer) are intentionally not in BuiltinAgentRegistry
+// so the caller should reject them at the router layer.
+//
+// When the row has been deleted, the returned *types.CustomAgent is the
+// YAML registry view with i18n localisation applied; the caller is
+// expected to surface it to the editor so the user can verify the reset
+// took. Idempotent on already-missing row (no-op, returns registry view).
+func (s *customAgentService) ResetBuiltinAgentToDefault(ctx context.Context, id string) (*types.CustomAgent, error) {
+	if !types.IsBuiltinAgentID(id) {
+		return nil, ErrAgentNotFound
+	}
+	tenantID, _ := types.TenantIDFromContext(ctx)
+
+	defaultAgent := types.GetBuiltinAgentWithContext(ctx, id, tenantID)
+	if defaultAgent == nil {
+		// Not in registry — fall back to the hidden-builtin path (skill-installer,
+		// wiki-fixer). Those rows legitimately live only in DB; a "reset" is a
+		// no-op but we still return ErrAgentNotFound when no row exists, so the
+		// UI can give a clear message instead of silently doing nothing.
+		defaultAgent = types.GetBuiltinAgent(id, tenantID)
+		if defaultAgent == nil {
+			// Try the DB; hidden builtins are only there.
+			_, dbErr := s.repo.GetAgentByID(ctx, id, tenantID)
+			if dbErr != nil {
+				if errors.Is(dbErr, repository.ErrCustomAgentNotFound) {
+					return nil, ErrAgentNotFound
+				}
+				return nil, dbErr
+			}
+			// Hidden builtins have nothing to reset to (no YAML default); refuse
+			// rather than silently delete.
+			return nil, ErrAgentNotFound
+		}
+	}
+	// Best-effort hard delete. Soft delete (DeleteAgent) would leave a
+	// deleted_at tombstone that still occupies the (id, tenant_id) unique
+	// constraint slot — blocking any subsequent INSERT the user might
+	// trigger when they later customise the agent. The whole point of
+	// reset is "no DB row, period", so use the variant that bypasses
+	// GORM's soft-delete scope (Unscoped).
+	if err := s.repo.HardDeleteAgent(ctx, id, tenantID); err != nil {
+		if !errors.Is(err, repository.ErrCustomAgentNotFound) {
+			logger.ErrorWithFields(ctx, err, map[string]interface{}{
+				"agent_id":  id,
+				"tenant_id": tenantID,
+			})
+			return nil, err
+		}
+	}
+
+	logger.Infof(ctx, "Built-in agent reset to YAML default, ID: %s, tenant ID: %d", id, tenantID)
+	types.ApplyBuiltinAgentLocalization(ctx, defaultAgent)
+	return defaultAgent, nil
+}
+
 // GetSuggestedQuestions returns suggested questions for the agent based on its
 // associated knowledge bases.
 func (s *customAgentService) GetSuggestedQuestions(
@@ -541,6 +697,12 @@ func (s *customAgentService) getSuggestedQuestions(
 	agent, err := s.GetAgentByID(ctx, agentID)
 	if err != nil {
 		return nil, err
+	}
+
+	// Quick-answer (默认对话) agent 是"自由对话" agent，不应该有推荐问题
+	// —— 避免预设用户思考方向。用户可以随时输入任何问题。
+	if agent.Config.AgentMode == types.AgentModeQuickAnswer {
+		return []types.SuggestedQuestion{}, nil
 	}
 
 	var curated []types.SuggestedQuestion

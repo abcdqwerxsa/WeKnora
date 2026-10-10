@@ -126,7 +126,7 @@ func resolveDefaultTenantMode(
 		mode = systemSettingSvc.GetString(
 			ctx,
 			"auth.default_tenant_mode",
-			"WEKNORA_AUTH_DEFAULT_TENANT_MODE",
+			"LUOSA_AUTH_DEFAULT_TENANT_MODE",
 			def,
 		)
 	}
@@ -651,7 +651,7 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 	canCreateTenant := user.CanAccessAllTenants ||
 		resolveTenantSelfServiceCreationEnabled(ctx, h.configInfo, h.systemSettingSvc)
 	autoAcceptInvitation := h.systemSettingSvc != nil &&
-		h.systemSettingSvc.GetBool(ctx, "tenant.auto_accept_invitation", "WEKNORA_TENANT_AUTO_ACCEPT_INVITATION", false)
+		h.systemSettingSvc.GetBool(ctx, "tenant.auto_accept_invitation", "LUOSA_TENANT_AUTO_ACCEPT_INVITATION", false)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
@@ -1017,5 +1017,46 @@ func (h *AuthHandler) ValidateToken(c *gin.Context) {
 		"success": true,
 		"message": "Token is valid",
 		"user":    user.ToUserInfo(),
+	})
+}
+
+// GetAvailableDepartments lists tenants flagged is_joinable for the
+// public /auth/available-departments endpoint, which the registration
+// form's department dropdown calls. No authentication required: the
+// response only carries tenant name + description, never user data.
+//
+// Returned shape:
+//   { "departments": [
+//       { "id": <uint64>, "name": <string>, "description": <string> }
+//   ] }
+//
+// Returning an empty slice (not null) when no joinable tenants exist
+// keeps the frontend dropdown honest — it shows "no departments" and
+// the user knows to expect a personal-workspace fallback on submit,
+// rather than choking on a null dereference.
+func (h *AuthHandler) GetAvailableDepartments(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenants, err := h.tenantService.ListJoinableTenants(ctx)
+	if err != nil {
+		logger.Errorf(ctx, "[auth] list joinable tenants failed: %v", err)
+		appErr := errors.NewInternalServerError("Failed to load departments").WithDetails(err.Error())
+		c.Error(appErr)
+		return
+	}
+	type departmentInfo struct {
+		ID          uint64 `json:"id"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
+	departments := make([]departmentInfo, 0, len(tenants))
+	for _, t := range tenants {
+		departments = append(departments, departmentInfo{
+			ID:          t.ID,
+			Name:        t.Name,
+			Description: t.Description,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"departments": departments,
 	})
 }

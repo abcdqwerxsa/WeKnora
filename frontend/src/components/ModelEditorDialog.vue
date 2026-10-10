@@ -1,7 +1,7 @@
 <template>
   <SettingDrawer :visible="dialogVisible" :title="isEdit ? $t('model.editor.editTitle') : $t('model.editor.addTitle')"
     :description="getModalDescription()" :icon="modelTypeIcon" :confirm-loading="saving"
-    :confirm-disabled="formData.provider === 'weknoracloud' && wkcCredentialState !== 'configured'"
+    :confirm-disabled="false"
     @update:visible="(v: boolean) => dialogVisible = v" @confirm="handleConfirm" @cancel="handleCancel">
 
     <!--
@@ -12,7 +12,7 @@
     -->
     <template v-if="formData.source === 'remote'" #footer-left>
       <t-button variant="outline" @click="checkRemoteAPI" :loading="checking"
-        :disabled="!formData.modelName || (!formData.baseUrl && formData.provider !== 'weknoracloud') || (formData.provider === 'weknoracloud' && wkcCredentialState !== 'configured')">
+        :disabled="!formData.modelName || !formData.baseUrl">
         <template #icon>
           <t-icon v-if="!checking && remoteChecked && remoteAvailable" name="check-circle-filled"
             class="status-icon available" />
@@ -173,53 +173,11 @@
             </t-select>
           </div>
 
-          <!-- WeKnoraCloud 提示信息 -->
-          <template v-if="formData.provider === 'weknoracloud'">
-            <!-- 凭证已配置 -->
-            <div v-if="wkcCredentialState === 'configured'" class="weknoracloud-hint weknoracloud-hint--ok">
-              <t-icon name="check-circle-filled" class="hint-icon hint-icon--ok" />
-              <div>
-                {{ $t('settings.weknoraCloud.modelHintConfigured') }}
-                <a href="https://developers.weixin.qq.com/doc/aispeech/knowledge/atomic_capability/atomic_interface.html"
-                  target="_blank" rel="noopener noreferrer" class="doc-link">
-                  {{ $t('settings.weknoraCloud.modelHintDocsLink') }}
-                  <t-icon name="link" class="link-icon" />
-                </a>
-              </div>
-            </div>
-
-            <!-- 未配置 / 失效 -->
-            <div v-else-if="wkcCredentialState !== 'loading'" class="weknoracloud-hint weknoracloud-hint--warn">
-              <t-icon name="error-circle-filled" class="hint-icon hint-icon--warn" />
-              <div style="flex: 1;">
-                <template v-if="wkcCredentialState === 'expired'">
-                  {{ $t('settings.weknoraCloud.credentialExpired') }}
-                </template>
-                <template v-else>
-                  {{ $t('settings.weknoraCloud.credentialUnconfigured') }}
-                </template>
-                <div style="margin-top: 8px;">
-                  <t-button variant="text" size="small" @click="goToWeKnoraCloudSettings"
-                    style="padding: 0; height: auto;">
-                    <template #icon><t-icon name="jump" /></template>
-                    {{ $t('settings.weknoraCloud.goToSettings') }}
-                  </t-button>
-                </div>
-              </div>
-            </div>
-
-            <!-- 加载中 -->
-            <div v-else class="weknoracloud-hint">
-              <t-icon name="loading" class="spinning hint-icon hint-icon--loading" />
-              <span>{{ $t('settings.weknoraCloud.checkingStatus') }}</span>
-            </div>
-          </template>
-
+          <!-- WeKnoraCloud 已下线，对应提示框一并删除 -->
           <!-- 模型名称 -->
           <div class="form-item">
             <label class="form-label required">{{ $t('model.modelName') }}</label>
-            <t-input v-model="formData.modelName" :placeholder="getModelNamePlaceholder()"
-              :disabled="formData.provider === 'weknoracloud' && wkcCredentialState !== 'configured'" />
+            <t-input v-model="formData.modelName" :placeholder="getModelNamePlaceholder()" />
           </div>
 
           <div class="form-item">
@@ -228,12 +186,12 @@
             <p class="form-desc">{{ $t('model.editor.displayNameDesc') }}</p>
           </div>
 
-          <div v-if="formData.provider !== 'weknoracloud'" class="form-item">
+          <div class="form-item">
             <label class="form-label required">{{ $t('model.editor.baseUrlLabel') }}</label>
             <t-input v-model="formData.baseUrl" :placeholder="getBaseUrlPlaceholder()" />
           </div>
 
-          <div v-if="formData.provider !== 'weknoracloud'" class="form-item">
+          <div class="form-item">
             <label class="form-label">{{
               isSignedRerank ? signedRerankAccessKeyLabel : $t('model.editor.apiKeyOptional')
             }}</label>
@@ -282,7 +240,7 @@
           </div>
 
           <!-- 自定义 HTTP Header（类似 OpenAI Python SDK 的 extra_headers） -->
-          <div v-if="formData.provider !== 'weknoracloud'" class="form-item">
+          <div class="form-item">
             <div class="custom-headers-header">
               <label class="form-label" style="margin-bottom: 0;">{{ $t('model.editor.customHeadersLabel') }}</label>
               <t-button variant="text" size="small" theme="primary" @click="addCustomHeader">
@@ -407,7 +365,6 @@ import { ref, watch, computed, onUnmounted, nextTick } from 'vue'
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
 import { checkOllamaModels, checkRemoteModel, testEmbeddingModel, checkRerankModel, checkASRModel, listOllamaModels, downloadOllamaModel, getDownloadProgress, checkOllamaStatus, listModelProviders, type OllamaModelInfo, type ModelProviderOption } from '@/api/initialization'
 import {
-  getWeKnoraCloudStatus,
   putModelCredentials,
   deleteModelCredentialField,
   type ModelCredentialField,
@@ -662,18 +619,22 @@ const loadProviders = async () => {
 
 // 根据当前模型类型过滤的 Provider 列表
 // API 返回的 defaultUrls/modelTypes 数据优先，但 label/description 使用 i18n
+// 临时下线 WeKnora Cloud：先在 UI 入口隐藏
+const HIDDEN_PROVIDERS = new Set(['weknoracloud'])
 const providerOptions = computed(() => {
   // API 数据可用时，用 API 的结构数据 + i18n 的显示文本
   if (apiProviderOptions.value.length > 0) {
-    return apiProviderOptions.value.map(p => ({
-      ...p,
-      label: te(`model.editor.providers.${p.value}.label`)
-        ? t(`model.editor.providers.${p.value}.label`)
-        : p.label,
-      description: te(`model.editor.providers.${p.value}.description`)
-        ? t(`model.editor.providers.${p.value}.description`)
-        : p.description,
-    }))
+    return apiProviderOptions.value
+      .filter(p => !HIDDEN_PROVIDERS.has(p.value))
+      .map(p => ({
+        ...p,
+        label: te(`model.editor.providers.${p.value}.label`)
+          ? t(`model.editor.providers.${p.value}.label`)
+          : p.label,
+        description: te(`model.editor.providers.${p.value}.description`)
+          ? t(`model.editor.providers.${p.value}.description`)
+          : p.description,
+      }))
   }
   // 回退到硬编码值，按 modelTypes 过滤
   return fallbackProviderOptions.value.filter(p =>
@@ -790,9 +751,7 @@ const credentialFields = computed<CredentialFieldDef<ModelCredentialField>[]>(()
         : t('model.editor.apiKeyOptional')) as string,
     },
   ]
-  if (formData.value.provider === 'weknoracloud') {
-    fields.push({ key: 'app_secret', label: 'App Secret' })
-  } else if (isSignedRerank.value) {
+  if (isSignedRerank.value) {
     fields.push({ key: 'app_secret', label: signedRerankSecretKeyLabel.value as string })
   }
   return fields
@@ -853,34 +812,6 @@ let downloadInterval: any = null
 // Ollama 服务状态
 const ollamaServiceStatus = ref<boolean | null>(null)
 const checkingOllamaStatus = ref(false)
-
-// WeKnoraCloud 凭证状态
-const wkcCredentialState = ref<'loading' | 'unconfigured' | 'configured' | 'expired'>('loading')
-
-const checkWkcCredentialStatus = async () => {
-  wkcCredentialState.value = 'loading'
-  try {
-    const status = await getWeKnoraCloudStatus()
-    if (status.needs_reinit) {
-      wkcCredentialState.value = 'expired'
-    } else if (status.has_models) {
-      wkcCredentialState.value = 'configured'
-    } else {
-      wkcCredentialState.value = 'unconfigured'
-    }
-  } catch {
-    wkcCredentialState.value = 'unconfigured'
-  }
-}
-
-const goToWeKnoraCloudSettings = async () => {
-  emit('update:visible', false)
-  if (uiStore.showSettingsModal) {
-    uiStore.closeSettings()
-    await nextTick()
-  }
-  uiStore.openSettings('weknoracloud')
-}
 
 const formData = ref<ModelFormData>({
   id: '',
@@ -1104,11 +1035,6 @@ watch(() => props.visible, (val) => {
         formData.value.source = 'remote'
       }
 
-      // 如果当前 provider 是 WeKnoraCloud，检查凭证状态
-      if (formData.value.provider === 'weknoracloud') {
-        checkWkcCredentialStatus()
-      }
-
       if (showThinkingControlField.value && !isEdit.value) {
         thinkingControlManual.value = false
         syncThinkingControlToForm(true)
@@ -1175,10 +1101,6 @@ const handleProviderChange = (value: string) => {
     remoteChecked.value = false
     remoteAvailable.value = false
     remoteMessage.value = ''
-  }
-  // WeKnoraCloud: 检查凭证状态
-  if (value === 'weknoracloud') {
-    checkWkcCredentialStatus()
   }
   if (hydratingForm.value) return
   if (activeModelType.value !== 'chat' || formData.value.source !== 'remote') return
@@ -1362,7 +1284,7 @@ const checkOllamaDimension = async () => {
 
 // 检查 Remote API 连接（根据模型类型调用不同的接口）
 const checkRemoteAPI = async () => {
-  if (!formData.value.modelName || (!formData.value.baseUrl && formData.value.provider !== 'weknoracloud')) {
+  if (!formData.value.modelName || !formData.value.baseUrl) {
     MessagePlugin.warning(t('model.editor.fillModelAndUrl'))
     return
   }
@@ -1531,8 +1453,8 @@ const handleConfirm = async () => {
       return
     }
 
-    // 如果是 remote 类型且非 WeKnoraCloud，必须填写 baseUrl
-    if (formData.value.source === 'remote' && formData.value.provider !== 'weknoracloud') {
+    // remote 模型必须填写 baseUrl
+    if (formData.value.source === 'remote') {
       if (!formData.value.baseUrl || !formData.value.baseUrl.trim()) {
         MessagePlugin.warning(t('model.editor.remoteBaseUrlRequired'))
         return
@@ -1985,49 +1907,6 @@ const handleCancel = () => {
 
   &.unavailable {
     color: var(--td-error-color);
-  }
-}
-
-// WeKnoraCloud 提示信息
-.weknoracloud-hint {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 12px 14px;
-  border-radius: 8px;
-  font-size: 13px;
-  color: var(--td-text-color-secondary);
-  line-height: 1.5;
-
-  // Theming via tokens so the warn/ok states track light/dark switches
-  // instead of fighting hardcoded `#fff7ed` etc.
-  &--ok {
-    background: var(--td-success-color-light);
-    border: 1px solid var(--td-success-color-focus);
-  }
-
-  &--warn {
-    background: var(--td-warning-color-light, #fff7ed);
-    border: 1px solid var(--td-warning-color-focus, #fed7aa);
-    border-left: 3px solid var(--td-warning-color, #f97316);
-  }
-
-  .hint-icon {
-    font-size: 16px;
-    flex-shrink: 0;
-    margin-top: 2px;
-
-    &--ok {
-      color: var(--td-success-color);
-    }
-
-    &--warn {
-      color: var(--td-warning-color, #f97316);
-    }
-
-    &--loading {
-      color: var(--td-text-color-placeholder);
-    }
   }
 }
 

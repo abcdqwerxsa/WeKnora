@@ -42,6 +42,10 @@ func RegisterCustomAgentRoutes(r *gin.RouterGroup, agentHandler *handler.CustomA
 		agentsWrite.PUT("/:id", g.OwnedAgentOrAdmin(), agentHandler.UpdateAgent)
 		// Delete agent — creator OR Admin+
 		agentsWrite.DELETE("/:id", g.OwnedAgentOrAdmin(), agentHandler.DeleteAgent)
+		// Reset built-in agent to YAML defaults — Admin+ (destructive: clears
+		// the tenant's persisted override of system_prompt and other config).
+		// The service layer refuses non-built-in IDs.
+		agentsWrite.POST("/:id/reset-default", g.Admin(), agentHandler.ResetBuiltinAgent)
 		// Copy agent — Contributor+ (copy is owned by the caller)
 		agentsWrite.POST("/:id/copy", g.Contributor(), agentHandler.CopyAgent)
 	}

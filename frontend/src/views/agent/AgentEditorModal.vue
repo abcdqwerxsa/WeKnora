@@ -74,8 +74,8 @@
                       </div>
                     </div>
 
-                    <!-- 集成渠道状态（编辑模式，配置在集成中心） -->
-                    <div v-if="editorMode === 'edit' && editorAgent?.id" class="setting-row">
+                    <!-- 发布集成已下线，集成渠道状态先隐藏 -->
+                    <!-- <div v-if="editorMode === 'edit' && editorAgent?.id" class="setting-row">
                       <div class="setting-info">
                         <label>{{ $t('integrations.agentEditor.label') }}</label>
                         <p class="desc">{{ isPostCreateSession ? $t('agent.editor.postCreateHint.integrationDesc') : $t('integrations.agentEditor.desc') }}</p>
@@ -93,7 +93,7 @@
                           </button>
                         </div>
                       </div>
-                    </div>
+                    </div> -->
 
                     <!-- 运行模式（首先选择） -->
                     <div class="setting-row">
@@ -184,6 +184,27 @@
                       </div>
                     </div>
 
+                    <!-- 用途分组：决定此智能体是否出现在「对话」下拉里 -->
+                    <div class="setting-row">
+                      <div class="setting-info">
+                        <label>{{ $t('agent.editor.displayGroup') }}</label>
+                        <p class="desc">{{ $t('agentEditor.desc.displayGroup') }}</p>
+                      </div>
+                      <div class="setting-control">
+                        <t-radio-group v-model="displayGroup" :disabled="isBuiltinAgent">
+                          <t-radio-button value="chat">
+                            {{ $t('agent.displayGroup.chat') }}
+                          </t-radio-button>
+                          <t-radio-button value="workflow">
+                            {{ $t('agent.displayGroup.workflow') }}
+                          </t-radio-button>
+                          <t-radio-button value="both">
+                            {{ $t('agent.displayGroup.both') }}
+                          </t-radio-button>
+                        </t-radio-group>
+                      </div>
+                    </div>
+
                   </div>
                 </div>
 
@@ -249,6 +270,7 @@
                             :hasKnowledgeBase="hasKnowledgeBase" @select="handleSystemPromptTemplateSelect"
                             @reset-default="handleSystemPromptTemplateSelect" />
                         </div>
+                        <!-- 恢复 YAML 默认按钮 + 当前内容状态提示已移除 -->
                         <!-- 占位符提示下拉框 -->
                         <Teleport to="body">
                           <div v-if="showPlaceholderPopup && filteredPlaceholders.length > 0"
@@ -1819,18 +1841,11 @@
       @skills-changed="onSkillProgressChanged"
     />
   </SettingDrawer>
-
-  <AgentCreateContextualGuide :when="visible && editorMode === 'create'" :is-agent-mode="isAgentMode" />
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, watch, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
-import AgentCreateContextualGuide from '@/components/AgentCreateContextualGuide.vue';
-import {
-  AGENT_EDITOR_FOCUS_SECTION_EVENT,
-  markContextualGuideDone,
-} from '@/config/contextualGuides';
 import { useI18n } from 'vue-i18n';
 import { selectInitialModelId } from '@/utils/modelDefaults';
 import { copyWithToast } from '@/utils/clipboard';
@@ -2004,23 +2019,6 @@ const applyInitialFieldHighlight = async (field: string) => {
     highlightClearTimer = null;
   }, FIELD_FLASH_DURATION_MS);
 };
-
-const onAgentEditorFocusSection = (event: Event) => {
-  const section = (event as CustomEvent<{ section?: string }>).detail?.section
-  if (!section) return
-  const resolved = resolveEditorSection(section)
-  if (navItems.value.some((item) => item.key === resolved)) {
-    currentSection.value = resolved
-  }
-}
-
-onMounted(() => {
-  window.addEventListener(AGENT_EDITOR_FOCUS_SECTION_EVENT, onAgentEditorFocusSection)
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener(AGENT_EDITOR_FOCUS_SECTION_EVENT, onAgentEditorFocusSection)
-})
 
 const saving = ref(false);
 const editorInitializing = ref(false);
@@ -2386,6 +2384,8 @@ const allTools = computed(() => [
   { value: 'list_knowledge_chunks', label: t('agentEditor.tools.listChunks'), description: t('agentEditor.tools.listChunksDesc'), group: 'rag' },
   { value: 'query_knowledge_graph', label: t('agentEditor.tools.queryGraph'), description: t('agentEditor.tools.queryGraphDesc'), group: 'rag' },
   { value: 'get_document_info', label: t('agentEditor.tools.getDocInfo'), description: t('agentEditor.tools.getDocInfoDesc'), group: 'rag' },
+  { value: 'kb_get_image', label: t('agentEditor.tools.kbGetImage'), description: t('agentEditor.tools.kbGetImageDesc'), group: 'rag' },
+  { value: 'kb_get_file', label: t('agentEditor.tools.kbGetFile'), description: t('agentEditor.tools.kbGetFileDesc'), group: 'rag' },
   { value: 'database_query', label: t('agentEditor.tools.dbQuery'), description: t('agentEditor.tools.dbQueryDesc'), group: 'rag' },
   // Wiki 读取类（阅读、搜索、标记问题）
   { value: 'wiki_search', label: t('agentEditor.tools.wikiSearch'), description: t('agentEditor.tools.wikiSearchDesc'), group: 'wiki_read' },
@@ -2400,6 +2400,7 @@ const allTools = computed(() => [
   // Wiki 巡检类
   { value: 'wiki_read_issue', label: t('agentEditor.tools.wikiReadIssue'), description: t('agentEditor.tools.wikiReadIssueDesc'), group: 'wiki_issue' },
   { value: 'wiki_update_issue', label: t('agentEditor.tools.wikiUpdateIssue'), description: t('agentEditor.tools.wikiUpdateIssueDesc'), group: 'wiki_issue' },
+  { value: 'wiki_get_image', label: t('agentEditor.tools.wikiGetImage'), description: t('agentEditor.tools.wikiGetImageDesc'), group: 'wiki_read' },
   // 数据分析
   { value: 'data_analysis', label: t('agentEditor.tools.dataAnalysis'), description: t('agentEditor.tools.dataAnalysisDesc'), group: 'data' },
   { value: 'data_schema', label: t('agentEditor.tools.dataSchema'), description: t('agentEditor.tools.dataSchemaDesc'), group: 'data' },
@@ -3118,6 +3119,18 @@ const agentType = computed({
   set: (val: AgentType) => { formData.value.config.agent_type = val; },
 });
 
+// display_group：默认 chat；空值 / 未知值 / "chat" 都被规范化为 "chat"
+const displayGroup = computed({
+  get: () => {
+    const v = formData.value.config.display_group
+    if (v === 'workflow' || v === 'both') return v
+    return 'chat'
+  },
+  set: (val: 'chat' | 'workflow' | 'both') => {
+    formData.value.config.display_group = val
+  },
+});
+
 // 当前激活的预设对象（用于 KB 过滤 / UI 徽章）
 const activeAgentTypePreset = computed<AgentTypePreset | null>(() => {
   if (!isAgentMode.value) return null;
@@ -3475,7 +3488,7 @@ watch(() => props.visible, async (val) => {
       }
       void loadAgentIntegrationCounts(agentData.id);
     } else {
-      // 创建新智能体，使用系统默认值
+      // 创建新智能体，使用系统默认值（提示词相关字段保持空白，由用户自行填写）
       const newFormData = JSON.parse(JSON.stringify(defaultFormData));
       // 应用系统默认检索参数
       newFormData.config.embedding_top_k = defaultEmbeddingTopK.value;
@@ -3485,34 +3498,6 @@ watch(() => props.visible, async (val) => {
       newFormData.config.rerank_threshold = defaultRerankThreshold.value;
       newFormData.config.max_completion_tokens = 0;
       newFormData.config.temperature = defaultTemperature.value;
-      // 应用系统默认提示词（根据模式填充）
-      const isAgent = newFormData.config.agent_mode === 'smart-reasoning';
-      if (isAgent) {
-        // Agent 模式使用 agent-config 的默认系统提示词
-        if (defaultAgentSystemPrompt.value) {
-          newFormData.config.system_prompt = defaultAgentSystemPrompt.value;
-        }
-      } else {
-        // 快速问答模式：默认提示词来自 prompt-templates 的 default 项
-        if (defaultNormalSystemPrompt.value) {
-          newFormData.config.system_prompt = defaultNormalSystemPrompt.value;
-        }
-        if (defaultContextTemplate.value) {
-          newFormData.config.context_template = defaultContextTemplate.value;
-        }
-        if (defaultRewritePromptSystem.value) {
-          newFormData.config.rewrite_prompt_system = defaultRewritePromptSystem.value;
-        }
-        if (defaultRewritePromptUser.value) {
-          newFormData.config.rewrite_prompt_user = defaultRewritePromptUser.value;
-        }
-        if (defaultFallbackPrompt.value) {
-          newFormData.config.fallback_prompt = defaultFallbackPrompt.value;
-        }
-        if (defaultFallbackResponse.value) {
-          newFormData.config.fallback_response = defaultFallbackResponse.value;
-        }
-      }
       formData.value = newFormData;
       // 新建智能体：知识库默认 "全部"，MCP / Skills 仍默认 "不使用"。
       kbSelectionMode.value = 'all';
@@ -3740,40 +3725,12 @@ watch(agentMode, (val, _oldVal) => {
     if (formData.value.config.max_iterations >= 0 && formData.value.config.max_iterations <= 1) {
       formData.value.config.max_iterations = 10;
     }
-    // 切换到 Agent 模式时，如果系统提示词是快速问答的默认值或为空，替换为 Agent 默认提示词
-    if (defaultAgentSystemPrompt.value) {
-      const isDefaultNormalPrompt = formData.value.config.system_prompt === defaultNormalSystemPrompt.value;
-      if (!formData.value.config.system_prompt || isDefaultNormalPrompt) {
-        formData.value.config.system_prompt = defaultAgentSystemPrompt.value;
-      }
-    }
+    // 切换到 Agent 模式时不再自动填充默认系统提示词 —— 留给用户自行填写
   } else {
     // 切换到普通模式，清空工具
     formData.value.config.allowed_tools = [];
     formData.value.config.max_iterations = 1; // 设置为1表示单轮 RAG
-    // 切换到快速问答模式时，如果系统提示词是 Agent 的默认值或为空，替换为快速问答默认提示词
-    if (defaultNormalSystemPrompt.value) {
-      const isDefaultAgentPrompt = formData.value.config.system_prompt === defaultAgentSystemPrompt.value;
-      if (!formData.value.config.system_prompt || isDefaultAgentPrompt) {
-        formData.value.config.system_prompt = defaultNormalSystemPrompt.value;
-      }
-    }
-    // 其他提示词只在为空时填充
-    if (!formData.value.config.context_template && defaultContextTemplate.value) {
-      formData.value.config.context_template = defaultContextTemplate.value;
-    }
-    if (!formData.value.config.rewrite_prompt_system && defaultRewritePromptSystem.value) {
-      formData.value.config.rewrite_prompt_system = defaultRewritePromptSystem.value;
-    }
-    if (!formData.value.config.rewrite_prompt_user && defaultRewritePromptUser.value) {
-      formData.value.config.rewrite_prompt_user = defaultRewritePromptUser.value;
-    }
-    if (!formData.value.config.fallback_prompt && defaultFallbackPrompt.value) {
-      formData.value.config.fallback_prompt = defaultFallbackPrompt.value;
-    }
-    if (!formData.value.config.fallback_response && defaultFallbackResponse.value) {
-      formData.value.config.fallback_response = defaultFallbackResponse.value;
-    }
+    // 切换到快速问答模式时也不再自动填充默认提示词 —— 留给用户自行填写
   }
 });
 
@@ -4797,9 +4754,10 @@ const handleSave = async () => {
   }
 
   if (!formData.value.config.model_id) {
-    MessagePlugin.error(t('agent.editor.modelRequired'));
-    currentSection.value = 'model';
-    return;
+    // C-mode (2026-09-10): model_id is optional. Backend falls back to the
+    // request's summary_model_id, then the KB / system default. We only warn
+    // so the creator can still save and tweak later.
+    MessagePlugin.warning(t('agent.editor.modelOptionalWarning'));
   }
 
   // 校验 VLM 模型（当图片上传启用时必填）
@@ -4833,7 +4791,6 @@ const handleSave = async () => {
       }
       savedAgent.value = created;
       formData.value.id = created.id;
-      markContextualGuideDone('agentCreate')
       currentSection.value = 'basic';
       void loadAgentIntegrationCounts(created.id);
       MessagePlugin.success(t('agent.messages.created'));
@@ -6489,6 +6446,7 @@ const handleSave = async () => {
   pointer-events: auto;
 }
 
+// placeholder-popup 等继续
 .placeholder-popup {
   background: var(--td-bg-color-container, #fff);
   border: 1px solid var(--td-component-stroke, #e5e7eb);

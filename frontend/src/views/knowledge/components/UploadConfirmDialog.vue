@@ -22,7 +22,6 @@
                       :tooltip="t('uploadConfirm.continueAdd')"
                       placement="bottom-left"
                       @files="appendFiles"
-                      @url="appendUrl"
                     />
                   </div>
                 </div>
@@ -77,23 +76,6 @@
                   <p class="manual-source-meta">{{ t('uploadConfirm.reparseHint') }}</p>
                 </div>
                 <ul v-else-if="mode === 'file' && batchItemCount > 0" class="files-list">
-                  <li v-for="(url, index) in localUrls" :key="`url-${url}-${index}`" class="file-item">
-                    <span class="file-icon-wrap">
-                      <t-icon name="link" class="file-icon" />
-                    </span>
-                    <div class="file-meta">
-                      <span class="file-name" :title="url">{{ url }}</span>
-                      <span class="file-size">{{ t('uploadConfirm.urlItemLabel') }}</span>
-                    </div>
-                    <button
-                      type="button"
-                      class="file-remove"
-                      :aria-label="t('common.remove')"
-                      @click="removeUrl(index)"
-                    >
-                      <t-icon name="close" />
-                    </button>
-                  </li>
                   <li v-for="(file, index) in localFiles" :key="`${file.name}-${index}`" class="file-item">
                     <span class="file-icon-wrap">
                       <t-icon :name="getFileIcon(file.name)" class="file-icon" />
@@ -619,7 +601,6 @@ const props = withDefaults(defineProps<{
   kbInfo: any
   mode?: UploadConfirmMode
   files?: File[]
-  urls?: string[]
   tagIds?: string[]
   manualPreview?: UploadConfirmManualSource | null
   reparsePreview?: UploadConfirmReparseSource | null
@@ -633,7 +614,6 @@ const props = withDefaults(defineProps<{
 }>(), {
   mode: 'file',
   files: () => [],
-  urls: () => [],
   tagIds: () => [],
   manualPreview: null,
   reparsePreview: null,
@@ -656,7 +636,6 @@ const uiStore = useUIStore()
 
 const allModels = ref<any[]>([])
 const localFiles = ref<File[]>([])
-const localUrls = ref<string[]>([])
 const availableTags = ref<Array<{ id: string; name: string }>>([])
 const selectedTagIds = ref<string[]>([])
 const tagsLoading = ref(false)
@@ -777,7 +756,7 @@ function inferMediaExtsFromMarkdown(content: string): string[] {
 }
 
 const manualCharCount = computed(() => props.manualPreview?.content?.length ?? 0)
-const batchItemCount = computed(() => localFiles.value.length + localUrls.value.length)
+const batchItemCount = computed(() => localFiles.value.length)
 
 const dialogTitle = computed(() => {
   if (props.mode === 'manual') return t('uploadConfirm.titleManual')
@@ -800,10 +779,6 @@ const batchFileExts = computed(() => {
   }
   if (props.mode === 'reparse') {
     const ext = (props.reparsePreview?.fileType || '').toLowerCase()
-    if (ext) set.add(ext)
-  }
-  for (const url of localUrls.value) {
-    const ext = getExtFromUrl(url)
     if (ext) set.add(ext)
   }
   for (const file of localFiles.value) {
@@ -1289,7 +1264,6 @@ watch(
   (visible) => {
     if (!visible) return
     localFiles.value = props.mode === 'file' ? [...(props.files || [])] : []
-    localUrls.value = props.mode === 'file' ? [...(props.urls || [])] : []
     selectedTagIds.value = props.mode === 'reparse' ? [] : [...(props.tagIds || [])]
     localTargetFolder.value = props.mode === 'file' ? (props.targetFolder || '') : ''
     pendingFolderPaths.value = []
@@ -1333,19 +1307,6 @@ const appendFiles = (incoming: File[]) => {
   } else if (duplicateCount > 0) {
     MessagePlugin.warning(t('uploadConfirm.filesAllDuplicate'))
   }
-}
-
-const appendUrl = (url: string) => {
-  if (localUrls.value.includes(url)) {
-    MessagePlugin.warning(t('uploadConfirm.urlDuplicate'))
-    return
-  }
-  localUrls.value = [...localUrls.value, url]
-  MessagePlugin.success(t('uploadConfirm.urlAdded'))
-}
-
-const removeUrl = (index: number) => {
-  localUrls.value = localUrls.value.filter((_, i) => i !== index)
 }
 
 const removeFile = (index: number) => {
@@ -1434,7 +1395,6 @@ const handleConfirm = () => {
       mode: 'file',
       tagIds: [...selectedTagIds.value],
       files: [...localFiles.value],
-      urls: [...localUrls.value],
       targetFolder: localTargetFolder.value,
     })
   }

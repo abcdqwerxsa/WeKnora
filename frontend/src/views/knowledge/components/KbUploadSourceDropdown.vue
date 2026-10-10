@@ -35,28 +35,6 @@
         </t-button>
       </t-dropdown>
     </t-tooltip>
-
-    <t-dialog
-      v-model:visible="urlDialogVisible"
-      :header="t('knowledgeBase.importURLTitle')"
-      :confirm-btn="{ content: t('common.confirm'), theme: 'primary' }"
-      :cancel-btn="{ content: t('common.cancel') }"
-      width="500px"
-      @confirm="handleUrlDialogConfirm"
-      @cancel="handleUrlDialogCancel"
-    >
-      <div class="url-import-form">
-        <div class="url-input-label">{{ t('knowledgeBase.urlLabel') }}</div>
-        <t-input
-          v-model="urlInputValue"
-          :placeholder="t('knowledgeBase.urlPlaceholder')"
-          clearable
-          autofocus
-          @enter="handleUrlDialogConfirm"
-        />
-        <div class="url-input-tip">{{ t('knowledgeBase.urlTip') }}</div>
-      </div>
-    </t-dialog>
   </div>
 </template>
 
@@ -88,7 +66,6 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   files: [files: File[]]
-  url: [url: string]
   manual: []
 }>()
 
@@ -96,8 +73,6 @@ const { t } = useI18n()
 
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const folderInputRef = ref<HTMLInputElement | null>(null)
-const urlDialogVisible = ref(false)
-const urlInputValue = ref('')
 
 const tooltipText = computed(() => props.tooltip || t('knowledgeBase.addDocument'))
 
@@ -112,11 +87,6 @@ const dropdownOptions = computed(() => {
       content: t('upload.uploadFolder'),
       value: 'uploadFolder',
       prefixIcon: () => h(TIcon, { name: 'folder-add', size: '16px' }),
-    },
-    {
-      content: t('knowledgeBase.importURL'),
-      value: 'importURL',
-      prefixIcon: () => h(TIcon, { name: 'link', size: '16px' }),
     },
   ]
   if (props.includeManual) {
@@ -136,10 +106,6 @@ const handleActionSelect = (data: { value: string }) => {
       break
     case 'uploadFolder':
       folderInputRef.value?.click()
-      break
-    case 'importURL':
-      urlInputValue.value = ''
-      urlDialogVisible.value = true
       break
     case 'manualCreate':
       emit('manual')
@@ -185,35 +151,6 @@ const handleFilesChange = (event: Event, fromFolder: boolean) => {
   emit('files', result.validFiles)
   input.value = ''
 }
-
-const handleUrlDialogConfirm = () => {
-  const url = urlInputValue.value.trim()
-  if (!url) {
-    MessagePlugin.warning(t('knowledgeBase.urlRequired'))
-    return
-  }
-  try {
-    new URL(url)
-  } catch {
-    MessagePlugin.warning(t('knowledgeBase.invalidURL'))
-    return
-  }
-  urlDialogVisible.value = false
-  urlInputValue.value = ''
-  emit('url', url)
-}
-
-const handleUrlDialogCancel = () => {
-  urlDialogVisible.value = false
-  urlInputValue.value = ''
-}
-
-const openUrlDialog = () => {
-  urlInputValue.value = ''
-  urlDialogVisible.value = true
-}
-
-defineExpose({ openUrlDialog })
 </script>
 
 <style lang="less" scoped>
@@ -230,22 +167,6 @@ defineExpose({ openUrlDialog })
 
   &:hover {
     color: var(--td-brand-color);
-  }
-}
-
-.url-import-form {
-  .url-input-label {
-    margin-bottom: 8px;
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--td-text-color-primary);
-  }
-
-  .url-input-tip {
-    margin-top: 8px;
-    font-size: 12px;
-    line-height: 1.5;
-    color: var(--td-text-color-placeholder);
   }
 }
 </style>

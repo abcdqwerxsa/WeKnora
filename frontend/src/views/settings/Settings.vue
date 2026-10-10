@@ -36,15 +36,7 @@
                         <line x1="2.94" y1="12.5" x2="15.06" y2="12.5" stroke="currentColor" stroke-width="1.2"
                           stroke-linecap="round" />
                       </svg>
-                      <!-- WeKnora Cloud 使用自定义 W 图标 -->
-                      <svg v-else-if="item.key === 'weknoracloud'" width="17" height="17" viewBox="0 0 18 18"
-                        fill="none" xmlns="http://www.w3.org/2000/svg" class="nav-icon">
-                        <rect x="1.5" y="1.5" width="15" height="15" rx="3.5" stroke="currentColor" stroke-width="1.2"
-                          fill="none" />
-                        <path d="M4.5 5.5L6.5 12.5L9 7.5L11.5 12.5L13.5 5.5" stroke="currentColor" stroke-width="1.3"
-                          stroke-linecap="round" stroke-linejoin="round" fill="none" />
-                      </svg>
-                      <!-- 沙箱：隔离运行窗口，避免和 Ollama / 系统设置共用 server -->
+                      <!-- 沙箱：隔离运行窗口，避免和系统设置共用 server -->
                       <svg v-else-if="item.key === 'sandbox'" width="17" height="17" viewBox="0 0 18 18" fill="none"
                         xmlns="http://www.w3.org/2000/svg" class="nav-icon">
                         <rect x="2.5" y="3" width="13" height="12" rx="2" stroke="currentColor" stroke-width="1.2"
@@ -103,11 +95,6 @@
                     <OllamaSettings />
                   </div>
 
-                  <!-- WeKnora Cloud -->
-                  <div v-if="currentSection === 'weknoracloud'" class="section">
-                    <WeKnoraCloudSettings />
-                  </div>
-
                   <!-- 模型配置 -->
                   <div v-if="currentSection === 'models'" class="section">
                     <ModelSettings />
@@ -163,10 +150,7 @@
                     <SkillSettings :initial-sandbox-id="currentSubSection" />
                   </div>
 
-                  <!-- 系统信息 -->
-                  <div v-if="currentSection === 'system'" class="section">
-                    <SystemInfo />
-                  </div>
+                  <!-- 系统信息（版本/平台分类）section 已移除 — 见 platform/settings?section=system -->
 
                   <!-- 系统管理员可见的全局运行时设置 -->
                   <div v-if="currentSection === 'system-global'" class="section">
@@ -186,6 +170,11 @@
                     <SystemAuditLog />
                   </div>
 
+                  <!-- 待审核用户队列：SystemAdmin 专属，决定哪些自注册账号可以登录 -->
+                  <div v-if="currentSection === 'pending-users'" class="section">
+                    <PendingUsers />
+                  </div>
+
                   <!-- 用户信息（账户基础信息：ID / 用户名 / 邮箱 / 注册时间）。
                      用户的基本信息不该跟 owner 权限绑定。 -->
                   <div v-if="currentSection === 'userprofile'" class="section">
@@ -202,10 +191,10 @@
                     <TenantMembers />
                   </div>
 
-                  <!-- 发布集成 -->
-                  <div v-if="isIntegrationSection(currentSection)" class="section">
+                  <!-- 发布集成已下线，先停渲染 -->
+                  <!-- <div v-if="isIntegrationSection(currentSection)" class="section">
                     <IntegrationSettingsSection :tab="integrationTabFromSection(currentSection)" />
-                  </div>
+                  </div> -->
 
                   <!-- MCP 服务 -->
                   <div v-if="currentSection === 'mcp'" class="section">
@@ -230,7 +219,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useDeploymentCapabilitiesStore } from '@/stores/deploymentCapabilities'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin } from 'tdesign-vue-next'
-import SystemInfo from './SystemInfo.vue'
+// SystemInfo import 已移除 — 'system' section (版本信息) 不再显示
 import TenantInfo from './TenantInfo.vue'
 import UserProfile from './UserProfile.vue'
 import GeneralSettings from './GeneralSettings.vue'
@@ -247,12 +236,12 @@ import ParserEngineSettings from './ParserEngineSettings.vue'
 import StorageEngineSettings from './StorageBackendSettings.vue'
 import SandboxSettings from './SandboxSettings.vue'
 import SkillSettings from './SkillSettings.vue'
-import WeKnoraCloudSettings from './WeKnoraCloudSettings.vue'
 import TenantMembers from './TenantMembers.vue'
 import SystemSettings from '@/views/system/SystemSettings.vue'
 import RuntimeQueues from '@/views/system/RuntimeQueues.vue'
 import PlatformAPIKeys from '@/views/system/PlatformAPIKeys.vue'
 import SystemAuditLog from '@/views/system/SystemAuditLog.vue'
+import PendingUsers from '@/views/system/PendingUsers.vue'
 import IntegrationSettingsSection from '@/views/integrations/IntegrationSettingsSection.vue'
 import {
   INTEGRATION_PREVIEW_ITEMS,
@@ -360,16 +349,16 @@ const navItems = computed(() => {
   // 一律走 SETTINGS_SECTION_MIN_ROLE 表，避免 ad-hoc isAdmin/isOwner 散落在多处。
   // 服务端在每条路由上仍以 g.Viewer/Admin/Owner 为准，这里只决定 UI 是
   // 否露入口；改动入口规则请同步更新 settingsAccess.ts 和对应后端路由。
-  const integrationItems: NavItem[] = INTEGRATION_PREVIEW_ITEMS.map((item) => ({
-    key: integrationSectionKey(item.key),
-    icon: item.icon.type === 'icon' ? item.icon.name : 'integration',
-    emoji: item.icon.type === 'emoji' ? item.icon.value : undefined,
-    label: t(`integrations.tabs.${item.key}`),
-  }))
+  // 发布集成已下线 —— 先不在设置里露入口
+  // const integrationItems: NavItem[] = INTEGRATION_PREVIEW_ITEMS.map((item) => ({
+  //   key: integrationSectionKey(item.key),
+  //   icon: item.icon.type === 'icon' ? item.icon.name : 'integration',
+  //   emoji: item.icon.type === 'emoji' ? item.icon.value : undefined,
+  //   label: t(`integrations.tabs.${item.key}`),
+  // }))
   const all: NavItem[] = [
     { key: 'general', icon: 'setting', label: t('general.title') },
     { key: 'ollama', icon: 'server', label: 'Ollama' },
-    { key: 'weknoracloud', icon: '', label: 'WeKnora Cloud' },
     { key: 'models', icon: 'control-platform', label: t('settings.modelManagement') },
     { key: 'websearch', icon: 'search', label: t('settings.webSearchConfig') },
     { key: 'chathistory', icon: 'chat', label: t('chatHistorySettings.title') },
@@ -380,17 +369,20 @@ const navItems = computed(() => {
     { key: 'sandbox', icon: 'code', label: t('settings.sandbox.title') },
     { key: 'skills', icon: SKILL_ICON, label: t('settings.skills.title') },
     { key: 'mcp', icon: 'tools', label: t('settings.mcpService') },
-    { key: 'system', icon: 'info-circle', label: t('settings.versionInfo') },
+    // 'system' section (版本信息 / platform classification) 已移除 — 见 platform/settings?section=system
+    // { key: 'system', icon: 'info-circle', label: t('settings.versionInfo') },
     { key: 'system-global', icon: 'server', label: t('settings.system') },
     { key: 'runtime-queues', icon: 'queue', label: t('settings.taskQueue') },
     { key: 'platform-api-keys', icon: 'secured', label: t('platformApiKeys.title') },
     { key: 'system-audit-log', icon: 'history', label: t('system.globalSettings.audit.tabLabel') },
+    { key: 'pending-users', icon: 'user-add', label: t('auth.pendingApprovalTitle') },
     { key: 'userprofile', icon: 'user', label: t('userProfile.title') },
     { key: 'mymemory', icon: 'bookmark', label: t('memorySettings.title') },
     { key: 'envvars', icon: 'key', label: t('envVarSettings.title') },
     { key: 'tenant', icon: 'user-circle', label: t('settings.tenantInfo') },
     { key: 'members', icon: 'usergroup', label: t('tenantMember.title') },
-    ...integrationItems,
+    // 发布集成已下线，菜单项也先停推
+    // ...integrationItems,
   ]
   // currentTenantRole 为空表示「membership 还没加载」—— 比起渲染整套
   // viewer 入口然后角色一返回又消失，先卡住不渲染更稳，跟原先 members
@@ -417,24 +409,25 @@ const navGroups = computed<NavGroup[]>(() => {
     {
       key: 'workspace',
       label: t('settings.navGroups.workspace'),
-      items: pickItems(['tenant', 'members', 'chathistory', 'memory']),
+      items: pickItems(['tenant', 'members', 'pending-users', 'chathistory', 'memory']),
     },
     {
       key: 'models_runtime',
       label: t('settings.navGroups.modelsRuntime'),
-      items: pickItems(['models', 'ollama', 'weknoracloud']),
+      items: pickItems(['models', 'ollama']),
     },
-    {
-      key: 'integrations',
-      label: t('integrations.title'),
-      items: pickItems([
-        integrationSectionKey('im'),
-        integrationSectionKey('embed'),
-        integrationSectionKey('api'),
-        integrationSectionKey('chrome'),
-        integrationSectionKey('claw'),
-      ]),
-    },
+    // 发布集成（im / embed / api / chrome / claw）已下线，菜单先隐藏。
+    // {
+    //   key: 'integrations',
+    //   label: t('integrations.title'),
+    //   items: pickItems([
+    //     integrationSectionKey('im'),
+    //     integrationSectionKey('embed'),
+    //     integrationSectionKey('api'),
+    //     integrationSectionKey('chrome'),
+    //     integrationSectionKey('claw'),
+    //   ]),
+    // },
     {
       key: 'data_extensions',
       label: t('settings.navGroups.dataExtensions'),
@@ -573,8 +566,23 @@ watch(
       section,
       typeof route.query.tab === 'string' ? route.query.tab : undefined,
     )
+    // section 必须同时满足：(a) 部署能力允许，(b) 在当前 navItems 菜单里
+    // —— 后者覆盖 'system' 这类已从菜单移除但 capability map 没显式标 false 的 section，
+    // 避免直接访问 ?section=system 命中空白页面。
     if (capabilitiesLoaded && !isSectionSupported(normalizedSection)) {
       MessagePlugin.warning(t('settings.capabilityUnavailable'))
+      const fallback = navItems.value[0]?.key || 'general'
+      currentSection.value = fallback
+      currentSubSection.value = ''
+      syncSettingsRoute(fallback)
+      return
+    }
+    if (
+      capabilitiesLoaded &&
+      !navItems.value.some((item) => item.key === normalizedSection)
+    ) {
+      // 静默回退：section 已从菜单移除（典型场景：'system' 版本信息页面下线），
+      // 用户从老书签 / 分享链接进来不应弹警告，直接跳到第一个可见项。
       const fallback = navItems.value[0]?.key || 'general'
       currentSection.value = fallback
       currentSubSection.value = ''

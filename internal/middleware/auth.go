@@ -46,7 +46,8 @@ var noAuthAPI = map[string][]string{
 	// /login instead of the register page (issue #1617).
 	"/api/v1/auth/invitations/lookup": {"POST"},
 	"/api/v1/auth/register-by-invite": {"POST"},
-	"/api/v1/auth/config":             {"GET"},
+	"/api/v1/auth/config":                       {"GET"},
+	"/api/v1/auth/available-departments":         {"GET"},
 	"/api/v1/auth/oidc/config":        {"GET"},
 	"/api/v1/auth/oidc/url":           {"GET"},
 	"/api/v1/auth/oidc/start":         {"GET"},

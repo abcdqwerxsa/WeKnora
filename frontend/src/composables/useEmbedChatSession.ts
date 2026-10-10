@@ -7,7 +7,7 @@ import {
   onUnmounted,
   type Ref,
 } from 'vue'
-import { useStream } from '@/api/chat/streame'
+import { useStream } from '@/api/chat/streame.ts'
 import {
   getEmbedMessageList,
   postEmbedMessageSent,

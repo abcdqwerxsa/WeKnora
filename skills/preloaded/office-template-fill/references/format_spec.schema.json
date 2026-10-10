@@ -1,0 +1,170 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://weknora.internal/schemas/bid_format_spec.json",
+  "title": "Bid Format Spec",
+  "description": "招标文件格式要求的结构化 schema，用于 office-template-fill Skill 消费",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["page", "fonts", "paragraph"],
+  "properties": {
+    "page": {
+      "type": "object",
+      "required": ["size", "orientation", "margins"],
+      "properties": {
+        "size": {
+          "type": "string",
+          "enum": ["A4", "A3", "A5", "Letter", "Legal"],
+          "description": "纸张规格"
+        },
+        "orientation": {
+          "type": "string",
+          "enum": ["portrait", "landscape"]
+        },
+        "margins": {
+          "type": "object",
+          "required": ["top", "bottom", "left", "right"],
+          "properties": {
+            "top":    { "type": "number", "minimum": 0 },
+            "bottom": { "type": "number", "minimum": 0 },
+            "left":   { "type": "number", "minimum": 0 },
+            "right":  { "type": "number", "minimum": 0 },
+            "unit":   { "type": "string", "enum": ["cm", "inch", "pt"], "default": "cm" }
+          }
+        }
+      }
+    },
+    "fonts": {
+      "type": "object",
+      "required": ["body"],
+      "properties": {
+        "body":      { "$ref": "#/definitions/fontStyle" },
+        "heading_1": { "$ref": "#/definitions/fontStyle" },
+        "heading_2": { "$ref": "#/definitions/fontStyle" },
+        "heading_3": { "$ref": "#/definitions/fontStyle" },
+        "caption":   { "$ref": "#/definitions/fontStyle" },
+        "code":      { "$ref": "#/definitions/fontStyle" }
+      }
+    },
+    "paragraph": {
+      "type": "object",
+      "properties": {
+        "line_spacing":          { "type": "number", "minimum": 1.0, "default": 1.5 },
+        "first_line_indent_chars": { "type": "number", "minimum": 0, "default": 2 },
+        "alignment":             { "type": "string", "enum": ["left", "center", "right", "justify"], "default": "justify" },
+        "space_before_pt":       { "type": "number", "minimum": 0, "default": 0 },
+        "space_after_pt":        { "type": "number", "minimum": 0, "default": 0 }
+      }
+    },
+    "header_footer": {
+      "type": "object",
+      "properties": {
+        "header": {
+          "type": "object",
+          "properties": {
+            "text":     { "type": "string" },
+            "alignment": { "type": "string", "enum": ["left", "center", "right"], "default": "center" },
+            "font":     { "$ref": "#/definitions/fontStyle" },
+            "border_bottom": { "type": "boolean", "default": true }
+          }
+        },
+        "footer": {
+          "type": "object",
+          "properties": {
+            "text":     { "type": "string", "default": "第 X 页 共 Y 页" },
+            "alignment": { "type": "string", "enum": ["left", "center", "right"], "default": "center" },
+            "font":     { "$ref": "#/definitions/fontStyle" }
+          }
+        },
+        "page_number_position": {
+          "type": "string",
+          "enum": ["footer_center", "footer_right", "header_right", "none"],
+          "default": "footer_center"
+        },
+        "different_first_page": { "type": "boolean", "default": false }
+      }
+    },
+    "toc": {
+      "type": "object",
+      "properties": {
+        "levels":               { "type": "integer", "minimum": 1, "maximum": 9, "default": 3 },
+        "include_page_number":  { "type": "boolean", "default": true },
+        "auto_generate":        { "type": "boolean", "default": true },
+        "title":                { "type": "string", "default": "目  录" },
+        "insert_position":      { "type": "string", "enum": ["before_first_heading", "after_cover", "manual"], "default": "after_cover" }
+      }
+    },
+    "structure": {
+      "type": "object",
+      "properties": {
+        "volumes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "order"],
+            "properties": {
+              "name":      { "type": "string", "description": "分册名，如 '商务标' / '技术标' / '经济标'" },
+              "order":     { "type": "integer", "minimum": 1 },
+              "anonymous": { "type": "boolean", "default": false, "description": "是否做匿名化处理（去除公司识别信息）" },
+              "cover":     { "type": "boolean", "default": true, "description": "是否生成封面页" },
+              "docx_path": { "type": "string", "description": "已渲染的分册 docx 路径（compose_volume.py 用）" }
+            }
+          }
+        },
+        "binding_order": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "装订顺序，引用 volumes[].name"
+        },
+        "tab_divider":    { "type": "boolean", "default": true },
+        "include_master_toc": { "type": "boolean", "default": true }
+      }
+    },
+    "signature": {
+      "type": "object",
+      "properties": {
+        "seal_required":      { "type": "boolean", "default": true },
+        "seal_per_page":      { "type": "boolean", "default": false },
+        "legal_rep_signature": { "type": "boolean", "default": true },
+        "signature_position": { "type": "string", "default": "每分册末页右下角" },
+        "signature_image":    { "type": "string", "description": "签名/印章图片路径" }
+      }
+    },
+    "delivery": {
+      "type": "object",
+      "properties": {
+        "original_count": { "type": "integer", "minimum": 0, "default": 1 },
+        "copy_count":     { "type": "integer", "minimum": 0, "default": 4 },
+        "packaging":      { "type": "string", "enum": ["单独密封", "合并密封", "电子提交"], "default": "单独密封" },
+        "envelope_marking": { "type": "string", "default": "项目名称 + 投标人 + 开标时间" }
+      }
+    },
+    "hard_constraints": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "硬约束清单，如 ['技术标中不得出现任何可识别投标人身份的内容', '商务标报价不得高于最高限价']"
+    },
+    "source": {
+      "type": "object",
+      "description": "该 format_spec 是从哪个招标文件哪个章节抽取的，便于人审回溯",
+      "properties": {
+        "document": { "type": "string" },
+        "section":  { "type": "string", "description": "如 '第三章 投标文件编制及装订要求'" },
+        "page":     { "type": "integer" },
+        "extracted_at": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "definitions": {
+    "fontStyle": {
+      "type": "object",
+      "required": ["family", "size_pt"],
+      "properties": {
+        "family":   { "type": "string", "description": "字体名，如 '宋体' / 'Times New Roman'" },
+        "size_pt":  { "type": "number", "minimum": 1, "maximum": 200 },
+        "bold":     { "type": "boolean", "default": false },
+        "italic":   { "type": "boolean", "default": false },
+        "color":    { "type": "string", "pattern": "^#?[0-9A-Fa-f]{6}$", "default": "#000000" }
+      }
+    }
+  }
+}

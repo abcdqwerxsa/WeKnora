@@ -16,6 +16,16 @@ type TenantMemberService interface {
 	// (user, tenant) already has an active membership.
 	AddMember(ctx context.Context, userID string, tenantID uint64, role types.TenantRole, invitedBy *string) (*types.TenantMember, error)
 
+	// AddPendingMember inserts a membership row in 'invited' status. The
+	// user exists but cannot act in the tenant until a SystemAdmin flips
+	// them via ActivatePendingMember. This is the on-disk representation
+	// of "self-registered, awaiting approval".
+	AddPendingMember(ctx context.Context, userID string, tenantID uint64, role types.TenantRole) (*types.TenantMember, error)
+
+	// ActivatePendingMember flips an invited member to active. Idempotent
+	// (no-op on already-active rows).
+	ActivatePendingMember(ctx context.Context, userID string, tenantID uint64) (*types.TenantMember, error)
+
 	// EnsureOwner is an idempotent helper used by the registration flow:
 	// if the user already has an active membership in the tenant, return
 	// it; otherwise create one with role=owner. This is the common path

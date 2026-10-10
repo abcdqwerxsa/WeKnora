@@ -39,6 +39,22 @@ func NewTenantMemberRepository(db *gorm.DB) interfaces.TenantMemberRepository {
 // Create inserts a new active membership row. Status defaults to
 // TenantMemberStatusActive when the caller leaves it blank, and JoinedAt
 // defaults to the current time, matching service-layer expectations.
+// Update persists arbitrary column changes on a TenantMember row. Used
+// by ActivatePendingMember to flip status='invited' → 'active' in one
+// place; future status transitions (suspend, reinstate) reuse the same
+// path. Implementations should not touch DeletedAt — use SoftDelete for
+// removals so the audit-trail row survives.
+func (r *tenantMemberRepository) Update(ctx context.Context, member *types.TenantMember) error {
+	res := r.db.WithContext(ctx).Save(member)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
 func (r *tenantMemberRepository) Create(ctx context.Context, member *types.TenantMember) error {
 	if member.Status == "" {
 		member.Status = types.TenantMemberStatusActive

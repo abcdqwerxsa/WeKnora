@@ -140,7 +140,7 @@ func TestInstallShellExecStillHonoursAnExplicitWorkDir(t *testing.T) {
 // A run that somehow carries no valid skill directory must not invent one, and
 // must not send commands to a path outside the allowed roots.
 func TestInstallShellExecFallsBackToWorkspaceWithoutAValidSkillDir(t *testing.T) {
-	for _, dir := range []string{"", sandbox.SkillsImageRoot, "/etc", "/opt/weknora/tenant/skills/a/b"} {
+	for _, dir := range []string{"", sandbox.SkillsImageRoot, "/etc", "/opt/luosa/tenant/skills/a/b"} {
 		inner := &fakeInstallShellExecutor{}
 
 		result, err := NewInstallShellExecTool(inner, dir).Execute(
@@ -226,7 +226,7 @@ func TestShellExecDescriptionSupportsGeneralExploration(t *testing.T) {
 	assert.Contains(t, description, "Binary output is never returned")
 	assert.Contains(t, description, "write_sandbox_file")
 	assert.Contains(t, description, "edit_sandbox_file")
-	assert.Contains(t, description, "/opt/weknora/tenant/skills")
+	assert.Contains(t, description, "/opt/luosa/tenant/skills")
 	assert.Contains(t, description, "python3 -c")
 	assert.Contains(t, description, "execute_skill_script")
 	assert.Contains(t, description, ".skill-packages")
@@ -356,7 +356,7 @@ func TestShellExecDoesNotCaptureWithoutAnExplicitSkillName(t *testing.T) {
 	tool := NewShellExecTool(&fakeShellExecutor{}, nil).WithEnvCapture(recorder.capture)
 
 	result, err := tool.Execute(shellExecTestContext(), json.RawMessage(
-		`{"command":"export USER_TOKEN=from-command; cd /opt/weknora/tenant/skills/pdf-tools && python x.py"}`,
+		`{"command":"export USER_TOKEN=from-command; cd /opt/luosa/tenant/skills/pdf-tools && python x.py"}`,
 	))
 
 	require.NoError(t, err)
@@ -518,7 +518,7 @@ print(len(doc.paragraphs))
 
 func TestSkillNameFromShellCommandExtractsImageSkill(t *testing.T) {
 	assert.Equal(t, "meeting-and-brief", skillNameFromShellCommand(
-		`/opt/weknora/tenant/skills/meeting-and-brief/.venv/bin/python -c "print(1)"`,
+		`/opt/luosa/tenant/skills/meeting-and-brief/.venv/bin/python -c "print(1)"`,
 	))
 	assert.Empty(t, skillNameFromShellCommand(`python3 -c "print(1)"`))
 }
@@ -530,7 +530,7 @@ func TestShellExecAllowsOverlayInstallThatMentionsTheSkillTree(t *testing.T) {
 	tool := NewShellExecTool(executor, nil)
 
 	result, err := tool.Execute(shellExecTestContext(), json.RawMessage(
-		`{"command":"python3 -m pip install --target /workspace/.skill-packages/foo -r /opt/weknora/tenant/skills/foo/requirements.txt"}`,
+		`{"command":"python3 -m pip install --target /workspace/.skill-packages/foo -r /opt/luosa/tenant/skills/foo/requirements.txt"}`,
 	))
 	require.NoError(t, err)
 	require.True(t, result.Success, result.Error)
@@ -542,7 +542,7 @@ func TestInstallShellExecStillPipsIntoTheSkillTree(t *testing.T) {
 	tool := NewInstallShellExecTool(inner, installShellSkillDir)
 
 	result, err := tool.Execute(shellExecTestContext(), json.RawMessage(
-		`{"command":"pip install python-docx","work_dir":"/opt/weknora/tenant/skills/律师助手"}`,
+		`{"command":"pip install python-docx","work_dir":"/opt/luosa/tenant/skills/律师助手"}`,
 	))
 	require.NoError(t, err)
 	require.True(t, result.Success, result.Error)
@@ -552,11 +552,11 @@ func TestInstallShellExecStillPipsIntoTheSkillTree(t *testing.T) {
 func TestShellExecHintsWhenVenvHasNoPip(t *testing.T) {
 	tool := NewShellExecTool(&fakeShellExecutor{result: &sandbox.ExecuteResult{
 		ExitCode: 1,
-		Stderr:   "/opt/weknora/tenant/skills/律师助手/.venv/bin/python: No module named pip\n",
+		Stderr:   "/opt/luosa/tenant/skills/律师助手/.venv/bin/python: No module named pip\n",
 	}}, nil)
 
 	result, err := tool.Execute(shellExecTestContext(), json.RawMessage(
-		`{"command":"/opt/weknora/tenant/skills/律师助手/.venv/bin/python /opt/weknora/tenant/skills/律师助手/scripts/install_deps.py --word --yes"}`,
+		`{"command":"/opt/luosa/tenant/skills/律师助手/.venv/bin/python /opt/luosa/tenant/skills/律师助手/scripts/install_deps.py --word --yes"}`,
 	))
 	require.NoError(t, err)
 	require.True(t, result.Success)

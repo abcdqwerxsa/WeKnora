@@ -458,10 +458,10 @@ func TestPruneReclaimsAnAbandonedBuildByPlannedName(t *testing.T) {
 	fx := newReaperFixture(t)
 	fx.live("snap-live")
 	fx.installed("sk-1", "snap-live", "")
-	fx.building("sk-2", "weknora-sk-cfg1-g2", fx.now.Add(-skillInstallStuckTTL-time.Minute))
+	fx.building("sk-2", "luosa-sk-cfg1-g2", fx.now.Add(-skillInstallStuckTTL-time.Minute))
 	fx.provider.listed = []sandbox.RemoteSnapshotRef{
 		{ID: "snap-live"},
-		{ID: "snap-orphan", Names: []string{"weknora-sk-cfg1-g2"}},
+		{ID: "snap-orphan", Names: []string{"luosa-sk-cfg1-g2"}},
 	}
 
 	n, err := fx.svc.PruneSupersededSnapshots(context.Background())
@@ -471,23 +471,23 @@ func TestPruneReclaimsAnAbandonedBuildByPlannedName(t *testing.T) {
 	require.Equal(t, []string{"snap-orphan"}, fx.provider.deleted,
 		"the snapshot is addressed by the provider ID the listing matched, not by the name")
 	require.Equal(t, types.SkillSnapshotStateDeleted,
-		fx.snapshotState(t, "row-weknora-sk-cfg1-g2"))
+		fx.snapshotState(t, "row-luosa-skgcfg1-g2"))
 }
 
 // Docker's snapshot ID *is* the planned name, prefixed with the local
 // repository it commits into.
 func TestPruneReclaimsAnAbandonedBuildThroughARepositoryPrefix(t *testing.T) {
 	fx := newReaperFixture(t)
-	fx.building("sk-2", "weknora-sk-cfg1-g2", fx.now.Add(-skillInstallStuckTTL-time.Minute))
+	fx.building("sk-2", "luosa-sk-cfg1-g2", fx.now.Add(-skillInstallStuckTTL-time.Minute))
 	fx.provider.listed = []sandbox.RemoteSnapshotRef{
-		{ID: "weknora-skill/weknora-sk-cfg1-g2", Names: []string{"weknora-skill/weknora-sk-cfg1-g2"}},
+		{ID: "luosa-skill/luosa-sk-cfg1-g2", Names: []string{"luosa-skill/luosa-sk-cfg1-g2"}},
 	}
 
 	n, err := fx.svc.PruneSupersededSnapshots(context.Background())
 
 	require.NoError(t, err)
 	require.Equal(t, 1, n)
-	require.Equal(t, []string{"weknora-skill/weknora-sk-cfg1-g2"}, fx.provider.deleted)
+	require.Equal(t, []string{"luosa-skill/luosa-sk-cfg1-g2"}, fx.provider.deleted)
 }
 
 // A listing that names nothing we recognise cannot distinguish "the commit
@@ -495,7 +495,7 @@ func TestPruneReclaimsAnAbandonedBuildThroughARepositoryPrefix(t *testing.T) {
 // would discard the last record of a snapshot that is still there.
 func TestPruneLeavesAnUnmatchedAbandonedBuildOnTheLedger(t *testing.T) {
 	fx := newReaperFixture(t)
-	fx.building("sk-2", "weknora-sk-cfg1-g2", fx.now.Add(-skillInstallStuckTTL-time.Minute))
+	fx.building("sk-2", "luosa-sk-cfg1-g2", fx.now.Add(-skillInstallStuckTTL-time.Minute))
 	fx.provider.listed = []sandbox.RemoteSnapshotRef{{ID: "snap-unrelated"}}
 
 	n, err := fx.svc.PruneSupersededSnapshots(context.Background())
@@ -504,7 +504,7 @@ func TestPruneLeavesAnUnmatchedAbandonedBuildOnTheLedger(t *testing.T) {
 	require.Zero(t, n)
 	require.Empty(t, fx.provider.deleted)
 	require.Equal(t, types.SkillSnapshotStateBuilding,
-		fx.snapshotState(t, "row-weknora-sk-cfg1-g2"))
+		fx.snapshotState(t, "row-luosa-skgcfg1-g2"))
 }
 
 // A huge image on a slow daemon can commit for longer than the age cutoff, and
@@ -517,9 +517,9 @@ func TestPruneLeavesABuildWhoseInstallIsStillBeating(t *testing.T) {
 		ID: "sk-2", TenantID: 7, SandboxConfigID: "cfg-1",
 		Name: "pdf", Status: types.SkillStatusInstalling, InstallingSince: &alive,
 	})
-	fx.building("sk-2", "weknora-sk-cfg1-g2", fx.now.Add(-skillInstallStuckTTL-time.Minute))
+	fx.building("sk-2", "luosa-sk-cfg1-g2", fx.now.Add(-skillInstallStuckTTL-time.Minute))
 	fx.provider.listed = []sandbox.RemoteSnapshotRef{
-		{ID: "snap-orphan", Names: []string{"weknora-sk-cfg1-g2"}},
+		{ID: "snap-orphan", Names: []string{"luosa-sk-cfg1-g2"}},
 	}
 
 	n, err := fx.svc.PruneSupersededSnapshots(context.Background())
@@ -535,7 +535,7 @@ func TestPruneLeavesAbandonedBuildWhileAnotherSkillIsInstalling(t *testing.T) {
 	fx := newReaperFixture(t)
 	fx.live("snap-live")
 	fx.installed("sk-1", "snap-live", "")
-	fx.building("sk-2", "weknora-sk-t7-cfg1-g2-aaaaaaaa", fx.now.Add(-skillInstallStuckTTL-time.Minute))
+	fx.building("sk-2", "luosa-sk-t7-cfg1-g2-aaaaaaaa", fx.now.Add(-skillInstallStuckTTL-time.Minute))
 	alive := fx.now.Add(-time.Minute)
 	fx.skills.put(&types.TenantSkillEntity{
 		ID: "sk-3", TenantID: 7, SandboxConfigID: "cfg-1",
@@ -543,7 +543,7 @@ func TestPruneLeavesAbandonedBuildWhileAnotherSkillIsInstalling(t *testing.T) {
 	})
 	fx.provider.listed = []sandbox.RemoteSnapshotRef{
 		{ID: "snap-live"},
-		{ID: "snap-new", Names: []string{"weknora-sk-t7-cfg1-g2-aaaaaaaa"}},
+		{ID: "snap-new", Names: []string{"luosa-sk-t7-cfg1-g2-aaaaaaaa"}},
 	}
 
 	n, err := fx.svc.PruneSupersededSnapshots(context.Background())
@@ -556,9 +556,9 @@ func TestPruneLeavesAbandonedBuildWhileAnotherSkillIsInstalling(t *testing.T) {
 
 func TestPruneLeavesARecentBuildAlone(t *testing.T) {
 	fx := newReaperFixture(t)
-	fx.building("sk-2", "weknora-sk-cfg1-g2", fx.now.Add(-time.Minute))
+	fx.building("sk-2", "luosa-sk-cfg1-g2", fx.now.Add(-time.Minute))
 	fx.provider.listed = []sandbox.RemoteSnapshotRef{
-		{ID: "snap-orphan", Names: []string{"weknora-sk-cfg1-g2"}},
+		{ID: "snap-orphan", Names: []string{"luosa-sk-cfg1-g2"}},
 	}
 
 	n, err := fx.svc.PruneSupersededSnapshots(context.Background())
@@ -601,15 +601,15 @@ func TestConfiguredSandboxTTLCoversTheDockerIdleWindow(t *testing.T) {
 func TestSnapshotBelongsToOtherConfig(t *testing.T) {
 	prefix := skillSnapshotNamePrefix(7, "cfg-1")
 	dockerOurs := sandbox.RemoteSnapshotRef{
-		ID: "weknora-skill/weknora-sk-t7-cfg1-g1", Names: []string{"weknora-skill/weknora-sk-t7-cfg1-g1"},
+		ID: "luosa-skill/weknora-sk-t7-cfg1-g1", Names: []string{"luosa-skill/weknora-sk-t7-cfg1-g1"},
 	}
 	dockerTheirs := sandbox.RemoteSnapshotRef{
-		ID: "weknora-skill/weknora-sk-t7-cfg2-g1", Names: []string{"weknora-skill/weknora-sk-t7-cfg2-g1"},
+		ID: "luosa-skill/weknora-sk-t7-cfg2-g1", Names: []string{"luosa-skill/weknora-sk-t7-cfg2-g1"},
 	}
-	cubeOurs := sandbox.RemoteSnapshotRef{ID: "snap-ours", Names: []string{"weknora-sk-t7-cfg1-g1"}}
-	cubeTheirs := sandbox.RemoteSnapshotRef{ID: "snap-theirs", Names: []string{"weknora-sk-t8-cfg1-g1"}}
-	e2bTheirs := sandbox.RemoteSnapshotRef{ID: "tpl-other", Names: []string{"weknora-sk-t7-aaaa-g3"}}
-	legacy := sandbox.RemoteSnapshotRef{ID: "snap-legacy", Names: []string{"weknora-sk-cfg1-g2"}}
+	cubeOurs := sandbox.RemoteSnapshotRef{ID: "snap-ours", Names: []string{"luosa-sk-t7-cfg1-g1"}}
+	cubeTheirs := sandbox.RemoteSnapshotRef{ID: "snap-theirs", Names: []string{"luosa-sk-t8-cfg1-g1"}}
+	e2bTheirs := sandbox.RemoteSnapshotRef{ID: "tpl-other", Names: []string{"luosa-sk-t7-aaaa-g3"}}
+	legacy := sandbox.RemoteSnapshotRef{ID: "snap-legacy", Names: []string{"luosa-sk-cfg1-g2"}}
 	unnamed := sandbox.RemoteSnapshotRef{ID: "snap-plain"}
 
 	require.False(t, snapshotBelongsToOtherConfig(dockerOurs, prefix))
@@ -630,7 +630,7 @@ func TestSnapshotBelongsToOtherConfig(t *testing.T) {
 	for _, snap := range kept {
 		ids = append(ids, snap.ID)
 	}
-	require.Equal(t, []string{"weknora-skill/weknora-sk-t7-cfg1-g1", "snap-ours", "snap-legacy", "snap-plain"}, ids)
+	require.Equal(t, []string{"luosa-skill/weknora-sk-t7-cfg1-g1", "snap-ours", "snap-legacy", "snap-plain"}, ids)
 }
 
 func TestTenantSkillServiceStartIsIdempotent(t *testing.T) {

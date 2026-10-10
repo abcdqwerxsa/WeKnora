@@ -33,7 +33,11 @@ const (
 	// BuiltinDocReviewFormatID is the ID for the built-in document format reviewer
 	BuiltinDocReviewFormatID = "builtin-doc-review-format"
 	// BuiltinDocReviewProofreadID is the ID for the built-in document proofreader
+	// (workflow variant: outputs JSON for the wf-doc-review aggregator).
 	BuiltinDocReviewProofreadID = "builtin-doc-review-proofread"
+	// BuiltinDocReviewProofreadChatID is the chat-facing variant of the proofreader:
+	// Markdown proofreading report for end users (no JSON for parsing).
+	BuiltinDocReviewProofreadChatID = "builtin-doc-review-proofread-chat"
 	// BuiltinDocReviewConsistencyID is the ID for the built-in document consistency checker
 	BuiltinDocReviewConsistencyID = "builtin-doc-review-consistency"
 	// BuiltinDocReviewDispatcherID is the ID for the built-in document review dispatcher
@@ -58,6 +62,8 @@ const (
 	BuiltinKBAssociatorID = "builtin-kb-associator"
 	// BuiltinKBAdvisorID is the ID for the built-in proactive advisor
 	BuiltinKBAdvisorID = "builtin-kb-advisor"
+	// BuiltinDocGenerationChatID is the ID for the built-in document generator (chat) — drafts technical proposals and reports from project parameters
+	BuiltinDocGenerationChatID = "builtin-doc-generation-chat"
 )
 
 // AgentMode constants for agent running mode
@@ -127,6 +133,12 @@ type CustomAgentConfig struct {
 	// ===== Basic Settings =====
 	// Agent mode: "quick-answer" for RAG mode, "smart-reasoning" for ReAct agent mode
 	AgentMode string `yaml:"agent_mode" json:"agent_mode"`
+	// DisplayGroup decides where this agent shows up in the agent selector.
+	// "chat"      → only in the chat-facing group (default for user-facing agents).
+	// "workflow"  → only in the workflow-only group; hidden from the chat dropdown.
+	// "both"      → appears in both groups.
+	// Empty string is treated as "chat" for backwards compatibility.
+	DisplayGroup string `yaml:"display_group,omitempty" json:"display_group,omitempty"`
 	// AgentType is a preset category under smart-reasoning mode that pre-fills
 	// system prompt, allowed tools and recommended KB compatibility.
 	// Valid values: "rag-qa", "wiki-qa", "hybrid-rag-wiki", "custom".
@@ -238,13 +250,13 @@ type CustomAgentConfig struct {
 	AttachmentImageUnderstanding bool `yaml:"attachment_image_understanding" json:"attachment_image_understanding"`
 	// AttachmentOCRMaxPages caps how many pages of a scanned / image-only
 	// document this agent sends to the VLM for OCR. 0 falls back to the global
-	// default (WEKNORA_CHAT_ATTACHMENT_OCR_MAX_PAGES). More pages means higher
+	// default (LUOSA_CHAT_ATTACHMENT_OCR_MAX_PAGES). More pages means higher
 	// coverage but slower parsing and more VLM cost.
 	AttachmentOCRMaxPages int `yaml:"attachment_ocr_max_pages" json:"attachment_ocr_max_pages,omitempty"`
 	// AttachmentParseWaitTimeoutSec bounds, in seconds, how long a chat turn
 	// waits for this agent's still-parsing attachments before proceeding with
 	// only the finished ones. 0 falls back to the global default
-	// (WEKNORA_CHAT_ATTACHMENT_WAIT_TIMEOUT_SEC).
+	// (LUOSA_CHAT_ATTACHMENT_WAIT_TIMEOUT_SEC).
 	AttachmentParseWaitTimeoutSec int `yaml:"attachment_parse_wait_timeout_sec" json:"attachment_parse_wait_timeout_sec,omitempty"`
 
 	// ===== Data Analysis Settings =====
@@ -618,6 +630,7 @@ var builtinAgentIDsOrdered = []string{
 	// Document review suite (新增: 文档智能审查 / 比对 / 生成 / 入库 套件)
 	BuiltinDocReviewFormatID,
 	BuiltinDocReviewProofreadID,
+	BuiltinDocReviewProofreadChatID,
 	BuiltinDocReviewConsistencyID,
 	BuiltinDocReviewDispatcherID,
 	BuiltinBidParserID,
@@ -630,6 +643,8 @@ var builtinAgentIDsOrdered = []string{
 	BuiltinKBIngestID,
 	BuiltinKBAssociatorID,
 	BuiltinKBAdvisorID,
+	// Document generation chat (对话型文档生成，从 KB 检索 + 模板生成技术方案 / 汇报草稿)
+	BuiltinDocGenerationChatID,
 }
 
 // GetBuiltinAgentIDs returns all built-in agent IDs in fixed order

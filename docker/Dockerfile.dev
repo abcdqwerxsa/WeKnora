@@ -16,7 +16,11 @@
 # 基础镜像:Debian + Go 1.26 + 常用工具
 FROM golang:1.26-bookworm
 
-ENV DEBIAN_FRONTEND=noninteractive
+ENV DEBIAN_FRONTEND=noninteractive \
+    # 中国网络镜像源(超时 proxy.golang.org / registry.npmjs.org 的兜底)
+    GOPROXY=https://goproxy.cn,https://proxy.golang.org,direct \
+    npm_config_registry=https://registry.npmmirror.com \
+    PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 
 # 一次性安装所有运行时需要的工具链与依赖
 # 用一次 RUN 减少镜像层数,apt-get clean 在最后清理
@@ -45,13 +49,18 @@ RUN pip3 install --no-cache-dir --break-system-packages \
         pillow pypdf python-docx openpyxl \
         beautifulsoup4 lxml markdownify \
         requests httpx pydantic pydantic-settings \
+        grpcio grpcio-health-checking \
+        # docreader 需要的解析包(故意跳过 playwright / opendataloader-pdf:
+        # 太大或依赖复杂,dev 模式用不到)
+        textract ebooklib protobuf trafilatura numpy pandas pypdfium2 grpcio-tools \
+        "markitdown[docx,pdf,xls,xlsx,pptx]" playwright \
         && rm -rf /root/.cache/pip
 
 # 工作目录
 WORKDIR /workspace
 
 # 入口脚本:按 SERVICE_ROLE 分发
-COPY entrypoint-dev.sh /usr/local/bin/entrypoint-dev.sh
+COPY docker/entrypoint-dev.sh /usr/local/bin/entrypoint-dev.sh
 RUN chmod +x /usr/local/bin/entrypoint-dev.sh
 
 # 容器内默认命令(各服务可在 compose 里覆盖)

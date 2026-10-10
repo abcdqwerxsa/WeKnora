@@ -372,3 +372,5 @@ replace go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelg
 // The anydoc Go bindings are not published yet (firecrawl/anydoc#30 is still
 // open), so they are vendored. Drop this replace once upstream tags go/vX.Y.Z.
 replace github.com/firecrawl/anydoc/go => ./third_party/anydoc-go
+
+replace github.com/Tencent/WeKnora => /workspace

@@ -12,7 +12,7 @@
 //   - Directory guardrail: `path` must resolve underneath `/workspace`,
 //     the session's own tree — the same scope write_sandbox_file may
 //     create in. Omitting `path` lists the artifact output dir
-//     (`$WEKNORA_SKILL_OUTPUT_DIR`, default `/workspace/output`) so a
+//     (`$LUOSA_SKILL_OUTPUT_DIR`, default `/workspace/output`) so a
 //     listing does not dump every attachment and scratch file into context.
 //   - Read-only: this tool never creates, modifies or deletes anything
 //     inside the sandbox. Model-authored files go through write_sandbox_file.
@@ -85,7 +85,7 @@ var listSandboxFilesTool = BaseTool{
   has produced.
 
 ## When NOT to Use
-- Do NOT list skill install directories (` + "`/opt/weknora/tenant/skills/...`" + `).
+- Do NOT list skill install directories (` + "`/opt/luosa/tenant/skills/...`" + `).
   Call ` + "`read_skill(skill_name=...)`" + ` instead: that returns SKILL.md and
   the skill's file list (scripts, docs). Those trees also contain
   ` + "`.venv`" + ` / ` + "`node_modules`" + `.
@@ -93,7 +93,7 @@ var listSandboxFilesTool = BaseTool{
 
 ## Path Rules
 - ` + "`path`" + ` is optional. When omitted, the tool lists the default artifact
-  output directory (` + "`$WEKNORA_SKILL_OUTPUT_DIR`" + `, typically ` + "`/workspace/output`" + `).
+  output directory (` + "`$LUOSA_SKILL_OUTPUT_DIR`" + `, typically ` + "`/workspace/output`" + `).
 - When provided, ` + "`path`" + ` MUST sit under ` + "`/workspace`" + ` — anything
   this session can write, including scratch files you created with
   ` + "`write_sandbox_file`" + `. Paths outside it (` + "`/etc`" + `, ` + "`/home`" + `,
@@ -313,7 +313,7 @@ func inspectableRootsDescription() string {
 }
 
 // inspectablePathError explains a refused list/read path. Skill image
-// paths are the common miss: the model sees /opt/weknora/tenant/skills/<name>
+// paths are the common miss: the model sees /opt/luosa/tenant/skills/<name>
 // in read_skill's environment section and retries with this tool or ls.
 func inspectablePathError(requested string) string {
 	base := fmt.Sprintf(

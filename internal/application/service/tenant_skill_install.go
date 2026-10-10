@@ -43,7 +43,7 @@ const (
 	// skillSeedArchivePath is the single remote write used to land a skill's
 	// files. Writing each file with MakeDir+WriteFile is two round trips per
 	// entry, which is why a 50-file skill crawled through "seeding 12/56".
-	skillSeedArchivePath = sandbox.SkillsImageRoot + "/.weknora-seed.tar"
+	skillSeedArchivePath = sandbox.SkillsImageRoot + "/.luosa-seed.tar"
 
 	// skillInstallVerifyRounds bounds the installer conversation.
 	//
@@ -1620,7 +1620,7 @@ func currentSnapshotID(cfgEntity *types.TenantSandboxConfigEntity) string {
 }
 
 func skillSnapshotNamePrefix(tenantID uint64, configID string) string {
-	return fmt.Sprintf("weknora-sk-t%d-%s", tenantID, compactConfigID(configID))
+	return fmt.Sprintf("luosa-sk-t%d-%s", tenantID, compactConfigID(configID))
 }
 
 // nextSnapshotGeneration is one past both the live pointer and every ledger
@@ -1667,9 +1667,9 @@ func compactConfigID(id string) string {
 	return strings.ToLower(strings.ReplaceAll(strings.TrimSpace(id), "-", ""))
 }
 
-// weknoraSkillSnapshotName pulls the weknora-sk-… token out of a provider
+// luosaSkillSnapshotName pulls the luosa-sk-… token out of a provider
 // listing. Cube and E2B echo it in Names; Docker embeds it in the image tag.
-func weknoraSkillSnapshotName(raw string) string {
+func luosaSkillSnapshotName(raw string) string {
 	s := strings.TrimSpace(raw)
 	s = strings.TrimPrefix(s, "docker.io/")
 	if i := strings.LastIndex(s, "/"); i >= 0 {
@@ -1678,7 +1678,7 @@ func weknoraSkillSnapshotName(raw string) string {
 	if cut := strings.IndexByte(s, ':'); cut >= 0 {
 		s = s[:cut]
 	}
-	if strings.HasPrefix(s, "weknora-sk-") {
+	if strings.HasPrefix(s, "luosa-sk-") {
 		return s
 	}
 	return ""
@@ -1712,17 +1712,17 @@ func snapshotBelongsToOtherConfig(snap sandbox.RemoteSnapshotRef, prefix string)
 	needle := prefix + "-g"
 	sawForeign := false
 	for _, candidate := range append([]string{snap.ID}, snap.Names...) {
-		name := weknoraSkillSnapshotName(candidate)
+		name := luosaSkillSnapshotName(candidate)
 		if name == "" {
 			continue
 		}
 		if strings.HasPrefix(name, needle) {
 			return false
 		}
-		// New-format names are weknora-sk-t<tenant>-<config>-gN. Legacy
-		// weknora-sk-<short>-gN names are left alone so a row written before
+		// New-format names are luosa-sk-t<tenant>-<config>-gN. Legacy
+		// luosa-sk-<short>-gN names are left alone so a row written before
 		// the prefix existed can still be matched.
-		rest := strings.TrimPrefix(name, "weknora-sk-")
+		rest := strings.TrimPrefix(name, "luosa-sk-")
 		if len(rest) > 1 && rest[0] == 't' && rest[1] >= '0' && rest[1] <= '9' {
 			sawForeign = true
 		}
@@ -1765,9 +1765,9 @@ Hard requirements:
   a value you invent would be stored as this workspace's real credential. If one environment
   variable is required, set required to true; if it is optional, set required to false. If the
   skill needs no environment variables, write {"env":[]}.
-  Do not declare WEKNORA_SKILL_DIR, WEKNORA_SKILL_OUTPUT_DIR, WEKNORA_SKILL_HISTORY_ROOT or
-  WEKNORA_SESSION_INPUT_DIR: the sandbox injects those. Other WEKNORA_* names the skill reads
-  (WEKNORA_API_KEY, WEKNORA_BASE_URL, WEKNORA_HOST, WEKNORA_TOKEN, WEKNORA_KB_ID) MUST be declared.
+  Do not declare LUOSA_SKILL_DIR, LUOSA_SKILL_OUTPUT_DIR, LUOSA_SKILL_HISTORY_ROOT or
+  LUOSA_SESSION_INPUT_DIR: the sandbox injects those. Other LUOSA_* names the skill reads
+  (LUOSA_API_KEY, LUOSA_BASE_URL, LUOSA_HOST, LUOSA_TOKEN, LUOSA_KB_ID) MUST be declared.
 
 On-demand / optional extras MUST be installed now. After you finish, this
 tree is made read-only and session agents cannot pip/npm into it (uv venv also

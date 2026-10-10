@@ -6,15 +6,20 @@ import (
 )
 
 const (
-	defaultMaxFileSizeMB        = 50
-	defaultMaxSkillBundleSizeMB = 256
+	// All caps lifted to 1 GiB to match MAX_FILE_SIZE_MB=1024 deploys.
+	// Raising them further requires coordinated changes across backend Go,
+	// nginx (client_max_body_size), docreader gRPC and the frontend
+	// client-side check — see GetMaxFileSize doc comment.
+	defaultMaxFileSizeMB            = 1024
+	defaultMaxSkillBundleSizeMB     = 1024
+	defaultMaxArtifactFileSizeMB    = 1024
 	// maxSkillBundleSizeMBCeiling matches the install-time uncompressed
 	// archive cap: a download larger than that cannot become a valid skill.
-	maxSkillBundleSizeMBCeiling = 512
+	maxSkillBundleSizeMBCeiling = 1024
 )
 
 // GetMaxFileSize returns the maximum file upload size in bytes.
-// Default is 50MB, can be configured via MAX_FILE_SIZE_MB environment variable.
+// Default is 1024 MB (1 GiB), can be configured via MAX_FILE_SIZE_MB environment variable.
 //
 // MAX_FILE_SIZE_MB is intentionally a deploy-time-only knob (NOT a
 // runtime system_setting). The effective upload limit is gated by
@@ -40,18 +45,18 @@ func GetMaxFileSizeMB() int64 {
 }
 
 // GetMaxSkillBundleSize is the compressed zip / source-download cap for
-// skills. Knowledge uploads stay on GetMaxFileSize: packages such as
-// ppt-master exceed 50MB, but raising the document limit would also
-// inflate docreader gRPC messages. A GitHub zipball is the whole
-// repository archive, not the SKILL.md subtree, so a huge monorepo can
-// still be refused here even when the skill itself is small.
+// skills. Knowledge uploads stay on GetMaxFileSize: large skill bundles
+// (e.g. ppt-master) can exceed MAX_FILE_SIZE_MB, but the gRPC layer must
+// track whichever cap is in force. A GitHub zipball is the whole repository
+// archive, not the SKILL.md subtree, so a huge monorepo can still be refused
+// here even when the skill itself is small.
 func GetMaxSkillBundleSize() int64 {
 	return GetMaxSkillBundleSizeMB() * 1024 * 1024
 }
 
 // GetMaxSkillBundleSizeMB returns the skill zip cap in MB.
-// MAX_SKILL_BUNDLE_SIZE_MB defaults to 256, is never below MAX_FILE_SIZE_MB,
-// and is capped at 512.
+// MAX_SKILL_BUNDLE_SIZE_MB defaults to 1024, is never below MAX_FILE_SIZE_MB,
+// and is capped at 1024 (1 GiB).
 func GetMaxSkillBundleSizeMB() int64 {
 	skillMB := envSizeMB("MAX_SKILL_BUNDLE_SIZE_MB", defaultMaxSkillBundleSizeMB)
 	if fileMB := GetMaxFileSizeMB(); skillMB < fileMB {
@@ -61,6 +66,18 @@ func GetMaxSkillBundleSizeMB() int64 {
 		return maxSkillBundleSizeMBCeiling
 	}
 	return skillMB
+}
+
+// GetMaxArtifactFileSize returns the per-file cap applied by the sandbox
+// artifact collector. Defaults to 1 GiB to mirror MAX_FILE_SIZE_MB; override
+// with MAX_ARTIFACT_FILE_SIZE_MB.
+func GetMaxArtifactFileSize() int64 {
+	return GetMaxArtifactFileSizeMB() * 1024 * 1024
+}
+
+// GetMaxArtifactFileSizeMB returns the artifact cap in MB.
+func GetMaxArtifactFileSizeMB() int64 {
+	return envSizeMB("MAX_ARTIFACT_FILE_SIZE_MB", defaultMaxArtifactFileSizeMB)
 }
 
 func envSizeMB(key string, fallback int64) int64 {

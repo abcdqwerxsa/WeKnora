@@ -152,7 +152,7 @@ var shellExecTool = BaseTool{
   command that takes an input file.
 - Install extra Python packages into the session overlay
   (` + "`python3 -m pip install --target /workspace/.skill-packages/<skill> ...`" + `),
-  never into ` + "`/opt/weknora/tenant/skills`" + `. The skill venv is frozen after
+  never into ` + "`/opt/luosa/tenant/skills`" + `. The skill venv is frozen after
   install. ` + "`apt-get`" + ` is only for a system library this task actually needs,
   not to recover from probing with a missing inspection command.
 - The sandbox is one long-lived session: files written and packages installed by
@@ -179,7 +179,7 @@ var shellExecTool = BaseTool{
   skill's dependencies with a bare ` + "`python3 -c`" + ` / ` + "`node -e`" + `.
   ` + "`read_skill`" + ` names the skill and how to reach its environment.
 - DO NOT ` + "`chown`" + ` / ` + "`chmod`" + ` / ` + "`ensurepip`" + ` / ` + "`pip install`" + ` a skill
-  under ` + "`/opt/weknora/tenant/skills`" + `. That tree is read-only after install
+  under ` + "`/opt/luosa/tenant/skills`" + `. That tree is read-only after install
   and ` + "`uv venv`" + ` often has no pip. On-demand extras go to
   ` + "`python3 -m pip install --target /workspace/.skill-packages/<skill> <package>`" + `
   (system python3), then ` + "`execute_skill_script`" + `. Or ask the user to
@@ -191,7 +191,7 @@ var shellExecTool = BaseTool{
   few lines of an existing file, use ` + "`edit_sandbox_file`" + ` instead of
   rewriting it.
 - DO NOT ` + "`ls`" + ` / ` + "`find`" + ` / ` + "`cat`" + ` / ` + "`file`" + ` a skill under
-  ` + "`/opt/weknora/tenant/skills`" + ` to discover or read its scripts.
+  ` + "`/opt/luosa/tenant/skills`" + ` to discover or read its scripts.
   ` + "`read_skill(skill_name)`" + ` already lists them; that tree also contains
   ` + "`.venv`" + ` / ` + "`node_modules`" + `. A ` + "`.cjs`" + ` / ` + "`.js`" + ` / ` + "`.py`" + `
   path is already a script — call ` + "`execute_skill_script`" + `.

@@ -10,7 +10,6 @@ export type SettingsRoleKey = 'viewer' | 'contributor' | 'admin' | 'owner'
 export const SETTINGS_SECTION_MIN_ROLE: Record<string, SettingsRoleKey> = {
   general: 'viewer',
   ollama: 'admin',
-  weknoracloud: 'admin',
   models: 'admin',
   websearch: 'admin',
   chathistory: 'admin',
@@ -31,6 +30,13 @@ export const SETTINGS_SECTION_MIN_ROLE: Record<string, SettingsRoleKey> = {
   // Every member fills in their own environment variables; the workspace-wide
   // values stay on the Admin+ skills page.
   envvars: 'viewer',
+  // Pending-approval queue: opened to Admin+ so workspace admins can
+  // approve/reject self-registered users without escalating to a
+  // SystemAdmin. Backend still gates /system/admin/users/:id/{approve,reject}
+  // by g.Admin() (see internal/router/routes_auth_tenant.go). Promote /
+  // revoke / list system admins / audit-log / runtime / settings all
+  // remain SystemAdmin-only via SYSTEM_ADMIN_SETTINGS_SECTIONS below.
+  'pending-users': 'admin',
 }
 
 /**
@@ -48,4 +54,8 @@ export const SYSTEM_ADMIN_SETTINGS_SECTIONS = new Set([
   'runtime-queues',
   'platform-api-keys',
   'system-audit-log',
+  // 'pending-users' intentionally NOT in this set: workspace admins can
+  // approve/reject pending registrations (see SETTINGS_SECTION_MIN_ROLE
+  // entry above). SystemAdmin-only routes are promoted/revoke/list/audit
+  // and other platform surfaces.
 ])

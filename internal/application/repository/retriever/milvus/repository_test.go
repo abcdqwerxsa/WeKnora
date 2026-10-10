@@ -30,7 +30,7 @@ func TestUpdateChunkEnabledStatusInCollectionsPropagatesFailure(t *testing.T) {
 	err := updateChunkEnabledStatusInCollections(
 		context.Background(),
 		[]string{"other_collection", "weknora_embeddings_1024"},
-		"weknora_embeddings",
+		"luosa_embeddings",
 		nil,
 		[]string{"chunk-1"},
 		func(_ context.Context, collection string, _ []string, enabled bool) error {

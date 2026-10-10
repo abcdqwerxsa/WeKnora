@@ -1,0 +1,45 @@
+# LuoSA docreader 开发镜像(独立版本)
+#
+# 与 luosa-dev 镜像的区别:
+#   - 只装 docreader 需要的依赖(不含 Go / Node / air)
+#   - 包含全部解析库:playwright + opendataloader-pdf + markitdown + textract 等
+#   - 包含 playwright 的 chromium 浏览器二进制(开发用,~150MB)
+#   - 体积约 1.5GB(比 luosa-dev 的 2.5GB 略小,因为没有 Go / Node)
+#
+# bind mount /workspace 进去后,改了 .py 文件 uvicorn --reload 自动重启
+
+FROM python:3.11-slim
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
+    PIP_NO_CACHE_DIR=1
+
+# 系统依赖(textract 需要 antiword / poppler-utils 等)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl wget git build-essential \
+        libsqlite3-dev libjpeg-dev zlib1g-dev libffi-dev libgl1 libglib2.0-0 \
+        antiword poppler-utils libreoffice \
+        && rm -rf /var/lib/apt/lists/*
+
+# docreader 完整依赖(pyproject.toml 里的 dependencies 全部)
+# 注意:这个镜像比 luosa-dev 里的 docreader 段更完整,装齐了 markitdown 全 extra、
+# playwright + 浏览器二进制、opendataloader-pdf 等
+RUN pip3 install --break-system-packages \
+        fastapi "uvicorn[standard]" python-multipart \
+        pillow pypdf python-docx openpyxl \
+        beautifulsoup4 lxml markdownify \
+        requests httpx pydantic pydantic-settings \
+        grpcio grpcio-health-checking grpcio-tools protobuf \
+        textract ebooklib trafilatura numpy pandas pypdfium2 \
+        "markitdown[docx,pdf,xls,xlsx,pptx]" \
+        playwright opendataloader-pdf \
+    && playwright install --with-deps chromium \
+    && rm -rf /root/.cache/pip
+
+WORKDIR /workspace
+
+# 入口:从 PYTHONPATH 找 docreader 包,uvicorn --reload 监听源码变化
+COPY docker/entrypoint-docreader-dev.sh /usr/local/bin/entrypoint-docreader-dev.sh
+RUN chmod +x /usr/local/bin/entrypoint-docreader-dev.sh
+
+CMD ["entrypoint-docreader-dev.sh"]

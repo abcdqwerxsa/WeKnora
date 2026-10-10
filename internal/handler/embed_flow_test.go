@@ -107,11 +107,17 @@ func (f *flowTenantSvc) ListTenants(context.Context) ([]*types.Tenant, error) {
 func (f *flowTenantSvc) ListAllTenants(context.Context) ([]*types.Tenant, error) {
 	return nil, nil
 }
+func (f *flowTenantSvc) ListJoinableTenants(context.Context) ([]*types.Tenant, error) {
+	return nil, nil
+}
 func (f *flowTenantSvc) BulkSetStorageQuota(context.Context, int64) (int64, error) {
 	return 0, nil
 }
 func (f *flowTenantSvc) SearchTenants(context.Context, string, uint64, int, int) ([]*types.Tenant, int64, error) {
 	return nil, 0, nil
+}
+func (f *flowTenantSvc) SetTenantJoinable(context.Context, uint64, bool) (*types.Tenant, error) {
+	return nil, nil
 }
 func (f *flowTenantSvc) GetTenantByIDForUser(context.Context, uint64, string) (*types.Tenant, error) {
 	return f.tenant, nil

@@ -12,6 +12,9 @@ export interface TenantInfo {
   business?: string
   storage_quota?: number
   storage_used?: number
+  // is_joinable 控制该 workspace 是否出现在注册页的「所属部门」下拉里。
+  // 后端：tenants.is_joinable；前端读写都在「工作区设置」页完成。
+  is_joinable?: boolean
   created_at: string
   updated_at: string
 }
@@ -279,7 +282,7 @@ export async function deleteTenantAPIKey(
  */
 export async function updateTenant(
   tenantId: number,
-  payload: { name?: string; description?: string },
+  payload: { name?: string; description?: string; is_joinable?: boolean },
 ): Promise<{ success: boolean; data?: TenantInfo; message?: string }> {
   try {
     const response = await put(`/api/v1/tenants/${tenantId}`, payload)

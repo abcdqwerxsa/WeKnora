@@ -98,6 +98,14 @@ type WorkflowService interface {
 	// synchronous (120s cap).
 	RunWorkflow(ctx context.Context, id string, req *types.RunWorkflowRequest) (*types.WorkflowRun, error)
 
+	// RunWorkflowNode executes a SINGLE node of the workflow's DRAFT DSL
+	// with injected upstream outputs (n8n-style step debugging): the
+	// editor passes nodeID plus inputs (upstream nodeID -> param -> value);
+	// those are seeded into the run's canvas state so {upstream@param}
+	// template refs resolve without executing the upstreams. Runs
+	// synchronously and persists a workflow_runs row like RunWorkflow.
+	RunWorkflowNode(ctx context.Context, id, nodeID string, req *types.RunWorkflowNodeRequest) (*types.WorkflowRun, error)
+
 	// CancelWorkflowRun best-effort cancels a pending/running run: flips the
 	// row to cancelled (state-guarded), aborts an in-process execution via
 	// the run-scoped context, and closes SSE subscribers. Terminal runs are

@@ -40,6 +40,9 @@ func (s *stubTenantService) ListTenants(context.Context) ([]*types.Tenant, error
 func (s *stubTenantService) ListAllTenants(context.Context) ([]*types.Tenant, error) {
 	return nil, nil
 }
+func (s *stubTenantService) ListJoinableTenants(context.Context) ([]*types.Tenant, error) {
+	return nil, nil
+}
 func (s *stubTenantService) SearchTenants(context.Context, string, uint64, int, int) ([]*types.Tenant, int64, error) {
 	return nil, 0, nil
 }
@@ -51,6 +54,12 @@ func (s *stubTenantService) GetTenantByIDForUser(context.Context, uint64, string
 }
 func (s *stubTenantService) GetWeKnoraCloudCredentials(context.Context) *types.WeKnoraCloudCredentials {
 	return nil
+}
+func (s *stubTenantService) SetTenantJoinable(_ context.Context, _ uint64, joinable bool) (*types.Tenant, error) {
+	if s.tenant != nil {
+		s.tenant.IsJoinable = joinable
+	}
+	return s.tenant, nil
 }
 
 func newTenantHandlerTestEngine(t *testing.T, role types.TenantRole, tenant *types.Tenant) *gin.Engine {

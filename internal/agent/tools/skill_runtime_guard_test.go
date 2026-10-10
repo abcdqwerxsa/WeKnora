@@ -14,7 +14,7 @@ func TestSkillOnDemandInstallHintSkipInstallerOnFrozenVenv(t *testing.T) {
 		"律师助手",
 		"scripts/install_deps.py",
 		"word 依赖: python-docx==1.1.2\nX word 安装失败 (exit 1)\n",
-		"/opt/weknora/tenant/skills/律师助手/.venv/bin/python: No module named pip\n",
+		"/opt/luosa/tenant/skills/律师助手/.venv/bin/python: No module named pip\n",
 	)
 	require.NotEmpty(t, hint)
 	assert.Contains(t, hint, "/workspace/.skill-packages/律师助手")

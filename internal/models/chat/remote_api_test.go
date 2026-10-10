@@ -548,3 +548,47 @@ func TestTokenUsage_CachedTokensJSONOmitempty(t *testing.T) {
 		assert.Contains(t, string(b), `"cached_tokens":7`)
 	})
 }
+
+// TestBuildChatCompletionRequest_ExplicitZeroTemperature: an explicitly
+// configured temperature of 0 must survive the wire (go-openai omits a
+// zero-valued temperature field, which providers read as "use your default").
+func TestBuildChatCompletionRequest_ExplicitZeroTemperature(t *testing.T) {
+	build := func(t *testing.T, opts *ChatOptions) *RemoteAPIChat {
+		t.Helper()
+		c, err := NewRemoteAPIChat(&ChatConfig{
+			Source:    types.ModelSourceRemote,
+			BaseURL:   "https://example.openai.azure.com",
+			ModelName: "gpt-4o-mini",
+			APIKey:    "test-key",
+			ModelID:   "gpt-4o-mini",
+			Provider:  "azure",
+			ExtraConfig: map[string]string{
+				"api_version": "2025-04-01-preview",
+			},
+		})
+		if err != nil {
+			t.Fatalf("NewRemoteAPIChat: %v", err)
+		}
+		return c
+	}
+	messages := []Message{{Role: "user", Content: "hi"}}
+
+	// Unset: temperature stays 0 (omitted on the wire).
+	req := build(t, nil).shapedRequest(messages, &ChatOptions{}, false)
+	if req.Temperature != 0 {
+		t.Fatalf("unset temperature must remain 0, got %v", req.Temperature)
+	}
+
+	// Explicit 0: carried as the smallest positive value so the field is
+	// serialised and providers treat it as 0.
+	req = build(t, nil).shapedRequest(messages, &ChatOptions{ExplicitTemperature: true}, false)
+	if req.Temperature <= 0 {
+		t.Fatalf("explicit 0 temperature must map to a positive epsilon, got %v", req.Temperature)
+	}
+
+	// Explicit positive value passes through unchanged.
+	req = build(t, nil).shapedRequest(messages, &ChatOptions{Temperature: 0.7, ExplicitTemperature: true}, false)
+	if req.Temperature != 0.7 {
+		t.Fatalf("explicit 0.7 temperature must pass through, got %v", req.Temperature)
+	}
+}

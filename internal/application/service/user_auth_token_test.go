@@ -46,6 +46,9 @@ type stubUserRepoForAuth struct {
 	updateCalls int
 }
 
+func (s *stubUserRepoForAuth) ListPendingApprovalUsers(context.Context, int, int) ([]*types.User, int64, error) {
+	return nil, 0, nil
+}
 func (s *stubUserRepoForAuth) CreateUser(context.Context, *types.User) error { return nil }
 func (s *stubUserRepoForAuth) GetUserByID(_ context.Context, id string) (*types.User, error) {
 	user, ok := s.users[id]

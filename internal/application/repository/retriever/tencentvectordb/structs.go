@@ -12,7 +12,7 @@ const (
 	envTencentVectorDBCollection = "TENCENT_VECTORDB_COLLECTION"
 	envTencentVectorDBReplicaNum = "TENCENT_VECTORDB_REPLICA_NUMBER"
 	defaultDatabaseName          = "weknora"
-	defaultCollectionName        = "weknora_embeddings"
+	defaultCollectionName        = "luosa_embeddings"
 	defaultReplicaNumber         = 1
 
 	fieldID              = "id"

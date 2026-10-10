@@ -1,0 +1,43 @@
+# WeKnora Contract Review Sandbox
+#
+# Derived from wechatopenai/weknora-sandbox:main for the contract-review
+# scenario. Adds document-generation libraries so the agent can produce
+# review reports straight from shell_exec without runtime pip installs:
+#
+#   - openpyxl / xlsxwriter  -> Excel  (.xlsx)
+#   - python-docx            -> Word   (.docx)
+#   - reportlab + Pillow     -> PDF    (.pdf)
+#   - pypdf                  -> PDF read / merge
+#
+# Build:
+#   docker build -f docker/Dockerfile.contract \
+#       -t weknora-sandbox-contract:latest .
+#
+# Then point tenant_sandbox_configs.docker_image at this tag.
+FROM wechatopenai/weknora-sandbox:main
+
+USER root
+
+# Keep the layer small: --no-cache-dir drops pip's wheel cache,
+# and we pin only major versions so a future re-build stays reproducible.
+# All listed packages install from manylinux wheels; no compiler needed.
+RUN pip install --no-cache-dir \
+        "openpyxl>=3.1" \
+        "xlsxwriter>=3.2" \
+        "python-docx>=1.1" \
+        "reportlab>=4.2" \
+        "Pillow>=10.4" \
+        "pypdf>=4.3" \
+    && python -c "import openpyxl, xlsxwriter, docx, reportlab, PIL, pypdf; \
+        print('openpyxl', openpyxl.__version__); \
+        print('xlsxwriter', xlsxwriter.__version__); \
+        print('python-docx', docx.__version__); \
+        print('reportlab', reportlab.Version); \
+        print('Pillow', PIL.__version__); \
+        print('pypdf', pypdf.__version__)"
+
+# Drop back to the non-root sandbox account the parent image defined.
+# WeKnora's Docker backend runs commands as uid 1000; staying root would
+# silently fail /workspace chown and break file uploads.
+USER user
+WORKDIR /workspace

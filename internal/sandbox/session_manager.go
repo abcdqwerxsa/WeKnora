@@ -46,14 +46,14 @@ const SessionInputRoot = "/workspace/input"
 // do not depend on the template user being able to mkdir under /workspace.
 const SessionOutputRoot = "/workspace/output"
 
-// skillOutputEnvVar matches the skills manager's WEKNORA_SKILL_OUTPUT_DIR.
-const skillOutputEnvVar = "WEKNORA_SKILL_OUTPUT_DIR"
+// skillOutputEnvVar matches the skills manager's LUOSA_SKILL_OUTPUT_DIR.
+const skillOutputEnvVar = "LUOSA_SKILL_OUTPUT_DIR"
 
-// sessionInputEnvVar matches the skills manager's WEKNORA_SESSION_INPUT_DIR.
+// sessionInputEnvVar matches the skills manager's LUOSA_SESSION_INPUT_DIR.
 // Both names are injected into the sandbox environment itself, not only into
 // the skill-script Execute call, so an agent exploring with shell_exec reads
 // the same paths the skills framework uses.
-const sessionInputEnvVar = "WEKNORA_SESSION_INPUT_DIR"
+const sessionInputEnvVar = "LUOSA_SESSION_INPUT_DIR"
 
 // SessionWorkspaceRoot is the writable workspace root inside remote sandboxes.
 // shell_exec work_dir must stay underneath this path.
@@ -384,7 +384,7 @@ func withWorkspaceEnvDefaults(env map[string]string) map[string]string {
 }
 
 // executionOutputDir resolves the artifact directory for this Execute call.
-// It prefers WEKNORA_SKILL_OUTPUT_DIR from cfg.Env when the path stays under
+// It prefers LUOSA_SKILL_OUTPUT_DIR from cfg.Env when the path stays under
 // SessionWorkspaceRoot; otherwise it falls back to SessionOutputRoot.
 func executionOutputDir(cfg *ExecuteConfig) string {
 	if cfg != nil && cfg.Env != nil {

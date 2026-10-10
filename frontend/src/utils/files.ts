@@ -15,9 +15,10 @@ export function formatFileSize(bytes?: number | string | null): string {
  * Map a knowledge item or filename to a TDesign icon name.
  * Accepts either a string (filename) or a knowledge-like object with `type`/`file_type`/`file_name`.
  */
-export function getFileIcon(input: string | { type?: string; file_type?: string; file_name?: string }): string {
+export function getFileIcon(input: string | { type?: string; file_type?: string; file_name?: string } | undefined | null): string {
   let type: string | undefined;
   let ext: string | undefined;
+  if (!input) return 'file';
   if (typeof input === 'string') {
     ext = input.split('.').pop()?.toLowerCase();
   } else {

@@ -78,7 +78,7 @@ func TestRunInstallSucceedsOnDockerConfig(t *testing.T) {
 	fx.configRepo.entity.Config.SandboxType = "docker"
 	fx.configRepo.entity.Config.E2B = nil
 	fx.configRepo.entity.Config.Docker = &types.DockerSandboxConfig{
-		Image: "weknora/sandbox:base",
+		Image: "luosa/sandbox:base",
 		Host:  "unix:///var/run/docker.sock",
 	}
 	fx.fingerprint = sandbox.SkillImageFingerprint("docker", "", "unix:///var/run/docker.sock")
@@ -88,7 +88,7 @@ func TestRunInstallSucceedsOnDockerConfig(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, fx.events, "create-snapshot")
 	require.Equal(t, "snap-1", fx.configRepo.saved.Config.SkillImage.SnapshotID)
-	require.Equal(t, "weknora/sandbox:base", fx.configRepo.saved.Config.SkillImage.BaseTemplateID)
+	require.Equal(t, "luosa/sandbox:base", fx.configRepo.saved.Config.SkillImage.BaseTemplateID)
 	require.Equal(t, fx.fingerprint, fx.configRepo.saved.Config.SkillImage.OwnerFingerprint)
 }
 
@@ -613,11 +613,11 @@ func TestBuildInstallPromptAsksForADeclarationWithoutValues(t *testing.T) {
 	})
 
 	require.Contains(t, prompt, sandbox.SkillRequirementsPath(fx.bundle.Name))
-	require.Contains(t, prompt, ".weknora/requirements.json")
+	require.Contains(t, prompt, ".luosa/requirements.json")
 	require.Contains(t, prompt, `{"env":[]}`)
 	require.Contains(t, prompt, "Never write any value",
 		"a value the model invents would be stored as the workspace credential")
-	require.Contains(t, prompt, "WEKNORA_API_KEY",
+	require.Contains(t, prompt, "LUOSA_API_KEY",
 		"the installer must be told credential names are declarable, or it writes {\"env\":[]}")
 	require.Contains(t, prompt, "On-demand / optional extras MUST be installed now")
 	require.Contains(t, prompt, "uv venv --seed")
@@ -1884,16 +1884,16 @@ func TestStartMaintenanceSessionMarksAndScopesTheSession(t *testing.T) {
 	require.Equal(t, "Skill install", sess.Title)
 }
 
-const installSkillDir = "/opt/weknora/tenant/skills/pdf-tools"
+const installSkillDir = "/opt/luosa/tenant/skills/pdf-tools"
 
 // The install commands are asserted verbatim: an install runs as root with the
 // skills root writable, so "the command contained this substring" is not a
 // strong enough statement about what actually executes.
 const (
 	installPrepareCommand = "rm -rf " + installSkillDir +
-		" && mkdir -p /opt/weknora/tenant/skills " + installSkillDir +
-		" && chown user:user /opt/weknora/tenant/skills " + installSkillDir +
-		" && chmod 755 /opt/weknora/tenant/skills " + installSkillDir
+		" && mkdir -p /opt/luosa/tenant/skills " + installSkillDir +
+		" && chown user:user /opt/luosa/tenant/skills " + installSkillDir +
+		" && chmod 755 /opt/luosa/tenant/skills " + installSkillDir
 )
 
 // installPythonVerifyCommand is built from the same helper the install path

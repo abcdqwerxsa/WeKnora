@@ -11,7 +11,7 @@ const (
 	// SkillsImageRoot is where installed skills live inside the snapshot image.
 	// It is outside /workspace on purpose: /workspace is per-session scratch
 	// and is wiped before every snapshot.
-	SkillsImageRoot = "/opt/weknora/tenant/skills"
+	SkillsImageRoot = "/opt/luosa/tenant/skills"
 
 	// SkillsManifestPath lists what the image claims to contain. It is a
 	// troubleshooting aid, never the source of truth for execution.
@@ -87,7 +87,7 @@ func RunnableWorkspaceScript(scriptPath string) (string, bool) {
 // ValidatedSessionOutputDir normalises a configured artifact directory and
 // reports whether it may be used.
 //
-// It is the single gate for every WEKNORA_SKILL_OUTPUT_DIR override, wherever
+// It is the single gate for every LUOSA_SKILL_OUTPUT_DIR override, wherever
 // it comes from: the host environment the app reads at startup, or a tenant's
 // sandbox config. Without it the two disagreed — execution validated the path
 // and fell back to SessionOutputRoot, while the tools and the artifact
@@ -102,7 +102,7 @@ func ValidatedSessionOutputDir(dir string) (string, bool) {
 }
 
 // ValidatedImageSkillDir reports whether skillDir is exactly one installed
-// skill directory under SkillsImageRoot (for example /opt/weknora/tenant/skills/pdf).
+// skill directory under SkillsImageRoot (for example /opt/luosa/tenant/skills/pdf).
 func ValidatedImageSkillDir(skillDir string) (string, bool) {
 	clean := path.Clean(strings.TrimSpace(skillDir))
 	expected, err := SkillDirFor(path.Base(clean))

@@ -33,6 +33,11 @@ export interface QuestionSuggestionConfig {
 export interface CustomAgentConfig {
   // ===== 基础设置 =====
   agent_mode?: 'quick-answer' | 'smart-reasoning';  // 运行模式：quick-answer=RAG模式, smart-reasoning=ReAct Agent模式
+  // 用途分组：决定在 agent 选择下拉里的可见性
+  //   chat     — 仅出现在「对话用」组（默认；空值也视作 chat）
+  //   workflow — 仅出现在「工作流专用」组，不出现在对话下拉
+  //   both     — 两边都出现
+  display_group?: 'chat' | 'workflow' | 'both';
   // 智能推理模式下的类型预设，用于一键应用"系统提示词 + 工具 + KB 兼容性"组合
   // 仅在 agent_mode === 'smart-reasoning' 时生效；quick-answer 模式忽略
   agent_type?: AgentType;
@@ -217,6 +222,11 @@ export function updateAgent(id: string, data: UpdateAgentRequest) {
 // 删除智能体
 export function deleteAgent(id: string) {
   return del<{ success: boolean }>(`/api/v1/agents/${id}`);
+}
+
+// 重置内置智能体到 YAML 默认（删除 DB 持久化行，让后续读取回退到 YAML registry）
+export function resetBuiltinAgentToDefault(id: string) {
+  return post<{ data: CustomAgent }>(`/api/v1/agents/${id}/reset-default`);
 }
 
 // 复制智能体

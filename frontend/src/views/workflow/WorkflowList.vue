@@ -33,7 +33,7 @@
         </template>
         <template #status="{ row }">
           <t-tag :theme="statusTheme(row.status)" size="small">
-            {{ $t(`workflow.status.${row.status}`) }}
+            {{ $t(`workflow.statuses.${row.status}`) }}
           </t-tag>
         </template>
         <template #updated_at="{ row }">

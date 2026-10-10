@@ -94,6 +94,11 @@ type runRequest struct {
 	files  []string
 	inputs map[string]any
 	state  *CanvasState
+	// seedOutputs, when non-nil, prefills CanvasState.Outputs (nodeID ->
+	// param -> value) before the first node runs. Single-node debug runs
+	// use it to resolve {upstream@param} template refs without executing
+	// the upstreams. Checkpoint resume (when present) overlays on top.
+	seedOutputs map[string]map[string]any
 	// resume, when non-nil, seeds the fresh CanvasState from a checkpoint
 	// side-car (outputs/path of previously completed nodes). Sys/Env come
 	// from the ORIGINAL run via the snapshot, so {sys.query} keeps its
@@ -210,6 +215,11 @@ func Compile(dsl *DSL, deps Deps) (*Workflow, error) {
 			}
 			st := NewCanvasState(sys, env)
 			if req != nil {
+				for nodeID, params := range req.seedOutputs {
+					for param, value := range params {
+						st.SetOutput(nodeID, param, value)
+					}
+				}
 				if req.resume != nil {
 					// Checkpoint resume: overlay the persisted snapshot (outputs,
 					// path and the ORIGINAL sys/env — a resume continues the prior
@@ -392,6 +402,11 @@ type RunOptions struct {
 	// name). Materialised into the Start node's outputs; nil = query-only
 	// runs (the pre-form DSL behaviour).
 	Inputs map[string]any
+	// SeedOutputs, when non-nil, prefills the CanvasState outputs
+	// (upstream nodeID -> param -> value) so a single-node debug run
+	// resolves {upstream@param} template refs without executing the
+	// upstreams. Ignored when empty.
+	SeedOutputs map[string]map[string]any
 }
 
 // Run executes the workflow once. query/files are exposed to templates as
@@ -403,7 +418,7 @@ func (w *Workflow) Run(ctx context.Context, query string, files []string) (*RunR
 // RunWithOptions executes the workflow with per-run options. See
 // RunOptions for the checkpoint semantics.
 func (w *Workflow) RunWithOptions(ctx context.Context, query string, files []string, opts RunOptions) (*RunResult, error) {
-	req := &runRequest{query: query, files: files, inputs: opts.Inputs}
+	req := &runRequest{query: query, files: files, inputs: opts.Inputs, seedOutputs: opts.SeedOutputs}
 
 	ckptEnabled := opts.CheckpointID != "" && w.deps.CheckpointKV != nil
 	var invokeOpts []compose.Option

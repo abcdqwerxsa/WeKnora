@@ -23,7 +23,7 @@ type CodeRequest struct {
 	// Code is the verbatim script body.
 	Code string
 	// InputJSON is the rendered variables object the script reads from the
-	// WEKNORA_WORKFLOW_INPUT environment variable.
+	// LUOSA_WORKFLOW_INPUT environment variable.
 	InputJSON string
 	// TimeoutSeconds bounds one execution (adapter clamps to the run cap).
 	TimeoutSeconds int

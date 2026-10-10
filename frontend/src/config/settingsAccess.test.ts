@@ -10,7 +10,10 @@ import {
 test('management shortcuts are stricter than read-only settings pages', () => {
   assert.equal(SETTINGS_SECTION_MIN_ROLE.members, 'viewer')
   assert.equal(SETTINGS_MANAGEMENT_SHORTCUT_MIN_ROLE.members, 'owner')
-  assert.equal(SETTINGS_SECTION_MIN_ROLE.models, 'viewer')
+  // LuoSA 客户侧部署场景：vLLM 由租户管理员在 Web 端统一配置一次后，
+  // 普通员工全程不接触任何模型设置入口。整张设置页和头像菜单里的
+  // 管理快捷入口同级别收紧到 admin，而不是让 viewer 看到只读列表。
+  assert.equal(SETTINGS_SECTION_MIN_ROLE.models, 'admin')
   assert.equal(SETTINGS_MANAGEMENT_SHORTCUT_MIN_ROLE.models, 'admin')
 })
 
@@ -30,7 +33,11 @@ test('personal skill environment variables are visible to every member', () => {
   )
 })
 
-test('system administration settings stay explicitly system-admin-only', () => {
+test('pending-users is admin-scoped, the rest stay system-admin-only', () => {
+  // Pending user approval is gated by SETTINGS_SECTION_MIN_ROLE['pending-users'] = 'admin'
+  // so workspace admins can process the queue without a system-admin escalation.
+  assert.equal(SETTINGS_SECTION_MIN_ROLE['pending-users'], 'admin')
+  // Everything else in the system_administration menu group is still SystemAdmin-only.
   assert.deepEqual(
     [...SYSTEM_ADMIN_SETTINGS_SECTIONS],
     ['system-global', 'runtime-queues', 'platform-api-keys', 'system-audit-log'],

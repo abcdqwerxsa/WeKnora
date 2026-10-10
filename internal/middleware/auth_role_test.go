@@ -139,6 +139,27 @@ func (f *fakeMemberService) RemoveMember(ctx context.Context, userID string, ten
 	return nil
 }
 
+// ActivatePendingMember flips an invited member to active; idempotent, and
+// a missing row is a no-op (the fake only backs resolveTenantRole tests).
+func (f *fakeMemberService) ActivatePendingMember(ctx context.Context, userID string, tenantID uint64) (*types.TenantMember, error) {
+	m, ok := f.members[memberKey(userID, tenantID)]
+	if !ok {
+		return nil, nil
+	}
+	m.Status = types.TenantMemberStatusActive
+	cp := *m
+	return &cp, nil
+}
+
+// AddPendingMember inserts a row in 'invited' status (fake keeps the map
+// shape; resolveTenantRole tests never hit this path).
+func (f *fakeMemberService) AddPendingMember(ctx context.Context, userID string, tenantID uint64, role types.TenantRole) (*types.TenantMember, error) {
+	m := &types.TenantMember{UserID: userID, TenantID: tenantID, Role: role, Status: types.TenantMemberStatusInvited}
+	f.members[memberKey(userID, tenantID)] = m
+	cp := *m
+	return &cp, nil
+}
+
 var _ interfaces.TenantMemberService = (*fakeMemberService)(nil)
 
 func cfgWithRBAC(enabled bool) *config.Config {

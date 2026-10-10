@@ -55,3 +55,48 @@ func TestDeleteTenant_SoftDeletesMemberships(t *testing.T) {
 	require.NoError(t, db.Unscoped().Model(&types.TenantMember{}).Count(&rawMemberCount).Error)
 	assert.Equal(t, int64(1), rawMemberCount)
 }
+
+// TestCountTenants covers the bootstrap-admin trigger in UserService.Register:
+// the registrant becomes the platform admin iff this count returns 0.
+//
+// Soft-delete semantics: rows with a non-null DeletedAt are excluded
+// (this is GORM's default and matches ListTenants elsewhere in this
+// package). Practical consequence: if an operator deletes every tenant
+// via the management UI, the next registrant becomes the platform admin
+// — which is the right behaviour for a "reset to factory" workflow.
+// `docker compose down -v` would wipe the volume outright, which is a
+// different scenario.
+func TestCountTenants(t *testing.T) {
+	db := setupTestDB(t)
+	ctx := context.Background()
+	repo := NewTenantRepository(db)
+
+	// Empty DB → 0
+	got, err := repo.CountTenants(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), got, "fresh DB should report 0 tenants")
+
+	// One active tenant → 1
+	require.NoError(t, db.Create(&types.Tenant{Name: "alpha", Status: "active"}).Error)
+	got, err = repo.CountTenants(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), got)
+
+	// Add a joinable one + soft-delete the original.
+	// Soft-deleted rows are excluded by GORM's default scope, so the
+	// count drops to 1 (just the active beta tenant).
+	require.NoError(t, db.Create(&types.Tenant{Name: "beta", Status: "active", IsJoinable: true}).Error)
+	require.NoError(t, db.Delete(&types.Tenant{}, "name = ?", "alpha").Error)
+
+	got, err = repo.CountTenants(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), got, "soft-deleted rows must NOT be counted")
+
+	// Unscoped count (for sanity) should still see the deleted row.
+	var unscoped int64
+	require.NoError(t, db.Unscoped().Model(&types.Tenant{}).Count(&unscoped).Error)
+	assert.Equal(t, int64(2), unscoped, "unscoped should still see soft-deleted rows")
+
+	// Hard-delete the soft-deleted one (cleanup).
+	require.NoError(t, db.Unscoped().Where("name = ?", "alpha").Delete(&types.Tenant{}).Error)
+}

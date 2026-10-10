@@ -4,7 +4,7 @@
 # 执行后请直接在云控制台「制作镜像 / 创建快照 / 创建 AMI」，不要再 SSH 进来。
 set -euo pipefail
 
-WEKNORA_DIR="${WEKNORA_DIR:-/opt/WeKnora}"
+LUOSA_DIR="${LUOSA_DIR:-/opt/WeKnora}"
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "[cleanup] 请使用 sudo 或 root 运行" >&2
@@ -19,8 +19,8 @@ fi
 
 echo "[cleanup] 1/8 停止 WeKnora 容器"
 COMPOSE_PROJECT=""
-if [[ -d "${WEKNORA_DIR}" ]]; then
-  cd "${WEKNORA_DIR}"
+if [[ -d "${LUOSA_DIR}" ]]; then
+  cd "${LUOSA_DIR}"
   # 优先用 compose ls 拿到真实 project 名 (默认是目录名小写, 如 weknora)
   COMPOSE_PROJECT="$(docker compose ls --format json 2>/dev/null \
     | grep -oE '"Name":"[^"]+"' | head -1 | cut -d'"' -f4 || true)"
@@ -28,13 +28,13 @@ if [[ -d "${WEKNORA_DIR}" ]]; then
 fi
 
 echo "[cleanup] 2/8 清空 WeKnora 业务数据 + 首启 marker / 日志"
-if [[ -d "${WEKNORA_DIR}" ]]; then
-  rm -rf "${WEKNORA_DIR}/data"/* "${WEKNORA_DIR}/logs"/* 2>/dev/null || true
+if [[ -d "${LUOSA_DIR}" ]]; then
+  rm -rf "${LUOSA_DIR}/data"/* "${LUOSA_DIR}/logs"/* 2>/dev/null || true
   # 故意不在这里重建 .env: 让镜像里 .env 缺失, 任何在 firstboot 之前
   # 起来的 docker compose 都会因找不到 .env 而失败, 避免明文默认密码
   # (postgres123!@# 之类) 把 postgres 数据卷初始化坏。
   # firstboot.sh 自己会从 .env.example 拷贝并替换密钥。
-  rm -f "${WEKNORA_DIR}/.env" "${WEKNORA_DIR}/.firstboot.done"
+  rm -f "${LUOSA_DIR}/.env" "${LUOSA_DIR}/.firstboot.done"
 fi
 rm -f /root/weknora-credentials.txt /var/log/weknora-firstboot.log
 

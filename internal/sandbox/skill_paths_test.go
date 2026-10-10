@@ -12,7 +12,7 @@ import (
 func TestSkillDirFor(t *testing.T) {
 	dir, err := SkillDirFor("sk-1")
 	require.NoError(t, err)
-	require.Equal(t, "/opt/weknora/tenant/skills/sk-1", dir)
+	require.Equal(t, "/opt/luosa/tenant/skills/sk-1", dir)
 }
 
 func TestSessionSkillPackageDir(t *testing.T) {
@@ -93,7 +93,7 @@ func TestRunnableWorkspaceScript(t *testing.T) {
 		"/workspace/output",
 		"/workspace/input",
 		"/workspace/input/upload.py",
-		"/opt/weknora/tenant/skills/pdf/scripts/run.py",
+		"/opt/luosa/tenant/skills/pdf/scripts/run.py",
 		"/etc/passwd",
 		"",
 	} {
@@ -111,7 +111,7 @@ func TestValidatedImageSkillDir(t *testing.T) {
 		SkillsImageRoot,
 		SkillsImageRoot + "/pdf/scripts",
 		"/workspace/output",
-		"/opt/weknora/tenant/skills/../skills/pdf/x",
+		"/opt/luosa/tenant/skills/../skills/pdf/x",
 		"",
 	} {
 		_, ok := ValidatedImageSkillDir(p)

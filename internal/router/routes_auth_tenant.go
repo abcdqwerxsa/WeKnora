@@ -216,6 +216,7 @@ func RegisterAuthRoutes(r *gin.RouterGroup, handler *handler.AuthHandler, g *rba
 	r.POST("/auth/login", handler.Login)
 	r.POST("/auth/auto-setup", handler.AutoSetup)
 	r.GET("/auth/config", handler.GetAuthConfig)
+	r.GET("/auth/available-departments", handler.GetAvailableDepartments)
 	r.POST("/auth/switch-tenant", handler.SwitchTenant)
 	r.GET("/auth/oidc/config", handler.GetOIDCConfig)
 	r.GET("/auth/oidc/url", handler.GetOIDCAuthorizationURL)
@@ -288,6 +289,11 @@ func RegisterSystemAdminRoutes(
 		adminRoutes.POST("/promote", handler.PromoteUserToSystemAdmin)
 		adminRoutes.POST("/revoke", handler.RevokeSystemAdmin)
 		adminRoutes.GET("/list", handler.ListSystemAdmins)
+		// User-approval queue endpoints sit on a SEPARATE group below so
+		// they can be gated by g.Admin() (tenant role) instead of the
+		// stricter g.SystemAdmin(). Promotion / role changes still require
+		// the SystemAdmin-only group above; review/approve/reject just
+		// requires workspace Admin.
 		adminRoutes.POST("/users/reset-password", handler.ResetUserPassword)
 		adminRoutes.POST("/users/create", handler.CreateSystemUser)
 		adminRoutes.GET("/api-keys", handler.ListPlatformAPIKeys)
@@ -341,5 +347,19 @@ func RegisterSystemAdminRoutes(
 			g.apiKeyRoute(adminRoutes, http.MethodGet, "/audit-log",
 				apiKeyPlatform(types.APIKeyCapabilitySystemAuditRead), auditLogHandler.ListSystemAuditLog)
 		}
+	}
+
+	// User-approval queue: tenant Admin+ can review self-registered
+	// accounts and decide approve/reject. Does NOT touch user permissions
+	// (role changes still live under g.Owner() on /tenants/:id/members).
+	// Same /system/admin prefix as the SystemAdmin-only routes above so
+	// the frontend keeps a single URL root, but the gate is g.Admin()
+	// rather than g.SystemAdmin() so a non-system-admin workspace admin
+	// can process the queue.
+	adminApprovalRoutes := r.Group("/system/admin", g.Admin())
+	{
+		adminApprovalRoutes.GET("/pending-users", handler.ListPendingApprovalUsers)
+		adminApprovalRoutes.POST("/users/:id/approve", handler.ApproveUser)
+		adminApprovalRoutes.POST("/users/:id/reject", handler.RejectPendingUser)
 	}
 }

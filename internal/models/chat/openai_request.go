@@ -116,6 +116,13 @@ func (c *RemoteAPIChat) BuildChatCompletionRequest(
 	}
 
 	req.Temperature = float32(opts.Temperature)
+	// go-openai serialises temperature with omitempty, so an explicit 0.0
+	// would be dropped from the wire and the provider default would win.
+	// Send the smallest representable positive value instead — every
+	// OpenAI-compatible backend clamps it to effectively 0.
+	if opts.ExplicitTemperature && opts.Temperature <= 0 {
+		req.Temperature = 1e-7
+	}
 	if opts.TopP > 0 {
 		req.TopP = float32(opts.TopP)
 	}

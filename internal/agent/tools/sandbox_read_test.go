@@ -464,7 +464,7 @@ func TestReadSandboxFileRefusesOutsideInspectableRoots(t *testing.T) {
 	for _, path := range []string{
 		"/etc/passwd",
 		"/home/user/.ssh/id_rsa",
-		"/opt/weknora/tenant/skills/pdf/SKILL.md",
+		"/opt/luosa/tenant/skills/pdf/SKILL.md",
 	} {
 		result, err := NewReadSandboxFileTool(source).Execute(
 			sandboxFileTestContext(),
@@ -531,7 +531,7 @@ func TestListSandboxFilesRedirectsSkillImagePaths(t *testing.T) {
 	source := &fakeSandboxFileSource{}
 	result, err := NewListSandboxFilesTool(source).Execute(
 		sandboxFileTestContext(),
-		json.RawMessage(`{"path":"/opt/weknora/tenant/skills/ppt-generator"}`),
+		json.RawMessage(`{"path":"/opt/luosa/tenant/skills/ppt-generator"}`),
 	)
 	require.NoError(t, err)
 	require.False(t, result.Success)
@@ -544,11 +544,11 @@ func TestListSandboxFilesRedirectsSkillImagePaths(t *testing.T) {
 func TestReadSandboxFileRedirectsSkillImagePaths(t *testing.T) {
 	source := &fakeSandboxFileSource{
 		data: []byte("must not be read"),
-		stat: &sandbox.RemoteStatEntry{Path: "/opt/weknora/tenant/skills/ppt-generator/scripts/generate_ppt.py", Type: sandbox.RemoteEntryFile, Size: 4},
+		stat: &sandbox.RemoteStatEntry{Path: "/opt/luosa/tenant/skills/ppt-generator/scripts/generate_ppt.py", Type: sandbox.RemoteEntryFile, Size: 4},
 	}
 	result, err := NewReadSandboxFileTool(source).Execute(
 		sandboxFileTestContext(),
-		json.RawMessage(`{"path":"/opt/weknora/tenant/skills/ppt-generator/scripts/generate_ppt.py"}`),
+		json.RawMessage(`{"path":"/opt/luosa/tenant/skills/ppt-generator/scripts/generate_ppt.py"}`),
 	)
 	require.NoError(t, err)
 	require.False(t, result.Success)

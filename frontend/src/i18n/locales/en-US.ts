@@ -387,6 +387,7 @@ export default {
       renameSuccess: 'Folder renamed',
       renameFailed: 'Could not rename the folder',
       renameInvalid: 'A folder cannot be moved inside itself',
+      filesHeader: 'Files ({count})',
     },
     moveToFolder: {
       action: 'Move to folder',
@@ -796,7 +797,9 @@ export default {
       cancelled: 'Cancelled'
     },
     errorCode: {
-      UNKNOWN_SUGGESTION: 'Check the application logs for details.'
+      UNKNOWN_SUGGESTION: 'Check the application logs for details.',
+      DOCREADER_PARSE_FAILED: 'Document parsing failed',
+      DOCREADER_PARSE_FAILED_SUGGESTION: 'Check whether the file is corrupted or in a supported format (PDF/Word/Excel/PPT/Image, etc.), and try re-uploading if needed.'
     }
   },
   agent: {
@@ -839,6 +842,10 @@ export default {
     noAgents: 'No agents',
     manageAgents: 'Manage',
     builtinAgents: 'Built-in Agents',
+    displayGroup: { chat: 'Chat', workflow: 'Workflow only', both: 'Both' },
+    defaultModeGroup: 'Default Mode',
+    defaultModeName: 'Direct Chat',
+    defaultModeDesc: 'Chat directly with the LLM without using any agent',
     customAgents: 'Custom Agents',
     capabilities: {
       kbCount: '{count} knowledge base(s) specified',
@@ -861,7 +868,8 @@ export default {
       multiTurn: 'Multi-turn Conversation'
     },
     tabs: {
-      sharedToMe: 'Shared to Me'
+      sharedToMe: 'Shared to Me',
+      allDisplayGroups: 'All',
     },
     sections: {
       builtin: 'Built-in',
@@ -880,7 +888,9 @@ export default {
       favoritesTitle: 'No favorites yet',
       favoritesDescription: 'Star an agent from its card to add it here',
       recentsTitle: 'Nothing here yet',
-      recentsDescription: 'Agents you recently used will show up here'
+      recentsDescription: 'Agents you recently used will show up here',
+      displayGroupFilteredTitle: 'No agents in this group',
+      displayGroupFilteredDesc: 'No agents match the "{group}" group. Switch to "All" or adjust the Display Group setting when editing an agent.',
     },
     detail: {
       title: 'Agent Details',
@@ -952,6 +962,7 @@ export default {
       nameRequired: 'Agent name is required',
       systemPromptRequired: 'System prompt is required',
       modelRequired: 'Please select a model',
+      modelOptionalWarning: 'No chat model set: after saving, this agent will use the user-selected model at chat time, or fall back to the knowledge base / system default',
       queryMissingInRewrite: 'Rewrite user prompt must contain {\'{{\'}query{\'}}\'} placeholder',
       queryMissingInFallback: 'Fallback prompt must contain {\'{{\'}query{\'}}\'} placeholder',
       description: 'Description',
@@ -996,6 +1007,7 @@ export default {
       historyTurns: 'History Turns',
       retainRetrievalHistory: 'Keep retrieval results',
       memoryEnabled: 'Long-term Memory',
+      displayGroup: 'Controls where this agent appears in the agent dropdown. Chat: visible in the chat UI. Workflow only: hidden from the chat dropdown, available only to workflow nodes. Both: visible everywhere.',
       retrievalStrategy: 'Retrieval Strategy',
       embeddingTopK: 'Embedding Top K',
       keywordThreshold: 'Keyword Threshold',
@@ -1896,6 +1908,7 @@ export default {
     archivedEmptyDescription: 'When active memories exceed the cap (200 by default), less-used ones are tucked away. Dated tasks also land here after they expire.',
     documentsHits: 'Cited {hits} times',
     untitledDocument: 'Untitled document',
+    moreOptions: 'More options',
     openDocument: 'Open document',
     openDocumentUnavailable: 'Cannot open: missing knowledge base',
     stopTrackingDocument: 'Stop tracking',
@@ -2214,6 +2227,27 @@ export default {
     usernameInvalid: 'Username can only contain letters, numbers, underscores and Chinese characters',
     confirmPasswordRequired: 'Confirm password',
     passwordMismatch: 'Entered passwords do not match',
+    // Department (workspace to join at registration; server validates tenant.is_joinable)
+    department: 'Department',
+    departmentPlaceholder: 'Select the department you want to join',
+    departmentRequired: 'Please select a department',
+    departmentLoadFailed: 'Failed to load department list, please try again later',
+    departmentEmpty: 'No departments are accepting new members right now. Please contact your administrator.',
+    // First-time deployments have no departments; the dropdown is
+    // hidden and the user is told their personal workspace is created
+    // automatically.
+    departmentEmptyHint: 'This is a first-time deployment — no departments are accepting members yet. Your personal workspace will be created automatically when you register.',
+    departmentEmptyHintDefault: 'Your personal workspace will be created automatically when you register',
+    // Admin: pending approval queue
+    pendingApprovalTitle: 'Pending Approval',
+    pendingApprovalSubtitle: 'Review self-registered users before they can sign in',
+    pendingApprovalEmpty: 'No users are waiting for approval',
+    pendingApprovalApprove: 'Approve',
+    pendingApprovalReject: 'Reject',
+    pendingApprovalRejectConfirm: 'Reject this registration request? This cannot be undone.',
+    pendingApprovalApproved: 'Approved',
+    pendingApprovalRejected: 'Rejected',
+    pendingApprovalFailed: 'Operation failed, please try again later',
     loginError: 'Login error, please check email or password',
     loginErrorRetry: 'Login error, please try again later',
     registerError: 'Registration error, please try again later',
@@ -2257,6 +2291,10 @@ export default {
     refresh: 'Refresh',
     loading: 'Loading...',
     noData: 'No data',
+    tenant: 'Department',
+    createdAt: 'Created',
+    actions: 'Actions',
+    previous: 'Previous',
     noMoreData: 'All content loaded',
     loadMore: 'Load more',
     error: 'Error',
@@ -2411,8 +2449,8 @@ export default {
     placeholderKbAndWeb: 'Enter your question, will answer based on knowledge base and web search',
     placeholderAgent: 'Ask {name}',
     agentMode: 'Smart Reasoning',
-    normalMode: 'Quick Answer',
-    normalModeDesc: 'Knowledge base RAG Q&A',
+    normalMode: 'Direct Chat',
+    normalModeDesc: 'Chat directly with the LLM without KB grounding',
     agentModeDesc: 'Multi-step thinking, deep analysis',
     agentMissingAllowedTools: 'Allowed tools',
     agentMissingSummaryModel: 'Chat model',
@@ -3563,7 +3601,13 @@ export default {
       editDescriptionPlaceholder: 'Enter the new workspace description',
       editDescriptionSuccess: 'Workspace description updated',
       editDescriptionFailed: 'Failed to update workspace description',
-      descriptionEmptyPlaceholder: 'Not set'
+      descriptionEmptyPlaceholder: 'Not set',
+      joinableLabel: 'Allow direct join on registration',
+      joinableDescription: 'When enabled, this workspace appears in the department dropdown on the registration page and new users can pick it directly.',
+      joinableOwnerOnly: 'Owner only',
+      joinableEnabledSuccess: 'Enabled — workspace now appears in the registration department list',
+      joinableDisabledSuccess: 'Disabled — workspace removed from the registration department list',
+      joinableFailed: 'Update failed, please retry'
     },
     storage: {
       quotaLabel: 'Storage Quota',
@@ -4112,8 +4156,10 @@ export default {
           'system.queue_task_deleted': 'Failed task record cleared',
           'system.queue_task_run_now': 'Queue task run now',
           'system.queue_task_cancelled': 'Queue task cancelled',
-          'system.queue_archived_purged': 'All failed tasks cleared'
+          'system.queue_archived_purged': 'All failed tasks cleared',
+          'system.user_created': 'User approval'
         },
+
         outcome: {
           success: 'Success',
           denied: 'Denied'
@@ -5285,6 +5331,10 @@ export default {
     multiKbSearch: 'Cross-KB Search',
     knowledgeSearch: 'Knowledge Search',
     grepChunks: 'Text Pattern Search',
+    kbGetImage: 'Extract KB Image',
+    kbGetImageDesc: 'Stage one image attached to a KB chunk into the sandbox, for bid_gen and similar scripts to embed into .docx / .pptx',
+    kbGetFile: 'Stage KB File',
+    kbGetFileDesc: 'Stage a KB document\'s source file (PDF/DOCX/XLSX) into the sandbox /workspace/input, so bid_gen and similar skills can read it from disk',
     getChunkDetail: 'Get Chunk Detail',
     listKnowledgeChunks: 'List Knowledge Chunks',
     listKnowledgeBases: 'List Knowledge Bases',
@@ -5646,6 +5696,10 @@ export default {
       model: 'Select the LLM used by the agent',
       temperature: 'Control output randomness, 0 is most deterministic, 1 is most random',
       maxTokens: 'Maximum tokens for the model reply. Default is 2048. Custom values are saved as entered.',
+      thinkingDefault: 'Default (model decides)',
+      thinkingOn: 'Enabled',
+      thinkingOff: 'Disabled',
+      thinkingHint: 'Disabling keeps reasoning out of the output; the wire field follows the model thinking_control setting.',
       maxTokensAgent: 'Maximum tokens generated in each reasoning round, including tool-call JSON. Default is 4096 without a sandbox, or 24576 when a sandbox can write or edit files. A custom value is saved as entered and is not changed later.',
       thinking: 'Enable extended thinking capability (requires model support)',
       conversationSection: 'Configure multi-turn conversation and query rewriting parameters',
@@ -5655,6 +5709,7 @@ export default {
       retainRetrievalHistory: 'Keep knowledge base results from earlier turns. When off, each turn searches again',
       rewrite: 'Automatically rewrite user questions in multi-turn conversations to resolve references and omissions',
       memoryEnabled: 'Let this agent read and add to your long-term memory. When off, conversations with it neither read your memories nor add new ones. Turning it on here has no effect while the workspace or personal switch is off',
+      displayGroup: 'Usage group',
       queryUnderstandModel: 'Model used for query understanding (rewriting and intent detection). Leave empty to reuse the main chat model.',
       rewriteSystemPrompt: 'System prompt for question rewriting (leave empty for default)',
       rewriteUserPrompt: 'User prompt template for question rewriting (leave empty for default)',
@@ -5721,6 +5776,8 @@ export default {
       wikiReadIssueDesc: 'View details of a Wiki page issue',
       wikiUpdateIssue: 'Update Wiki Issue',
       wikiUpdateIssueDesc: 'Update the status of a Wiki page issue',
+      wikiGetImage: 'Read Wiki Image',
+      wikiGetImageDesc: 'Stage one image attached to a wiki page source document into the sandbox, for bid_gen and similar scripts to embed into .docx / .pptx',
       webSearch: 'Web Search',
       webFetch: 'Web Fetch',
       groupBase: 'Basic',
@@ -6830,7 +6887,8 @@ export default {
     nameRequired: 'Name is required',
     description: 'Description',
     descriptionPlaceholder: 'What does this workflow do?',
-    status: { draft: 'Draft', published: 'Published', archived: 'Archived' },
+    status: 'Status',
+    statuses: { draft: 'Draft', published: 'Published', archived: 'Archived' },
     updatedAt: 'Updated at',
     actions: 'Actions',
     edit: 'Edit',
@@ -6862,6 +6920,19 @@ export default {
     editor: {
       back: 'Back',
       save: 'Save',
+      autoSavedAt: 'Auto-saved {time}',
+      runNode: 'Run this node',
+      runNodeTitle: 'Debug node: {name}',
+      runNodeHint: 'Fill in each upstream node output JSON as the input for this run; cross-node template references resolve from these values (debug only — not persisted as real upstream results).',
+      runNodeNoUpstream: 'This node has no upstream nodes — it will run without injected inputs.',
+      runNodeNoOutput: 'Run to see this node output here.',
+      outputViewTree: 'Tree',
+      outputViewJson: 'JSON',
+      refCopied: 'Copied {ref} — paste it into a param/prompt',
+      runNodeGo: 'Run this node',
+      runNodeJsonPlaceholder: 'JSON object, for example "param": "value"',
+      runNodeFailed: 'Node run failed',
+      nodeInputs: 'Node inputs',
       saveFailed: 'Failed to save workflow',
       importDsl: 'Import DSL',
       exportDsl: 'Export DSL',
@@ -6881,6 +6952,11 @@ export default {
       addCase: 'Add case',
       defaultBranch: 'Default',
       template: 'Template',
+      modePointer: 'Pointer (drag to box-select)',
+      modeHand: 'Hand (drag to pan)',
+      modeComment: 'Comment (click canvas to add a note)',
+      notePlaceholder: 'Type a note…',
+      quickAdd: 'Add next node',
       selfLoopBlocked: 'Self-connections are not allowed',
       startHint: 'The start node feeds user input downstream as reference start＠query',
       systemPrompt: 'System prompt',
@@ -6928,10 +7004,8 @@ export default {
       refPickerTitle: 'Pick an upstream output',
       refPickerEmpty: 'No upstream outputs available',
       deleteHint: 'Select a node or edge and press Delete; double-click an edge to remove it',
-      startProtected: 'The Start node cannot be deleted',
+      startExists: 'A Start node already exists on the canvas',
       autoLayout: 'Auto layout',
-      copyNode: 'Copy node',
-      pasteNode: 'Paste node',
       nodeCopied: 'Node copied',
       nodeOutputs: 'Inspect node outputs',
       unsavedTitle: 'Unsaved changes',
@@ -6941,7 +7015,7 @@ export default {
       issues: {
         title: 'Validation issues',
         noEntry: 'No entry node (a node without upstream edges) found',
-        multipleEntries: '{count} entry nodes: {names} (exactly one allowed)',
+        multipleEntries: '{count} entry nodes: {names}. Saving is unaffected, but a run needs exactly one entry — wire the extras to an upstream or remove them',
         noTerminal: 'No terminal node (a node without downstream edges) found',
         unreachable: 'Node {name} is unreachable from the entry',
         staleRef: 'Node {name} references missing {ref}',
@@ -6991,6 +7065,9 @@ export default {
       searchProvider: 'Search provider',
       searchProviderHint: 'Empty uses the default provider',
       agentKbHint: 'The agent searches only these knowledge bases; empty answers directly',
+      platformAgent: 'Reuse platform agent',
+      platformAgentHint: 'Pick an existing agent; empty uses the inline config below',
+      platformAgentTip: 'When set, the node reuses the whole agent config: prompt, model, knowledge bases, MCP and more',
       mcpService: 'MCP service ID',
       mcpTool: 'Tool name',
       mcpArgs: 'Arguments (JSON)',
@@ -7062,6 +7139,7 @@ export default {
       formTitle: 'Input form',
       missingFields: 'Missing required fields: {names}',
       nodeOutputs: 'Node outputs',
+      stalePublished: 'Runs execute the published snapshot, not the draft. Republish to apply your changes.',
      }
   }
 }

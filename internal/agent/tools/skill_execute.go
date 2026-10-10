@@ -23,9 +23,9 @@ var executeSkillScriptTool = BaseTool{
 ## Working Directory
 - The script runs with ` + "`/workspace`" + ` as its working directory, whichever
   skill it belongs to. A relative path the script itself opens resolves there,
-  not inside the skill; ` + "`$WEKNORA_SKILL_DIR`" + ` is how a script reaches the
+  not inside the skill; ` + "`$LUOSA_SKILL_DIR`" + ` is how a script reaches the
   files installed beside it.
-- Generated files belong in ` + "`$WEKNORA_SKILL_OUTPUT_DIR`" + `, which is
+- Generated files belong in ` + "`$LUOSA_SKILL_OUTPUT_DIR`" + `, which is
   collected for download. ` + "`/workspace/input`" + ` is read-only.
 
 ## Usage
@@ -40,7 +40,7 @@ var executeSkillScriptTool = BaseTool{
   block. Pass their absolute ` + "`/workspace/input/...`" + ` paths through
   ` + "`args`" + ` when a script accepts an input file.
 - Treat ` + "`/workspace/input`" + ` as read-only. Write generated files only to
-  ` + "`$WEKNORA_SKILL_OUTPUT_DIR`" + ` so they can be collected for download.
+  ` + "`$LUOSA_SKILL_OUTPUT_DIR`" + ` so they can be collected for download.
 - Scripts reach the dependencies their install put beside them: Python runs
   with the skill's own virtualenv interpreter, Node resolves the skill's
   node_modules from the script's location. A failed import under a bare

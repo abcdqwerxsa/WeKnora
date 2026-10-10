@@ -45,7 +45,7 @@ const (
 	ToolWriteSandboxFile = "write_sandbox_file"
 	ToolEditSandboxFile  = "edit_sandbox_file"
 	// ToolWriteSkillFile / ToolEditSkillFile write the skill tree under
-	// /opt/weknora/tenant/skills rather than /workspace, and exist only for
+	// /opt/luosa/tenant/skills rather than /workspace, and exist only for
 	// the built-in skill installer. They are scoped to the one skill being
 	// installed; see internal/agent/tools/skill_file.go.
 	//
@@ -54,6 +54,32 @@ const (
 	// must not become selectable on a tenant-editable agent config.
 	ToolWriteSkillFile = "write_skill_file"
 	ToolEditSkillFile  = "edit_skill_file"
+	// ToolKBGetImage reads one image chunk out of the bound KB into the
+	// session sandbox so downstream tools can reference its on-disk path.
+	// See internal/agent/tools/kb_get_image.go for details.
+	//
+	// Deliberately absent from DefaultAllowedTools: only useful when the
+	// agent has at least one KB in scope AND the workspace sandbox
+	// supports a writable /workspace. Adding it to the default allowlist
+	// would expose a tool that always returns a generic "chunk not found"
+	// in deployments where neither holds, so the agent UI checkbox is the
+	// right place to commit the user to that footprint.
+	ToolKBGetImage = "kb_get_image"
+	// ToolKBGetFile reads one KB document's source file (the user's
+	// uploaded PDF/DOCX/XLSX, NOT extracted text) into the session
+	// sandbox /workspace/input/<sha6>/<filename> so downstream skills
+	// can read the original file from disk instead of relying on chat
+	// attachment re-upload every turn. See
+	// internal/agent/tools/kb_get_file.go for details.
+	//
+	// Deliberately absent from DefaultAllowedTools: only useful when the
+	// agent has at least one KB in scope AND the workspace sandbox
+	// supports a writable /workspace/input. Adding it to the default
+	// allowlist would expose a tool that always returns a generic
+	// "document not found" in deployments where neither holds, so the
+	// agent UI checkbox is the right place to commit the user to that
+	// footprint.
+	ToolKBGetFile = "kb_get_file"
 	// ToolShellExec lets the LLM execute ad-hoc shell commands inside the
 	// current session's sandbox (dependency installs, environment probing).
 	// Registered only when the resolved backend advertises the session shell
@@ -74,6 +100,19 @@ const (
 	ToolWikiFlagIssue     = "wiki_flag_issue"
 	ToolWikiReadIssue     = "wiki_read_issue"
 	ToolWikiUpdateIssue   = "wiki_update_issue"
+	// ToolWikiGetImage stages one image attached to a wiki page's source
+	// document into the session sandbox. Mirrors kb_get_image but routes
+	// from wiki page slug → SourceRefs[0] → image chunks instead of from
+	// a chunk UUID.
+	//
+	// Deliberately absent from DefaultAllowedTools: only useful when the
+	// agent has at least one wiki KB in scope AND the workspace sandbox
+	// supports a writable /workspace. The wiki_read-style tools already
+	// require a wiki KB; adding this to the default allowlist would expose
+	// a tool that always errors in deployments where neither holds, so
+	// the agent UI checkbox is the right place to commit the user to that
+	// footprint.
+	ToolWikiGetImage = "wiki_get_image"
 	// Workflow tools (opt-in per agent config). Only PUBLISHED workflows are
 	// visible/runnable — publishing is the sharing boundary between the
 	// workflow author and every agent in the workspace.
@@ -100,6 +139,16 @@ func AvailableToolDefinitions() []AvailableTool {
 		{Name: ToolQueryKnowledgeGraph, Label: "查询知识图谱", Description: "从知识图谱中查询关系"},
 		{Name: ToolGetDocumentInfo, Label: "获取文档信息", Description: "查看文档元数据"},
 		{
+			Name:        ToolKBGetImage,
+			Label:       "提取 KB 图片",
+			Description: "把 KB 中某个分块附带的图片落到沙箱，供后续脚本 / skill 引用",
+		},
+		{
+			Name:        ToolKBGetFile,
+			Label:       "提取 KB 文件",
+			Description: "把 KB 中某文档的源文件（PDF/DOCX/XLSX 等）落到沙箱 /workspace/input，供后续脚本 / skill 直接读取",
+		},
+		{
 			Name:        ToolSearchConversations,
 			Label:       "回顾历史对话",
 			Description: "在用户自己的历史会话中查找之前聊过的内容",
@@ -117,6 +166,11 @@ func AvailableToolDefinitions() []AvailableTool {
 		{Name: ToolWikiDeletePage, Label: "删除Wiki", Description: "删除Wiki页面并自动清理关联死链"},
 		{Name: ToolWikiReadIssue, Label: "查看Wiki问题", Description: "查看特定的Wiki页面问题详情"},
 		{Name: ToolWikiUpdateIssue, Label: "更新Wiki问题状态", Description: "更新特定的Wiki页面问题状态"},
+		{
+			Name:        ToolWikiGetImage,
+			Label:       "读取Wiki图片",
+			Description: "把 Wiki 页面背后源文档里的图片落到沙箱，供后续脚本 / skill 引用",
+		},
 		{Name: ToolListWorkflows, Label: "查看工作流列表", Description: "列出空间内已发布的工作流（仅已发布）"},
 		{Name: ToolRunWorkflow, Label: "执行工作流", Description: "按 ID 或名称执行已发布的工作流并返回结果"},
 	}

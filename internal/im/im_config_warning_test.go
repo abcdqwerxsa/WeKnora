@@ -13,7 +13,7 @@ func TestIMImageConfigWarning(t *testing.T) {
 		assert.Empty(t, imImageConfigWarning(0, ""))
 	})
 	t.Run("external URL set -> silent", func(t *testing.T) {
-		assert.Empty(t, imImageConfigWarning(3, "https://weknora.example.com"))
+		assert.Empty(t, imImageConfigWarning(3, "https://luosa.example.com"))
 	})
 	t.Run("external URL whitespace-only -> warns", func(t *testing.T) {
 		assert.NotEmpty(t, imImageConfigWarning(1, "   "))

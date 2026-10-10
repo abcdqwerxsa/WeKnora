@@ -83,7 +83,7 @@ var readSandboxFileTool = BaseTool{
   read without running a shell command.
 
 ## When NOT to Use
-- Skill files under ` + "`/opt/weknora/tenant/skills`" + `. Use ` + "`read_skill`" + `
+- Skill files under ` + "`/opt/luosa/tenant/skills`" + `. Use ` + "`read_skill`" + `
   with ` + "`skill_name`" + ` / ` + "`file_path`" + `.
 
 ## Path Rules

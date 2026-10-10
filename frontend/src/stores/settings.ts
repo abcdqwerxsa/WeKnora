@@ -147,12 +147,13 @@ export const useSettingsStore = defineStore("settings", {
     },
     
     // 普通模式（快速回答）是否就绪
-    // 需要满足：1) 设置了对话模型 2) 设置了重排模型
+    // 只需要设置了对话模型；rerank 模型由后端从 KB 配置解析（utils/agent-readiness.ts 的
+    // agentRequiresRerankModel 也仅在 agent 模式 + KB 启用时才需要），不应在快速问答的就绪
+    // 判定里卡前端用户。历史上有这条 rerank 检查导致 isNormalModeReady 永远为 false，2026-09-10 移除。
     isNormalModeReady: (state) => {
       const models = state.settings.conversationModels || defaultSettings.conversationModels
       return Boolean(
-        models.summaryModelId && models.summaryModelId.trim() !== '' &&
-        models.rerankModelId && models.rerankModelId.trim() !== ''
+        models.summaryModelId && models.summaryModelId.trim() !== ''
       )
     },
     

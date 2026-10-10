@@ -244,6 +244,9 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewMCPServiceService))
 	must(container.Provide(service.NewMCPToolApprovalService))
 	must(container.Provide(service.NewCustomAgentService))
+	// Filled by NewAgentService when the container is invoked; WorkflowService
+	// reads it lazily — breaks the Workflow ⇄ Agent constructor cycle.
+	must(container.Provide(func() *service.AgentServiceRef { return &service.AgentServiceRef{} }))
 	must(container.Provide(service.NewWorkflowService))
 	must(container.Provide(service.NewUserResourceFavoriteService))
 	must(container.Provide(service.NewWikiPageService))
@@ -359,8 +362,6 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewDataSourceService))
 	must(container.Invoke(startDataSourceScheduler))
 	logger.Debugf(ctx, "[Container] Data source sync framework registered")
-	must(container.Invoke(startWorkflowScheduler))
-	logger.Debugf(ctx, "[Container] Workflow cron scheduler registered")
 	must(container.Invoke(startAuditLogRetention))
 	logger.Debugf(ctx, "[Container] Audit log retention runner registered")
 	must(container.Provide(service.NewHousekeepingService))
@@ -435,6 +436,11 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(repository.NewWorkflowScheduleRepository))
 	must(container.Provide(service.NewWorkflowScheduler))
 	must(container.Provide(service.NewWorkflowScheduleService))
+	// Invoke must come after the Provides above: dig resolves an Invoke's
+	// parameters from what is registered so far — invoking earlier panicked
+	// at startup with "missing type: interfaces.WorkflowScheduler".
+	must(container.Invoke(startWorkflowScheduler))
+	logger.Debugf(ctx, "[Container] Workflow cron scheduler registered")
 	must(container.Provide(handler.NewUserResourceFavoriteHandler))
 	must(container.Provide(service.NewSkillService))
 	must(container.Provide(func(s *service.TenantSkillService) *handler.SkillHandler {
@@ -557,7 +563,7 @@ func initLangfuse() (*langfuse.Manager, error) {
 }
 
 // defaultModelMaxConcurrency is the per-model cap on concurrent background
-// (ingestion/enrichment) chat calls when WEKNORA_MODEL_MAX_CONCURRENCY /
+// (ingestion/enrichment) chat calls when LUOSA_MODEL_MAX_CONCURRENCY /
 // model.max_concurrency is unset. summary / question / graph enrichment all
 // share the same model, so this bounds their combined pressure on one provider
 // across every replica. Interactive chat is never gated.
@@ -572,7 +578,7 @@ func resolveModelMaxConcurrency(ss interfaces.SystemSettingService) int {
 		return defaultModelMaxConcurrency
 	}
 	return int(ss.GetInt(context.Background(), "model.max_concurrency",
-		"WEKNORA_MODEL_MAX_CONCURRENCY", int64(defaultModelMaxConcurrency)))
+		"LUOSA_MODEL_MAX_CONCURRENCY", int64(defaultModelMaxConcurrency)))
 }
 
 // registerModelConcurrencyLimiter builds the Redis-backed per-model background
@@ -693,7 +699,7 @@ func initDatabase(cfg *config.Config) (*gorm.DB, error) {
 	case "sqlite":
 		dbPath := os.Getenv("DB_PATH")
 		if dbPath == "" {
-			dbPath = "./data/weknora.db"
+			dbPath = "./data/luosa.db"
 		}
 		if dir := filepath.Dir(dbPath); dir != "." && dir != "" {
 			if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -1043,7 +1049,7 @@ func initRawFileService(_ *config.Config) (interfaces.FileService, error) {
 		}
 		pathPrefix := os.Getenv("S3_PATH_PREFIX")
 		if pathPrefix == "" {
-			pathPrefix = "weknora/"
+			pathPrefix = "luosa/"
 		}
 		return file.NewS3FileService(
 			os.Getenv("S3_ENDPOINT"),
@@ -1063,7 +1069,7 @@ func initRawFileService(_ *config.Config) (interfaces.FileService, error) {
 		obsRegion := os.Getenv("OBS_REGION")
 		obsPathPrefix := os.Getenv("OBS_PATH_PREFIX")
 		if obsPathPrefix == "" {
-			obsPathPrefix = "weknora/"
+			obsPathPrefix = "luosa/"
 		}
 		return file.NewObsFileService(
 			os.Getenv("OBS_ENDPOINT"),
@@ -1083,7 +1089,7 @@ func initRawFileService(_ *config.Config) (interfaces.FileService, error) {
 		}
 		pathPrefix := os.Getenv("OSS_PATH_PREFIX")
 		if pathPrefix == "" {
-			pathPrefix = "weknora/"
+			pathPrefix = "luosa/"
 		}
 		return file.NewOssFileServiceWithTempBucket(
 			os.Getenv("OSS_ENDPOINT"),

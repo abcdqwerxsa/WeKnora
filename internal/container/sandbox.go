@@ -31,7 +31,7 @@ func selectSessionBindingStore(
 	redisClient *redis.Client,
 	requireRedis bool,
 ) (sandbox.SessionSandboxBindingStore, string, error) {
-	namespace := strings.TrimSpace(os.Getenv("WEKNORA_REDIS_NAMESPACE"))
+	namespace := strings.TrimSpace(os.Getenv("LUOSA_REDIS_NAMESPACE"))
 	if namespace == "" {
 		namespace = "weknora"
 	}

@@ -16,7 +16,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${ROOT_DIR}"
 
-TAP_NAME="weknora/test"
+TAP_NAME="luosa/test"
 FORMULA_NAME="weknora-lite-test"
 VERSION="test"
 GOOS=$(go env GOOS)
@@ -47,7 +47,7 @@ echo ""
 echo "=== Step 2: Set up local tap ==="
 
 # Create tap if it doesn't exist
-TAP_DIR="$(brew --repository)/Library/Taps/weknora/homebrew-test"
+TAP_DIR="$(brew --repository)/Library/Taps/luosa/homebrew-test"
 if [ ! -d "${TAP_DIR}" ]; then
     mkdir -p "${TAP_DIR}/Formula"
     (cd "${TAP_DIR}" && git init -q && git commit --allow-empty -m "init" -q)
@@ -81,8 +81,8 @@ class WeknoraLiteTest < Formula
 
     (bin/"weknora-lite-test").write <<~SH
       #!/bin/bash
-      CONFIG_DIR="\\\${WEKNORA_CONFIG_DIR:-\\\${XDG_CONFIG_HOME:-\\\$HOME/.config}/weknora-test}"
-      DATA_DIR="\\\${WEKNORA_DATA_DIR:-\\\${XDG_DATA_HOME:-\\\$HOME/.local/share}/weknora-test}"
+      CONFIG_DIR="\\\${LUOSA_CONFIG_DIR:-\\\${XDG_CONFIG_HOME:-\\\$HOME/.config}/weknora-test}"
+      DATA_DIR="\\\${LUOSA_DATA_DIR:-\\\${XDG_DATA_HOME:-\\\$HOME/.local/share}/weknora-test}"
 
       mkdir -p "\\\$DATA_DIR/files" "\\\$CONFIG_DIR/config" 2>/dev/null
 
@@ -96,7 +96,7 @@ class WeknoraLiteTest < Formula
 
       if [ ! -f "\\\$CONFIG_DIR/.env.lite" ]; then
         cp "#{pkgshare}/.env.lite.example" "\\\$CONFIG_DIR/.env.lite"
-        sed -i'' -e "s|DB_PATH=.*|DB_PATH=\\\$DATA_DIR/weknora.db|" "\\\$CONFIG_DIR/.env.lite"
+        sed -i'' -e "s|DB_PATH=.*|DB_PATH=\\\$DATA_DIR/luosa.db|" "\\\$CONFIG_DIR/.env.lite"
         sed -i'' -e "s|LOCAL_STORAGE_BASE_DIR=.*|LOCAL_STORAGE_BASE_DIR=\\\$DATA_DIR/files|" "\\\$CONFIG_DIR/.env.lite"
         echo ""
         echo "已创建配置文件: \\\$CONFIG_DIR/.env.lite"
@@ -107,9 +107,9 @@ class WeknoraLiteTest < Formula
       source "\\\$CONFIG_DIR/.env.lite"
       set +a
 
-      export DB_PATH="\\\${DB_PATH:-\\\$DATA_DIR/weknora.db}"
+      export DB_PATH="\\\${DB_PATH:-\\\$DATA_DIR/luosa.db}"
       export LOCAL_STORAGE_BASE_DIR="\\\${LOCAL_STORAGE_BASE_DIR:-\\\$DATA_DIR/files}"
-      export WEKNORA_WEB_DIR="\\\${WEKNORA_WEB_DIR:-#{pkgshare}/web}"
+      export LUOSA_WEB_DIR="\\\${LUOSA_WEB_DIR:-#{pkgshare}/web}"
 
       cd "\\\$CONFIG_DIR"
       exec "#{libexec}/WeKnora-lite" "\\\$@"

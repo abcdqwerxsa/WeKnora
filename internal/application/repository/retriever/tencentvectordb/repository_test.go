@@ -104,7 +104,7 @@ func TestCollectionNameUsesDimensionSuffixByDefault(t *testing.T) {
 
 	assert.Equal(t, "weknora_embeddings_1024", repo.collectionName(1024))
 	assert.True(t, repo.matchesCollection("weknora_embeddings_1024"))
-	assert.False(t, repo.matchesCollection("weknora_embeddings"))
+	assert.False(t, repo.matchesCollection("luosa_embeddings"))
 }
 
 func TestCollectionNameRespectsExplicitCollectionName(t *testing.T) {

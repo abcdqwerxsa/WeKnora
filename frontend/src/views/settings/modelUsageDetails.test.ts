@@ -24,16 +24,14 @@ test('referenced knowledge bases and agents open their relevant configuration pa
   assert.match(source, /uiStore\.closeKBEditor\(\)/)
   assert.match(source, /uiStore\.closeSettings\(\)/)
   assert.match(source, /await nextTick\(\)/)
-  assert.match(
-    source,
-    /const routeName = router\.currentRoute\.value\.name[\s\S]*canFocusExistingKnowledgeBase[\s\S]*KNOWLEDGE_BASE_EDITOR_HOST_ROUTES\.has\(routeName\)[\s\S]*focusKbEditorSection\(knowledgeBaseSection\)/,
-  )
   assert.match(source, /await router\.push\(modelUsageResourceRoute\(kind, id, bindings\)\)/)
   assert.match(source, /uiStore\.openKBSettings\(id, knowledgeBaseSection\)/)
-  assert.match(
-    agentListSource,
-    /editingAgent\.value\?\.id === agent\.id[\s\S]*focusAgentEditorSection\(requestedSection\)[\s\S]*editorVisible\.value = false\s*await nextTick\(\)\s*if \(generation !== editOpenGeneration\) return[\s\S]*editorVisible\.value = true/,
-  )
+  // focusKbEditorSection / focusAgentEditorSection belong to the removed
+  // contextual-guide system; in-place focus used to short-circuit the reload
+  // when the editor was already open. Now we always close + reopen to apply
+  // deep-link state, so verify the absence rather than the legacy regex.
+  assert.doesNotMatch(source, /focusKbEditorSection/)
+  assert.doesNotMatch(agentListSource, /focusAgentEditorSection/)
   assert.match(agentListSource, /const agent = resolveAgentForEdit\([\s\S]*if \(!agent\) return[\s\S]*router\.replace/)
   assert.match(agentEditorSource, /v-if="editorInitializing"[\s\S]*:disabled="editorInitializing"/)
   assert.match(agentEditorSource, /generation !== editorInitializationGeneration \|\| !props\.visible/)

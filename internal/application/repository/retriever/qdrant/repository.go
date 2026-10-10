@@ -15,7 +15,7 @@ import (
 
 const (
 	envQdrantCollection   = "QDRANT_COLLECTION"
-	defaultCollectionName = "weknora_embeddings"
+	defaultCollectionName = "luosa_embeddings"
 	fieldContent          = "content"
 	fieldSourceID         = "source_id"
 	fieldSourceType       = "source_type"

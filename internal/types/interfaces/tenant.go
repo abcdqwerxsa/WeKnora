@@ -25,6 +25,18 @@ type TenantService interface {
 	DeleteTenant(ctx context.Context, id uint64) error
 	// ListAllTenants lists all tenants (for users with cross-tenant access permission)
 	ListAllTenants(ctx context.Context) ([]*types.Tenant, error)
+	// CountTenants returns how many tenant rows exist. Used by Register
+	// to detect the very first user on a fresh deployment — see
+	// UserService.Register for the bootstrap-admin rule.
+	CountTenants(ctx context.Context) (int64, error)
+	// ListJoinableTenants returns tenants flagged is_joinable=true and
+	// active. Used by the unauthenticated /auth/available-departments
+	// endpoint to populate the registration form's department dropdown.
+	ListJoinableTenants(ctx context.Context) ([]*types.Tenant, error)
+	// SetTenantJoinable toggles tenants.is_joinable directly so callers
+	// don't run into GORM's "skip zero-value bool" trap on UpdateTenant.
+	// Returns the reloaded tenant for caller convenience.
+	SetTenantJoinable(ctx context.Context, id uint64, joinable bool) (*types.Tenant, error)
 	// BulkSetStorageQuota overwrites every tenant's storage_quota with
 	// quotaBytes. Returns how many rows were affected. Used by the
 	// SystemAdmin "apply default to all tenants" action; bypasses the
@@ -50,10 +62,20 @@ type TenantRepository interface {
 	GetTenantsByIDs(ctx context.Context, ids []uint64) (map[uint64]*types.Tenant, error)
 	// ListTenants lists all tenants
 	ListTenants(ctx context.Context) ([]*types.Tenant, error)
+	// CountTenants returns how many tenant rows exist, excluding soft-
+	// deleted ones (GORM's default scope — matches ListTenants).
+	// Used by Register's bootstrap-admin path to decide whether the
+	// registrant is the first user. Soft-delete exclusion means an
+	// operator who deletes every tenant via the management UI gets the
+	// expected "next registration becomes the platform admin" reset.
+	CountTenants(ctx context.Context) (int64, error)
 	// SearchTenants searches tenants with pagination and filters
 	SearchTenants(ctx context.Context, keyword string, tenantID uint64, page, pageSize int) ([]*types.Tenant, int64, error)
 	// UpdateTenant updates a tenant
 	UpdateTenant(ctx context.Context, tenant *types.Tenant) error
+	// UpdateTenantJoinable toggles tenants.is_joinable via an explicit
+	// column update. See TenantService.SetTenantJoinable for the rationale.
+	UpdateTenantJoinable(ctx context.Context, id uint64, joinable bool) error
 	// DeleteTenant deletes a tenant
 	DeleteTenant(ctx context.Context, id uint64) error
 	// AdjustStorageUsed adjusts the storage used for a tenant

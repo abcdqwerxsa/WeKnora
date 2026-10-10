@@ -61,7 +61,7 @@ func TestTenantSkillSourceBasePathIsTheImageDir(t *testing.T) {
 	base, err := src.GetSkillBasePath("pdf")
 
 	require.NoError(t, err)
-	require.Equal(t, "/opt/weknora/tenant/skills/pdf", base,
+	require.Equal(t, "/opt/luosa/tenant/skills/pdf", base,
 		"the path is the skill name: that is the directory the installer writes")
 }
 
@@ -100,8 +100,8 @@ func TestTenantSkillSourceLoadsInstructionsFromTheRow(t *testing.T) {
 	require.Equal(t, "PDF helpers", skill.Description)
 	require.Equal(t, "Run scripts/extract.py.", skill.Instructions)
 	require.True(t, skill.Loaded)
-	require.Equal(t, "/opt/weknora/tenant/skills/pdf", skill.BasePath)
-	require.Equal(t, "/opt/weknora/tenant/skills/pdf/SKILL.md", skill.FilePath)
+	require.Equal(t, "/opt/luosa/tenant/skills/pdf", skill.BasePath)
+	require.Equal(t, "/opt/luosa/tenant/skills/pdf/SKILL.md", skill.FilePath)
 }
 
 func TestTenantSkillSourceReadsLevel3FilesFromTheBundle(t *testing.T) {
@@ -126,7 +126,7 @@ func TestTenantSkillSourceReadsLevel3FilesFromTheBundle(t *testing.T) {
 	file, err := src.LoadSkillFile("pdf", "reference/FORMS.md")
 	require.NoError(t, err)
 	require.Equal(t, "form notes", file.Content)
-	require.Equal(t, "/opt/weknora/tenant/skills/pdf/reference/FORMS.md", file.Path,
+	require.Equal(t, "/opt/luosa/tenant/skills/pdf/reference/FORMS.md", file.Path,
 		"the path the model is shown must be the one it can execute or read in the sandbox")
 	require.False(t, file.IsScript)
 
@@ -186,7 +186,7 @@ func TestTenantSkillSourceReportsAMissingBundleWithoutBlockingExecution(t *testi
 
 	remote, err := src.RemoteScriptPath("pdf", "scripts/extract.py")
 	require.NoError(t, err)
-	require.Equal(t, "/opt/weknora/tenant/skills/pdf/scripts/extract.py", remote)
+	require.Equal(t, "/opt/luosa/tenant/skills/pdf/scripts/extract.py", remote)
 }
 
 func TestManagerIgnoresPreloadedSkillsWhenTenantSourceIsAttached(t *testing.T) {
@@ -238,14 +238,14 @@ func TestManagerRunsATenantSkillFromTheImageWithoutUploading(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, sandboxMgr.config)
-	require.Equal(t, "/opt/weknora/tenant/skills/pdf/scripts/extract.py",
+	require.Equal(t, "/opt/luosa/tenant/skills/pdf/scripts/extract.py",
 		sandboxMgr.config.RemoteScriptPath)
 	require.Empty(t, sandboxMgr.config.Script,
 		"there is no host-side copy of an installed skill to upload")
 	require.Equal(t, []string{"--flag"}, sandboxMgr.config.Args)
 	require.Equal(t, "sess-1", sandboxMgr.config.SessionID)
 	require.Equal(t, sandbox.SkillsImageRoot+"/pdf",
-		sandboxMgr.config.Env["WEKNORA_SKILL_DIR"])
+		sandboxMgr.config.Env["LUOSA_SKILL_DIR"])
 	require.Equal(t, "/workspace/output", sandboxMgr.config.Env[artifactOutputEnvVar])
 	require.Equal(t, sandbox.SessionSkillPackageDir("pdf"),
 		sandboxMgr.config.Env["PYTHONPATH"])
@@ -273,7 +273,7 @@ func TestManagerRunsAWorkspaceScriptWithInstalledSkillInterpreter(t *testing.T) 
 	require.Empty(t, sandboxMgr.config.Script)
 	require.Equal(t, []string{"--theme", "doraemon"}, sandboxMgr.config.Args)
 	require.Equal(t, sandbox.SkillsImageRoot+"/ppt-generator",
-		sandboxMgr.config.Env["WEKNORA_SKILL_DIR"])
+		sandboxMgr.config.Env["LUOSA_SKILL_DIR"])
 }
 
 func TestManagerRejectsWorkspaceScriptForPreloadedSkill(t *testing.T) {

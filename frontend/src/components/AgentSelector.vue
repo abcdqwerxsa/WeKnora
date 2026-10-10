@@ -11,6 +11,21 @@
         </div>
 
         <div class="agent-selector-content" @scroll="hideDetailPanel">
+          <!-- 默认模式（直接对话大模型） -->
+          <div class="agent-group agent-group--default">
+            <div class="agent-group-title">
+              <span>{{ $t('agent.defaultModeGroup') }}</span>
+            </div>
+            <div class="agent-option agent-option--default"
+              :class="{ selected: isDefaultModeSelected }"
+              @click="selectDefaultMode">
+              <div class="builtin-icon normal">
+                <TIcon name="chat" size="13px" />
+              </div>
+              <span class="agent-option-name">{{ $t('agent.defaultModeName') }}</span>
+            </div>
+          </div>
+
           <!-- 内置智能体 -->
           <div class="agent-group">
             <div class="agent-group-title">{{ $t('agent.builtinAgents') }}</div>
@@ -249,20 +264,46 @@ const DETAIL_HIDE_DELAY_MS = 400;
 const agentsList = computed(() => props.agents ?? []);
 const webSearchProviders = computed(() => chatResources.webSearchProviders);
 
+// "Visible in the chat dropdown" = display_group is unset / 'chat' / 'both'.
+// Workflow-only agents (display_group === 'workflow') are intentionally
+// hidden from the chat dropdown — they output machine-formatted JSON and
+// rely on workflow-driven context (e.g. builtin-bid-risker expects an
+// upstream comparator's JSON array as input).
+function isChatVisible(agent: CustomAgent): boolean {
+  return agent.config?.display_group !== 'workflow'
+}
+
 const builtinAgents = computed(() => {
-  const apiBuiltins = agentsList.value.filter(a => a.is_builtin);
-  return apiBuiltins.map(agent => {
-    if (agent.id === BUILTIN_QUICK_ANSWER_ID) {
-      return { ...agent, name: t('input.normalMode'), description: t('input.normalModeDesc') };
-    }
-    if (agent.id === BUILTIN_SMART_REASONING_ID) {
-      return { ...agent, name: t('input.agentMode'), description: t('input.agentModeDesc') };
-    }
-    return agent;
-  });
+  return agentsList.value
+    .filter(a => a.is_builtin
+      && a.id !== BUILTIN_QUICK_ANSWER_ID
+      && isChatVisible(a));
 });
 
-const customAgents = computed(() => agentsList.value.filter(a => !a.is_builtin));
+// "默认对话" is the system default mode. It still routes through the
+// builtin-quick-answer agent on the backend, but we present it as a separate,
+// locked option above the agent list so it's visually distinct and users
+// can't accidentally edit it as a regular agent.
+const isDefaultModeSelected = computed(() =>
+  props.currentAgentId === BUILTIN_QUICK_ANSWER_ID
+  && !currentAgentSourceTenantId.value,
+);
+
+const selectDefaultMode = () => {
+  emit('select', defaultModeAgent.value);
+};
+
+const defaultModeAgent = computed<CustomAgent>(() => ({
+  id: BUILTIN_QUICK_ANSWER_ID,
+  name: t('agent.defaultModeName'),
+  description: t('agent.defaultModeDesc'),
+  is_builtin: true,
+  config: { agent_mode: 'quick-answer' },
+}));
+
+const customAgents = computed(() =>
+  agentsList.value.filter(a => !a.is_builtin && isChatVisible(a)),
+);
 
 const toCustomAgent = (agent: SharedAgentInfo['agent']): CustomAgent => ({
   is_builtin: false,
@@ -698,6 +739,26 @@ watch(activeDetail, (detail) => {
     padding-bottom: 4px;
     border-bottom: .5px solid var(--td-component-stroke);
   }
+}
+
+.agent-group--default {
+  margin: 0 0 6px;
+  padding: 0 0 6px;
+  border-bottom: .5px solid var(--td-component-stroke);
+
+  .agent-group-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--td-brand-color);
+  }
+}
+
+/* Default-mode entry: no special background, just sits inside the
+   dedicated group with a brand-coloured title above and a divider below. */
+.agent-option--default {
+  /* intentionally empty — keep the option visually identical to a normal
+     agent entry so the only differentiator is the group above it. */
 }
 
 .agent-group-title {

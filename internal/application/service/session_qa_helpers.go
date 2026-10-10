@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/Tencent/WeKnora/internal/logger"
@@ -92,6 +91,23 @@ func (s *sessionService) restrictTagScopesToAgentScope(
 // selection. A request-level override may choose another valid model for this
 // request, but it must not make an unconfigured or stale agent appear usable.
 //
+// resolveChatModelID picks the chat model for a request.
+// Priority (2026-09-10, C-mode):
+//   1. Request's SummaryModelID (user-picked at chat time) - highest, wins
+//      over everything else so the UI can offer free model choice per
+//      conversation.
+//   2. Custom agent's configured model_id (when set) - preserves the
+//      specialized-agent contract that some agents (e.g. the risk
+//      annotator) pin to a specific good model.
+//   3. selectChatModelID fallback chain - KB summary model, then any
+//      tenant KnowledgeQA model, then the system default.
+//
+// When the custom agent is present but its model_id is empty, we no
+// longer hard-fail: instead we warn and fall through to the request
+// override and finally the KB / system default. This is what makes the
+// agent's model_id truly optional and lets every user pick a model at
+// chat time even for an agent that was saved without one.
+//
 // Without an agent, the legacy KB / session / system fallback remains
 // available for non-agent callers.
 func (s *sessionService) resolveChatModelID(
@@ -100,31 +116,11 @@ func (s *sessionService) resolveChatModelID(
 	knowledgeBaseIDs []string,
 	knowledgeIDs []string,
 ) (string, error) {
-	summaryModelID := req.SummaryModelID
+	summaryModelID := strings.TrimSpace(req.SummaryModelID)
 	customAgent := req.CustomAgent
 	session := req.Session
-	configuredAgentModelID := ""
 
-	if customAgent != nil {
-		configuredAgentModelID = strings.TrimSpace(customAgent.Config.ModelID)
-		if configuredAgentModelID == "" && customAgent.ID != types.BuiltinWikiFixerID {
-			return "", fmt.Errorf("chat model is not configured: please set model_id on agent %s", customAgent.ID)
-		}
-		if configuredAgentModelID != "" {
-			model, err := s.modelService.GetModelByID(ctx, configuredAgentModelID)
-			if err != nil || model == nil || model.Type != types.ModelTypeKnowledgeQA {
-				return "", fmt.Errorf("configured chat model %s is unavailable for agent %s", configuredAgentModelID, customAgent.ID)
-			}
-		} else {
-			// The wiki fixer is an internal agent and is intentionally omitted
-			// from the agent-management list. It therefore cannot receive a
-			// user-configured model_id; resolve it from the current Wiki KB or
-			// the normal system KnowledgeQA fallback below instead.
-			logger.Infof(ctx, "No model_id configured for internal wiki fixer %s, using KB/system fallback", customAgent.ID)
-		}
-	}
-
-	summaryModelID = strings.TrimSpace(summaryModelID)
+	// 1. Request-level override (highest priority).
 	if summaryModelID != "" {
 		if model, err := s.modelService.GetModelByID(ctx, summaryModelID); err == nil && model != nil &&
 			model.Type == types.ModelTypeKnowledgeQA {
@@ -133,10 +129,33 @@ func (s *sessionService) resolveChatModelID(
 		}
 		logger.Warnf(ctx, "Request provided invalid summary model ID %s, falling back", summaryModelID)
 	}
-	if configuredAgentModelID != "" {
-		logger.Infof(ctx, "Using custom agent's model_id: %s", configuredAgentModelID)
-		return configuredAgentModelID, nil
+
+	// 2. Custom agent's configured model_id (when set).
+	if customAgent != nil {
+		configuredAgentModelID := strings.TrimSpace(customAgent.Config.ModelID)
+		if configuredAgentModelID != "" {
+			model, err := s.modelService.GetModelByID(ctx, configuredAgentModelID)
+			if err != nil || model == nil || model.Type != types.ModelTypeKnowledgeQA {
+				logger.Warnf(ctx, "Configured chat model %s is unavailable for agent %s, falling back",
+					configuredAgentModelID, customAgent.ID)
+			} else {
+				logger.Infof(ctx, "Using custom agent's model_id: %s", configuredAgentModelID)
+				return configuredAgentModelID, nil
+			}
+		} else if customAgent.ID == types.BuiltinWikiFixerID {
+			// Wiki fixer is internal and intentionally omittable from the
+			// agent-management UI; it can never receive a user-configured
+			// model_id and is expected to fall through to KB / system default.
+			logger.Infof(ctx, "No model_id configured for internal wiki fixer %s, using KB/system fallback", customAgent.ID)
+		} else {
+			// Other agents with empty model_id are intentionally allowed
+			// (C-mode): the agent creator chose to defer model choice to the
+			// conversation-time picker, so we fall through to KB / system
+			// default instead of erroring out.
+			logger.Infof(ctx, "No model_id configured for agent %s, using KB/system fallback", customAgent.ID)
+		}
 	}
+
 	return s.selectChatModelID(ctx, session, knowledgeBaseIDs, knowledgeIDs)
 }
 

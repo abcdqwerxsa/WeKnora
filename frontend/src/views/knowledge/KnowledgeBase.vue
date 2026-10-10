@@ -5,7 +5,6 @@ import DocContent from "@/components/doc-content.vue";
 import useKnowledgeBase from '@/hooks/useKnowledgeBase';
 import { useRoute, useRouter } from 'vue-router';
 import EmptyKnowledge from '@/components/empty-knowledge.vue';
-import ContextualGuide from '@/components/ContextualGuide.vue';
 import KBInfoPopover from '@/components/KBInfoPopover.vue';
 import KBSwitcherDropdown from '@/components/KBSwitcherDropdown.vue';
 import { getSessionsList, createSessions, generateSessionsTitle } from "@/api/chat/index";
@@ -28,7 +27,6 @@ import {
   listKnowledgeTags,
   updateKnowledgeTagBatch,
   uploadKnowledgeFile,
-  createKnowledgeFromURL,
   reparseKnowledge,
   cancelKnowledgeParse,
   batchDeleteKnowledge,
@@ -79,7 +77,6 @@ const route = useRoute();
 const { t } = useI18n();
 const kbId = computed(() => (route.params as any).kbId as string || '');
 const kbInfo = ref<any>(null);
-const uploadSourceRef = ref<InstanceType<typeof KbUploadSourceDropdown> | null>(null);
 const uploading = ref(false);
 const kbLoading = ref(false);
 const docListLoading = ref(true);
@@ -333,14 +330,6 @@ const canDownloadKnowledge = computed(() => {
 
 const knowledgeList = ref<Array<{ id: string; name: string; type?: string }>>([]);
 let { cardList, total, moreIndex, details, getKnowled, delKnowledge, openMore, onVisibleChange: _onVisibleChange, getCardDetails, getfDetails } = useKnowledgeBase(kbId.value)
-
-const showKbDetailContextualGuide = computed(() => {
-  return Boolean(kbId.value)
-    && !isFAQ.value
-    && canEdit.value
-    && !docListLoading.value
-    && cardList.value.length === 0;
-});
 
 const onVisibleChange = (visible: boolean) => {
   _onVisibleChange(visible);
@@ -652,11 +641,14 @@ const isFiltering = computed(() =>
   }),
 );
 // Sub-folder entries shown at the top of the list while browsing. Search results
-// are flat, so they are dropped as soon as a filter is active. When the sidebar
-// tree is open it already lists the same folders, so skip the duplicate rows.
+// are flat, so they are dropped as soon as a filter is active. Sub-folders are
+// rendered in the main list at every level (matching Finder/Explorer behaviour):
+// clicking a folder should reveal its direct contents — files *and* sub-folders —
+// not only the files. The sidebar continues to show the full tree, so the same
+// folder row appears in both places, but the main list is the authoritative view
+// of what is inside the currently selected folder.
 const currentChildFolders = computed(() => {
   if (isFiltering.value) return [];
-  if (showFolderTree.value && !folderTreeCollapsed.value) return [];
   return childFolders(folderTree.value, selectedFolderPath.value);
 });
 // A row's folder is worth showing only when the list can span folders.
@@ -1193,17 +1185,6 @@ const handleFileUploaded = (event: CustomEvent) => {
 };
 
 
-// 监听从菜单触发的URL导入事件
-const handleOpenURLImportDialog = (event: CustomEvent) => {
-  const eventKbId = event.detail.kbId;
-  console.log('接收到URL导入对话框打开事件，知识库ID:', eventKbId, '当前知识库ID:', kbId.value);
-  if (eventKbId && eventKbId === kbId.value && !isFAQ.value) {
-    if (ensureDocumentKbReady()) {
-      uploadSourceRef.value?.openUrlDialog();
-    }
-  }
-};
-
 // Global file drops are captured by the platform shell. Route them back into
 // the same confirmation flow as the page upload button so tags and per-batch
 // processing settings are never skipped.
@@ -1283,14 +1264,12 @@ onMounted(() => {
   editorResources.ensureParserEngines();
 
   window.addEventListener('knowledgeFileUploaded', handleFileUploaded as EventListener);
-  window.addEventListener('openURLImportDialog', handleOpenURLImportDialog as EventListener);
   window.addEventListener('weknora:knowledge-file-drop', handleKnowledgeFileDrop as EventListener);
   window.addEventListener('weknora:open-knowledge', handleOpenKnowledgeEvent as EventListener);
 });
 
 onUnmounted(() => {
   window.removeEventListener('knowledgeFileUploaded', handleFileUploaded as EventListener);
-  window.removeEventListener('openURLImportDialog', handleOpenURLImportDialog as EventListener);
   window.removeEventListener('weknora:knowledge-file-drop', handleKnowledgeFileDrop as EventListener);
   window.removeEventListener('weknora:open-knowledge', handleOpenKnowledgeEvent as EventListener);
   stopMovePoll();
@@ -1721,58 +1700,12 @@ const executeUploadBatch = async (
   return { successCount, failCount };
 };
 
-const executeUrlImport = async (
-  url: string,
-  processConfig?: KnowledgeProcessOverrides,
-  tagIds?: string[],
-) => {
-  const targetKbId = kbId.value;
-  if (!targetKbId) {
-    MessagePlugin.error(t('error.missingKbId'));
-    return;
-  }
-
-  const tagIdsToUpload = tagIds && tagIds.length > 0 ? [...tagIds] : undefined;
-  try {
-    const responseData: any = await createKnowledgeFromURL(targetKbId, {
-      url,
-      tag_ids: tagIdsToUpload,
-      process_config: processConfig,
-    });
-    window.dispatchEvent(new CustomEvent('knowledgeFileUploaded', {
-      detail: { kbId: targetKbId },
-    }));
-    const isSuccess = responseData?.success || responseData?.code === 200 || responseData?.status === 'success' || (!responseData?.error && responseData);
-    if (isSuccess) {
-      MessagePlugin.success(t('knowledgeBase.urlImportSuccess'));
-    } else {
-      let errorMessage = t('knowledgeBase.urlImportFailed');
-      if (responseData?.error?.message) {
-        errorMessage = responseData.error.message;
-      } else if (responseData?.message) {
-        errorMessage = responseData.message;
-      }
-      if (responseData?.code === 'duplicate_url' || responseData?.error?.code === 'duplicate_url') {
-        errorMessage = t('knowledgeBase.urlExists');
-      }
-      MessagePlugin.error(errorMessage);
-    }
-  } catch (error: any) {
-    let errorMessage = error?.error?.message || error?.message || t('knowledgeBase.urlImportFailed');
-    if (error?.code === 'duplicate_url') {
-      errorMessage = t('knowledgeBase.urlExists');
-    }
-    MessagePlugin.error(errorMessage);
-  }
-};
-
 const handleUploadConfirmResult = async (result: UploadConfirmResult) => {
   if (result.mode === 'manual') {
     return;
   }
 
   const files = result.files || [];
-  const urls = result.urls || [];
   const processConfig = result.processConfig;
   const tagIds = result.tagIds || [];
 
@@ -1787,22 +1720,17 @@ const handleUploadConfirmResult = async (result: UploadConfirmResult) => {
       targetFolder: result.targetFolder || ROOT_FOLDER_PATH,
     });
   }
-
-  for (const url of urls) {
-    await executeUrlImport(url, processConfig, tagIds);
-  }
 };
 
-const openUploadConfirmDialog = async (files: File[], urls: string[] = []) => {
+const openUploadConfirmDialog = async (files: File[]) => {
   if (!kbInfo.value) return;
-  if (files.length === 0 && urls.length === 0) return;
+  if (files.length === 0) return;
   try {
     const result = await uploadConfirmStore.open({
       mode: 'file',
       kbInfo: kbInfo.value,
       tagIds: [...selectedTagIds.value],
       files,
-      urls,
       acceptFileTypes: acceptFileTypes.value,
       supportedFileTypes: [...supportedFileTypes.value],
       // Pre-fill the destination with the folder being browsed; the dialog shows
@@ -1820,11 +1748,6 @@ const handleUploadSourceFiles = (files: File[]) => {
   if (!ensureDocumentKbReady()) return;
   if (files.length === 0) return;
   openUploadConfirmDialog(files);
-};
-
-const handleUploadSourceUrl = (url: string) => {
-  if (!ensureDocumentKbReady()) return;
-  openUploadConfirmDialog([], [url]);
 };
 
 const handleManualCreate = () => {
@@ -2383,9 +2306,9 @@ async function createNewSession(value: string): Promise<void> {
       <template v-if="activeKbTab === 'documents' || !isWiki">
         <div class="knowledge-main">
           <KbFolderTree v-if="showFolderTree && !folderTreeCollapsed" :tree="folderTree" :selected-path="selectedFolderPath"
-            :loading="folderTreeLoading" :can-edit="canEdit"
+            :loading="folderTreeLoading" :can-edit="canEdit" :files="cardList"
             @select="handleFolderSelect" @update:collapsed="handleFolderTreeCollapsedChange"
-            @rename="handleFolderRename" />
+            @rename="handleFolderRename" @open-file="openKnowledgeItem" />
           <div class="tag-content">
             <div class="doc-card-area">
               <nav v-if="showFolderTree" class="doc-folder-path"
@@ -2573,11 +2496,11 @@ async function createNewSession(value: string): Promise<void> {
                     </t-tooltip>
                   </div>
                   <div v-if="canEdit" class="doc-filter-actions">
-                    <KbUploadSourceDropdown ref="uploadSourceRef" :accept-file-types="acceptFileTypes"
+                    <KbUploadSourceDropdown :accept-file-types="acceptFileTypes"
                       :supported-file-types="[...supportedFileTypes]" include-manual trigger-icon="file-add"
                       trigger-class="content-bar-icon-btn" data-guide="kb-detail-add-doc"
                       :tooltip="t('knowledgeBase.addDocument')" placement="bottom-right" @files="handleUploadSourceFiles"
-                      @url="handleUploadSourceUrl" @manual="handleManualCreate" />
+                      @manual="handleManualCreate" />
                   </div>
                 </div>
               </div>
@@ -2702,8 +2625,6 @@ async function createNewSession(value: string): Promise<void> {
   <KnowledgeBaseEditorModal :visible="uiStore.showKBEditorModal" :mode="uiStore.kbEditorMode"
     :kb-id="uiStore.currentKBId || undefined" :initial-type="uiStore.kbEditorType"
     @update:visible="(val) => val ? null : uiStore.closeKBEditor()" @success="handleKBEditorSuccess" />
-
-  <ContextualGuide tour="kbDetail" :when="showKbDetailContextualGuide" />
 
   <!-- 标签编辑弹窗 -->
   <TagEditDialog :visible="tagEditDialogVisible"

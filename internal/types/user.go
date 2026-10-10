@@ -4,6 +4,7 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"time"
 
 	"gorm.io/gorm"
@@ -97,6 +98,12 @@ type User struct {
 	IsActive bool `json:"is_active"  gorm:"default:true"`
 	// Whether the user can access all workspaces (cross-workspace access)
 	CanAccessAllTenants bool `json:"can_access_all_tenants" gorm:"default:false"`
+	// IsApproved gates the public sign-up flow: new self-registered users
+	// start at IsApproved=false and a SystemAdmin flips it to true after
+	// reviewing the row. Login is rejected for IsApproved=false users
+	// (see AuthService.Login). Bypassed entirely for OIDC/provisioned
+	// accounts, which set IsApproved=true at creation time.
+	IsApproved bool `json:"is_approved" gorm:"default:false;index"`
 	// Whether the user is a system administrator (independent of workspace roles)
 	IsSystemAdmin bool `json:"is_system_admin" gorm:"default:false;index"`
 	// Per-user UI/feature preferences.
@@ -190,11 +197,79 @@ type RegisterRequest struct {
 	Email    string `json:"email"    binding:"required,email"`
 	Password string `json:"password" binding:"required,min=6"`
 
+	// TenantID, when set, makes registration route the user into the named
+	// existing tenant instead of auto-creating a personal workspace. The
+	// service validates that the tenant exists and is flagged is_joinable;
+	// otherwise the field is silently ignored and the request falls back to
+	// create_personal behaviour. TenantProvisioning below decides whether
+	// to honour TenantID (join_existing) or auto-create (create_personal).
+	TenantID uint64 `json:"tenant_id,omitempty"`
+
 	// TenantProvisioning is server-controlled registration context. It is
 	// deliberately excluded from JSON so a public caller cannot choose its
 	// own tenancy semantics. Empty preserves the historical behaviour and is
 	// treated as create_personal by UserService.Register.
 	TenantProvisioning TenantProvisioningMode `json:"-"`
+}
+
+// registerRequestJSON is the wire-shape mirror of RegisterRequest. We use it
+// to implement a tolerant UnmarshalJSON so the public register endpoint
+// does not 400 on common frontend quirks:
+//
+//   - "tenant_id": "" or null  → 0 (caller signals "no department" — let
+//                                 the server pick create_personal)
+//   - "tenant_id": "5"          → 5 (some libs serialise IDs as strings
+//                                 because bigint+precision fear)
+//
+// Without this, TDesign's <t-form :data> + <t-select v-model> combination
+// can ship an empty string for an unfilled number field and the default
+// Go decoder rejects it with "cannot unmarshal string into uint64" — a
+// 400 that blocks first-user signups entirely (see issue: first-user
+// registration card deadlock).
+type registerRequestJSON struct {
+	Username string `json:"username"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	// json.RawMessage so we can defer the number/string decision to the
+	// body of UnmarshalJSON below.
+	TenantID json.RawMessage `json:"tenant_id,omitempty"`
+}
+
+// UnmarshalJSON implements tolerant decoding for RegisterRequest.
+func (r *RegisterRequest) UnmarshalJSON(data []byte) error {
+	var raw registerRequestJSON
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	r.Username = raw.Username
+	r.Email = raw.Email
+	r.Password = raw.Password
+	if len(raw.TenantID) == 0 || string(raw.TenantID) == "null" {
+		// Missing or explicit null → leave TenantID at zero value.
+		return nil
+	}
+	// Try the canonical numeric decode first; fall back to string parsing
+	// if the client serialised the id as a JSON string.
+	var n uint64
+	if err := json.Unmarshal(raw.TenantID, &n); err == nil {
+		r.TenantID = n
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(raw.TenantID, &s); err != nil {
+		return err
+	}
+	if s == "" {
+		// Frontend sent "" (TDesign coercion of undefined → ''). Treat as
+		// "no department" rather than failing the whole request.
+		return nil
+	}
+	parsed, perr := strconv.ParseUint(s, 10, 64)
+	if perr != nil {
+		return perr
+	}
+	r.TenantID = parsed
+	return nil
 }
 
 // AdminCreateUserRequest is the payload for a SystemAdmin provisioning a
@@ -218,10 +293,13 @@ type TenantProvisioningMode string
 const (
 	TenantProvisioningCreatePersonal TenantProvisioningMode = "create_personal"
 	TenantProvisioningTenantless     TenantProvisioningMode = "tenantless"
+	TenantProvisioningJoinExisting   TenantProvisioningMode = "join_existing"
 )
 
 func (m TenantProvisioningMode) IsValid() bool {
-	return m == TenantProvisioningCreatePersonal || m == TenantProvisioningTenantless
+	return m == TenantProvisioningCreatePersonal ||
+		m == TenantProvisioningTenantless ||
+		m == TenantProvisioningJoinExisting
 }
 
 // LoginResponse represents a login response

@@ -10,7 +10,7 @@ All notable changes to this project will be documented in this file.
 - **NEW**: **Tenant Skill Catalog** — skills are first-class workspace resources, not files dropped next to the process (migrations `000086_tenant_skills`, `000087_skill_install_transcript`, `000088_skill_snapshot_planned_name`, `000090_skill_catalog`). Install from **ClawHub**, **SkillHub / skills.sh**, **GitHub/GitLab URLs**, or a zip upload; each install is a snapshot on the chosen sandbox config, with live circular progress, install transcripts, stop/reinstall, and uninstall that keeps catalog archives. Browse and edit installed skill files from Settings; agents get `write_skill_file` / `edit_skill_file` plus `shell_exec` that no longer requires a skill to be installed. Personal and workspace **skill env vars** inject at execution without ever being read back (migration `000089_env_vars`). `@mention` no longer silently shrinks the skill whitelist.
 - **NEW**: **Cross-Session Long-Term Memory** — a new memory product (migration `000084_memory`), independent of the Neo4j conversation-memory that 0.7.1 removed. Workspaces opt in; each user can further turn it off. Memories are typed (`profile` / `preference` / `fact` / `task` / `interest`), written either explicitly or by a background extractor, and **inferred items stay pending until the user confirms**. Resident profile/preference blocks ride in every turn; situational facts are recalled lexically and (optionally) semantically; `search_memory` looks up on demand. Document affinity conditions retrieval toward sources the user keeps citing. Settings, items, topics, document affinity, confirm/reject, export and forced consolidation are exposed as `/api/v1/memory/*` (full-access API keys only; the subject is always the caller).
 - **NEW**: **In-Process anydoc Parser** — Office documents (doc/docx/ppt/pptx and the types anydoc converts) can be parsed **inside the Go app** via `third_party/anydoc-go`, without a round-trip to docreader. When the binding is linked, anydoc is preferred for every type it converts; PPT/PPTX still default to MarkItDown when no engine rule is set. The app image links anydoc by default.
-- **NEW**: **DeepSeek Harness Plugin** — official npm package [`@wxg-prc-cpg/dsh-weknora`](https://www.npmjs.com/package/@wxg-prc-cpg/dsh-weknora) exposes four read-only tools (`weknora_search`, `weknora_read_document`, `weknora_ask`, `weknora_list_knowledge_bases`) so a DeepSeek Harness coding agent can retrieve from a WeKnora deployment (#2759).
+- **NEW**: **DeepSeek Harness Plugin** — official npm package [`@wxg-prc-cpg/dsh-weknora`](https://www.npmjs.com/package/@wxg-prc-cpg/dsh-weknora) exposes four read-only tools (`weknora_search`, `weknora_read_document`, `weknora_ask`, `weknora_list_knowledge_bases`) so a DeepSeek Harness coding agent can retrieve from a LuoSA deployment (#2759).
 - **NEW**: **GitLab & Tencent IMA Data Sources** — GitLab projects sync as a knowledge source (#2656); Tencent IMA notes sync through the note OpenAPI, with retries on transient failures.
 - **NEW**: **LiteLLM Model Provider** — LiteLLM is a first-class chat/embedding/rerank provider, so one gateway URL can front many upstream models (#2923).
 - **NEW**: **Exa & Metaso Web Search** — two new web-search providers join the existing set (#2617).
@@ -83,7 +83,7 @@ All notable changes to this project will be documented in this file.
 - **NEW**: **Directly Loadable File URLs (`resource_urls=public`)** — chat answers, references, knowledge search, and embed responses can return ready-to-load http(s) URLs for files and images instead of internal `resource://` handles, so third-party apps no longer need a second authenticated call to the `/files` proxy. Opt in per request with `?resource_urls=public` or per deployment with `RESOURCE_URL_MODE=public`. A new `internal/storageurl` package centralizes the rewriting, reusing a live access grant per resource to keep read endpoints from writing on every request. Anonymous embed channels and KB-restricted API keys always stay on `handle`. See [`docs/api/README.md`](./docs/api/README.md).
 - **NEW**: **Feishu Drive Data Source** — a new Feishu Cloud Drive connector joins the existing Feishu wiki connector (#2466). New-format Feishu cloud documents (docx) are now synchronized through the blocks API with per-block-type drill-down (#2087), configurable via the new `E9` docx parsing-mode section in `.env.example`.
 - **NEW**: **Batch Document Tagging** — select documents in the knowledge base list and apply tags in bulk through a dedicated dialog that pre-selects the tags already common to the selection.
-- **NEW**: **MCP Server 1.1.x** — the WeKnora MCP server migrated from the removed low-level `Server` decorator API to the high-level `MCPServer` API (mcp 2.x), restoring HTTP (`stateless_http`) and SSE (`/sse/messages/`) transport compatibility, and now publishes as the official PyPI package **`tencent-weknora-mcp`** via Trusted Publishing. Two new tools bring the total to 29: `create_knowledge_from_text` (create a knowledge entry from Markdown text) and `list_shared_knowledge_bases` (shared KBs are also folded into name resolution and tool hints).
+- **NEW**: **MCP Server 1.1.x** — the LuoSA MCP server migrated from the removed low-level `Server` decorator API to the high-level `MCPServer` API (mcp 2.x), restoring HTTP (`stateless_http`) and SSE (`/sse/messages/`) transport compatibility, and now publishes as the official PyPI package **`tencent-weknora-mcp`** via Trusted Publishing. Two new tools bring the total to 29: `create_knowledge_from_text` (create a knowledge entry from Markdown text) and `list_shared_knowledge_bases` (shared KBs are also folded into name resolution and tool hints).
 - **NEW**: **AWS S3 Default Credential Chain** — leaving `S3_ACCESS_KEY` and `S3_SECRET_KEY` both empty now falls back to the AWS SDK default credential chain, supporting EC2/ECS/EKS IAM roles, IRSA / Web Identity, environment variables, and shared config files (#2008).
 - **NEW**: **Local HTML Upload Parsing** — docreader gained a dedicated HTML parser, so `.html` files can be uploaded directly instead of only imported by URL. The supported-extension set is now the single gate for both direct upload and URL import (#2447).
 - **NEW**: **QQBot Markdown Replies** — QQBot channels reply with markdown formatting like the other IM integrations.
@@ -187,7 +187,7 @@ All notable changes to this project will be documented in this file.
 
 ### New Features
 
-- **NEW**: **Scoped Tenant API Keys & Principal Model** — the headline of this release. WeKnora now issues fine-grained, capability-scoped API keys that are first-class principals separate from human users (migrations `000064_principal_model`, `000065_tenant_api_keys`). Each key carries an explicit role plus capability grants (`manage_kbs` covering the full KB lifecycle, `manage_storage_backends`, member/space capabilities, etc.), can be restricted to specific knowledge bases, and updates its `last_used_at` under a throttle. Route-level guards (`DenyAPIKeyPrincipal`, `api_key_gate`) close IDOR/scope gaps, and a new **API Integration Playground** in the web UI lets owners mint, scope, and test keys interactively. MCP OAuth and embed sessions are now scoped per principal so external integrations stay isolated.
+- **NEW**: **Scoped Tenant API Keys & Principal Model** — the headline of this release. LuoSA now issues fine-grained, capability-scoped API keys that are first-class principals separate from human users (migrations `000064_principal_model`, `000065_tenant_api_keys`). Each key carries an explicit role plus capability grants (`manage_kbs` covering the full KB lifecycle, `manage_storage_backends`, member/space capabilities, etc.), can be restricted to specific knowledge bases, and updates its `last_used_at` under a throttle. Route-level guards (`DenyAPIKeyPrincipal`, `api_key_gate`) close IDOR/scope gaps, and a new **API Integration Playground** in the web UI lets owners mint, scope, and test keys interactively. MCP OAuth and embed sessions are now scoped per principal so external integrations stay isolated.
 - **NEW**: **Runtime Task Queue Observability & Worker-Pool Governance** — a system-admin **Runtime Queues** dashboard exposes live queue depth, per-model concurrency stats, failed-task inspection, manual retry, and cursor-paginated task listings. The ingestion pipeline moves from a single aggregate worker pool to guaranteed per-stage pools (core / post-process / enrichment / maintenance) plus a shared elastic pool, with per-model background concurrency governors (`model.max_concurrency`) wrapping chat, embedding, rerank, and VLM calls. Wiki generation runs in its own independently governed pool. See [`docs/worker-pool-governance.md`](./docs/worker-pool-governance.md).
 - **NEW**: **Multi-Instance Storage Backends** — each workspace can register multiple object/file storage instances (`local` / `minio` / `cos` / `tos` / `s3` / `oss` / `ks3` / `obs`) and bind different knowledge bases to different instances, with a workspace-level default (migration `000068_storage_backends`). Ships a full CRUD + connectivity-test API and settings UI, credential masking on read, and hardened image-source protection for storage backends. See [`docs/api/storage-backend.md`](./docs/api/storage-backend.md).
 - **NEW**: **Session-Scoped Temporary Attachments** — attach images and documents to a chat session for one-off Q&A with asynchronous parsing (migration `000070_temporary_documents`). Enforces a combined image + attachment limit, normalizes temporary attachment IDs, persists attachment content across turns, and adds a chat attachment preview drawer.
@@ -449,7 +449,7 @@ All notable changes to this project will be documented in this file.
 
 ### New Features
 
-- **NEW**: **Tenant RBAC (Role-Based Access Control)** — the headline of this release (#1303). WeKnora now enforces a per-tenant role matrix on every mutating route, with per-KB resource ownership. Highlights:
+- **NEW**: **Tenant RBAC (Role-Based Access Control)** — the headline of this release (#1303). LuoSA now enforces a per-tenant role matrix on every mutating route, with per-KB resource ownership. Highlights:
   - **4-tier role matrix**: `Owner` (one per tenant; can additionally delete the tenant) ⊃ `Admin` ⊃ `Contributor` (full owner of own resources, read-only on others) ⊃ `Viewer` (read-only). Two exceptions: cross-tenant superuser (`User.CanAccessAllTenants=true`) is implicit Admin in any tenant they switch into; API-Key-synthesized virtual users are pinned Admin in their owning tenant.
   - **Per-KB resource ownership**: `chunk → knowledge → kb → creator_id`; same chain applies to FAQ entries, generated questions, KB tags and wiki pages. `custom_agents.creator_id` + `custom_agents.runnable_by_viewer` (default true) control agent ownership and viewer-callability.
   - **Two guard families**: role guards (`Viewer()` / `Contributor()` / `Admin()` / `Owner()`) for tenant-level infra (models, vector stores, IM channels, …) and ownership guards (`OwnedKBOrAdmin()`, `OwnedAgentOrAdmin()`, `OwnedChunkKBOrAdmin()`, …) for resource writes. KB-access guard wired at the route layer for chunk / knowledge / knowledgebase routes (no per-handler helpers).
@@ -467,7 +467,7 @@ All notable changes to this project will be documented in this file.
   - `auth`: new `refresh` and `token` verbs; transparent 401 retry transport.
   - `context` CRUD: add / list / remove / use.
   - `link` / `unlink` for project-level KB binding.
-  - `mcp serve` — curated stdio MCP server so AI clients (Claude Code, Cursor, …) can drive WeKnora directly; includes MCP `chunk_list` tool.
+  - `mcp serve` — curated stdio MCP server so AI clients (Claude Code, Cursor, …) can drive LuoSA directly; includes MCP `chunk_list` tool.
   - **Globals**: `--format`, `--json` field-select, `--jq`, `--paginate`, `--all-pages` (canonical catch-up), `--input`, `--log-level`, `--from-url`, NDJSON output, bare-JSON output path, signal-aware contexts.
   - **Removed**: envelope infrastructure (errors → stderr); `--dry-run`; `internal/agent` aiclient package; v0.0 scaffolding.
 - **NEW**: **KB Retrieval Fan-out Across Vector Stores** — a single KB can now bind to multiple vector stores; retrieval engine fans out queries across all bound stores and merges results. KB editor validates bindings on create / copy / delete. Retriever resolution introduces a factory pattern for KB-scoped engine selection.
@@ -477,7 +477,7 @@ All notable changes to this project will be documented in this file.
 - **NEW**: **Huawei Cloud OBS** object storage joins Local / MinIO / AWS S3 / Volcengine TOS / Alibaba Cloud OSS / Kingsoft Cloud KS3 / Huawei OBS.
 - **NEW**: **vLLM URL configuration for MinerU** doc parser.
 - **NEW**: **Apache Doris compatibility modes** — configurable Doris compat modes with mode-switch guards.
-- **NEW**: **Docreader image URL whitelist** — trusted URLs can be served as-is without re-uploading into WeKnora storage.
+- **NEW**: **Docreader image URL whitelist** — trusted URLs can be served as-is without re-uploading into LuoSA storage.
 - **NEW**: **Server-Side User Preferences** — per-user font / theme / memory-feature toggle persisted on the server; per-user KB pinning replaces tenant-wide pin model; "Shared by me" label across surfaces.
 - **NEW**: **User favorites & recents** under the user menu.
 - **NEW**: **`creator_name` on agents and knowledge bases** for visibility across surfaces.
@@ -647,7 +647,7 @@ All notable changes to this project will be documented in this file.
 ## [0.5.1] - 2026-04-30
 
 ### 🚀 New Features
-- **NEW**: WeChat Mini Program — added a lightweight mobile client (`miniprogram/`) for configuring WeKnora API access, selecting knowledge bases, importing URLs, and chatting from inside WeChat, extending WeKnora from desktop to mobile.
+- **NEW**: WeChat Mini Program — added a lightweight mobile client (`miniprogram/`) for configuring LuoSA API access, selecting knowledge bases, importing URLs, and chatting from inside WeChat, extending LuoSA from desktop to mobile.
 - **NEW**: Knowledge Base — document list view with multi-select, floating batch action bar, and batch delete to streamline managing large knowledge bases.
 - **NEW**: IM — tenant-wide IM Channels Overview entry under the user menu so administrators can inspect every IM channel of the tenant from a single page.
 - **NEW**: Sessions — keyword search across the conversation list, user-scoped pinning of important sessions, and clear IM-source visibility for chats originating from IM channels.
@@ -722,11 +722,11 @@ All notable changes to this project will be documented in this file.
 ## [0.4.0] - 2026-04-14
 
 ### 🚀 New Features
-- **NEW**: Cloud Knowledge Assistant — [WeKnora Platform](https://weknora.weixin.qq.com/platform), a cloud-hosted knowledge assistant service for quick onboarding without local deployment
-- **NEW**: WeKnora Cloud — WeKnora Cloud provider integration, providing hosted LLM models and document parsing capabilities, with credential management, status checks, and UI feedback
+- **NEW**: Cloud Knowledge Assistant — [LuoSA Platform](https://weknora.weixin.qq.com/platform), a cloud-hosted knowledge assistant service for quick onboarding without local deployment
+- **NEW**: LuoSA Cloud — LuoSA Cloud provider integration, providing hosted LLM models and document parsing capabilities, with credential management, status checks, and UI feedback
 - **NEW**: Chrome Extension — browser extension support with menu entry and quick access integration for seamless knowledge capture from web pages
 - **NEW**: WeChat IM Integration — WeChat channel adapter with QR code login and long-polling message support
-- **NEW**: ClawHub Skill — WeKnora Skill published on ClawHub platform, enabling document import, hybrid search, and knowledge management via the WeKnora REST API
+- **NEW**: ClawHub Skill — LuoSA Skill published on ClawHub platform, enabling document import, hybrid search, and knowledge management via the LuoSA REST API
 - **NEW**: Attachment Processing — file attachment support in chat pipeline with enhanced error handling, content formatting, and image/attachment metadata injection in queries
 - **NEW**: Azure OpenAI Provider — full Azure OpenAI support for chat, VLM, and embedding models with deployment name preservation, configurable dimensions parameter, provider registration with metadata, URL auto-detection, and frontend provider integration with i18n
 - **NEW**: Alibaba Cloud OSS Storage — object storage support via S3-compatible mode with configuration UI, connectivity test, status reporting, OSS TypeScript types, docreader OssStorage class, factory and container registration, and multi-language i18n (Korean, Russian)
@@ -763,7 +763,7 @@ All notable changes to this project will be documented in this file.
 ### 🔧 Refactoring
 - Replaced CryptoService with lightweight utils AES helpers, simplifying encryption logic across the codebase
 - Optimized OSS storage initialization, URL formatting, and security handling for improved S3 compatibility
-- Enhanced WeKnora Cloud internationalization and UI feedback for credential management operations
+- Enhanced LuoSA Cloud internationalization and UI feedback for credential management operations
 
 ### 📚 Documentation
 - Added VectorStore CRUD API endpoint documentation with Swagger annotations
@@ -1586,7 +1586,7 @@ All notable changes to this project will be documented in this file.
 - Improved initialization configuration handling
 
 ### 🛡️ Security Recommendations
-- Deploy WeKnora services in internal/private network environments
+- Deploy LuoSA services in internal/private network environments
 - Avoid direct exposure to public internet
 - Configure proper firewall rules and access controls
 - Regular updates for security patches and improvements
@@ -1604,7 +1604,7 @@ All notable changes to this project will be documented in this file.
 
 ## [0.1.0] - 2025-09-08
 
-- Initial public release of WeKnora.
+- Initial public release of LuoSA.
 - Web UI for knowledge upload, chat, configuration, and settings.
 - RAG pipeline with chunking, embedding, retrieval, reranking, and generation.
 - Initialization wizard for configuring models (LLM, embedding, rerank, retriever).

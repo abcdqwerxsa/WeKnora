@@ -58,6 +58,22 @@ type toolHandlePolicy struct {
 // alone are deliberately insufficient: a dynamic MCP tool may use the same
 // name with unrelated semantics and must remain opaque.
 var toolHandlePolicies = map[string]toolHandlePolicy{
+	// kb_get_image takes a chunk_id from the model and returns a sandbox
+	// path + size + cached flag. The model sees the chunk_id as a handle
+	// it discovered through knowledge_search; compact it back to the KB
+	// chunk provenance the policy records for downstream reasoning.
+	"kb_get_image": {
+		sourceIDKeys: map[string]struct{}{"chunk_id": {}},
+		sourceOutput: true,
+	},
+	// kb_get_file takes a knowledge_id from the model and returns a
+	// sandbox path + KB / knowledge provenance. Same handle class as
+	// get_document_info: knowledge IDs are KB-scoped and the model
+	// reaches them through knowledge_search.
+	"kb_get_file": {
+		sourceIDKeys: map[string]struct{}{"knowledge_id": {}},
+		sourceOutput: true,
+	},
 	"knowledge_search": {
 		sourceIDKeys: map[string]struct{}{"knowledge_base_ids": {}},
 		sourceOutput: true,
@@ -143,6 +159,13 @@ var toolHandlePolicies = map[string]toolHandlePolicy{
 		sourceOutput: true,
 	},
 	"wiki_delete_page": {
+		sourceOutput: true,
+	},
+	// wiki_get_image returns a sandbox path + size + cached flag. The
+	// model sees the slug as the durable identity (it's already in the
+	// session's wiki routing cache); the staged chunk_id is internal.
+	// Compact known IDs, render nothing structured.
+	"wiki_get_image": {
 		sourceOutput: true,
 	},
 	// Agent-private bookkeeping tools echo model-authored text. They need

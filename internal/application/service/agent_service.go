@@ -144,8 +144,9 @@ func NewAgentService(
 	sandboxPinner *SessionSandboxPinner,
 	workflowService interfaces.WorkflowService,
 	sandboxPolicy WorkspaceSandboxPolicy,
+	agentRef *AgentServiceRef,
 ) interfaces.AgentService {
-	return &agentService{
+	svc := &agentService{
 		cfg:                   cfg,
 		modelService:          modelService,
 		knowledgeBaseService:  knowledgeBaseService,
@@ -171,6 +172,11 @@ func NewAgentService(
 		sandboxPinner:         sandboxPinner,
 		sandboxPolicy:         sandboxPolicy,
 	}
+	// Break the WorkflowService ⇄ AgentService constructor cycle: dig has no
+	// lazy deps, and the two services only meet at run time (workflow tools
+	// here, Agent node there), so the workflow side reads this ref instead.
+	agentRef.Set(svc)
+	return svc
 }
 
 // CreateAgentEngine creates an agent engine with the given configuration and EventBus.
@@ -397,8 +403,8 @@ func (s *agentService) resolveKBAndDocInfos(
 // manager advertises a SessionFileStore.
 //
 // The skill installer is the exception: write_sandbox_file only accepts
-// /workspace, the installer must write .weknora/requirements.json under
-// /opt/weknora/tenant/skills, and its prompt forbids touching /workspace
+// /workspace, the installer must write .luosa/requirements.json under
+// /opt/luosa/tenant/skills, and its prompt forbids touching /workspace
 // (that tree is wiped before the snapshot). Offering the file tools made
 // the first write of every install fail, then fall back to a shell heredoc.
 // Install mode gets write_skill_file / edit_skill_file instead, which write
@@ -901,6 +907,7 @@ func (s *agentService) registerTools(
 			tools.ToolWikiDeletePage:    true,
 			tools.ToolWikiReadIssue:     true,
 			tools.ToolWikiUpdateIssue:   true,
+			tools.ToolWikiGetImage:      true,
 		}
 
 		// If no knowledge and no web search, also disable todo_write (not useful for simple chat)
@@ -965,6 +972,7 @@ func (s *agentService) registerTools(
 		tools.ToolWikiDeletePage:    true,
 		tools.ToolWikiReadIssue:     true,
 		tools.ToolWikiUpdateIssue:   true,
+		tools.ToolWikiGetImage:      true,
 	}
 
 	// Hard safety nets: drop tools whose runtime prerequisite is missing.
@@ -1031,6 +1039,64 @@ func (s *agentService) registerTools(
 		case tools.ToolQueryKnowledgeGraph:
 			toolToRegister = tools.NewQueryKnowledgeGraphTool(s.knowledgeBaseService, config.SearchTargets).
 				WithKnowledgeScope(s.knowledgeService)
+		case tools.ToolKBGetImage:
+			// Gate on KB scope + writable sandbox: both are required for
+			// the tool to do useful work. Skipping instead of letting it
+			// error at runtime is better UX — a tool that always errors
+			// is worse than no tool.
+			if len(config.SearchTargets) == 0 {
+				logger.Warnf(ctx, "kb_get_image dropped: agent has no KBs in scope")
+				continue
+			}
+			sandboxMgr, sbErr := s.resolveWorkspaceSandbox(ctx, sessionID, config)
+			if sbErr != nil || sandboxMgr == nil {
+				logger.Warnf(ctx, "kb_get_image dropped: workspace sandbox not resolvable: %v", sbErr)
+				continue
+			}
+			store := sessionSandboxFileStore(sandboxMgr)
+			if store == nil {
+				logger.Infof(ctx, "kb_get_image dropped: sandbox backend does not advertise session filesystem")
+				continue
+			}
+			toolToRegister = tools.NewKBGetImageTool(
+				s.fileService,
+				s.chunkService,
+				s.knowledgeService,
+				s.knowledgeBaseService,
+				s.storageResolver,
+				s.tenantService,
+				config.SearchTargets,
+				store,
+			)
+		case tools.ToolKBGetFile:
+			// Same gates as kb_get_image: the tool is only useful when the
+			// agent has a KB in scope AND the sandbox supports writable
+			// /workspace/input. Skipping instead of letting it error at
+			// runtime is better UX — a tool that always errors is worse
+			// than no tool.
+			if len(config.SearchTargets) == 0 {
+				logger.Warnf(ctx, "kb_get_file dropped: agent has no KBs in scope")
+				continue
+			}
+			sandboxMgr, sbErr := s.resolveWorkspaceSandbox(ctx, sessionID, config)
+			if sbErr != nil || sandboxMgr == nil {
+				logger.Warnf(ctx, "kb_get_file dropped: workspace sandbox not resolvable: %v", sbErr)
+				continue
+			}
+			store := sessionSandboxFileStore(sandboxMgr)
+			if store == nil {
+				logger.Infof(ctx, "kb_get_file dropped: sandbox backend does not advertise session filesystem")
+				continue
+			}
+			toolToRegister = tools.NewKBGetFileTool(
+				s.fileService,
+				s.knowledgeService,
+				s.knowledgeBaseService,
+				s.storageResolver,
+				s.tenantService,
+				config.SearchTargets,
+				store,
+			)
 		case tools.ToolGetDocumentInfo:
 			toolToRegister = tools.NewGetDocumentInfoTool(s.knowledgeService, s.chunkService, config.SearchTargets)
 		case tools.ToolSearchConversations:
@@ -1104,6 +1170,38 @@ func (s *agentService) registerTools(
 			toolToRegister = tools.NewWikiRenamePageTool(s.wikiPageService, wikiKBIDs, wikiRoutes)
 		case tools.ToolWikiDeletePage:
 			toolToRegister = tools.NewWikiDeletePageTool(s.wikiPageService, wikiKBIDs, wikiRoutes)
+		case tools.ToolWikiGetImage:
+			// Gate on wiki scope + writable sandbox: both are required for
+			// the tool to do useful work. Skipping instead of letting it
+			// error at runtime is better UX — a tool that always errors
+			// is worse than no tool.
+			if !hasWikiKB {
+				logger.Warnf(ctx, "wiki_get_image dropped: no wiki-capable KB is in scope")
+				continue
+			}
+			sandboxMgr, sbErr := s.resolveWorkspaceSandbox(ctx, sessionID, config)
+			if sbErr != nil || sandboxMgr == nil {
+				logger.Warnf(ctx, "wiki_get_image dropped: workspace sandbox not resolvable: %v", sbErr)
+				continue
+			}
+			store := sessionSandboxFileStore(sandboxMgr)
+			if store == nil {
+				logger.Infof(ctx, "wiki_get_image dropped: sandbox backend does not advertise session filesystem")
+				continue
+			}
+			toolToRegister = tools.NewWikiGetImageTool(
+				s.wikiPageService,
+				s.knowledgeService,
+				s.knowledgeBaseService,
+				s.chunkService,
+				s.fileService,
+				s.storageResolver,
+				s.tenantService,
+				config.SearchTargets,
+				wikiKBIDs,
+				wikiRoutes,
+				store,
+			)
 
 		case tools.ToolShellExec, tools.ToolReadSkill, tools.ToolExecuteSkillScript,
 			tools.ToolListSandboxFiles, tools.ToolReadSandboxFile, tools.ToolWriteSandboxFile,

@@ -320,6 +320,17 @@ function auditTargetKey(row: AuditLog): string {
     if (name && mail) return `${name} (${mail})`
     return name || mail || (row.target_user_id ? row.target_user_id.slice(0, 8) : '')
   }
+  // PendingUsers approval flow reuses system.user_created as its action
+  // (the handler sets details.event="user_approved"); render the target
+  // user like the promote/revoke rows so the row reads "approves
+  // jett (jett@...)" instead of a UUID prefix.
+  if (row.action === 'system.user_created') {
+    if (!details) return row.target_user_id ? row.target_user_id.slice(0, 8) : ''
+    const name = typeof details.target_username === 'string' ? details.target_username : ''
+    const mail = typeof details.target_email === 'string' ? details.target_email : ''
+    if (name && mail) return `${name} (${mail})`
+    return name || mail || (row.target_user_id ? row.target_user_id.slice(0, 8) : '')
+  }
   if (
     row.action === 'system.queue_task_retried'
     || row.action === 'system.queue_task_run_now'

@@ -7,13 +7,13 @@ case "${DEFAULT_LOCALE:-}" in
 esac
 
 # 生成运行时配置文件，注入环境变量到前端
-FILE_MB=${MAX_FILE_SIZE_MB:-50}
-SKILL_MB=${MAX_SKILL_BUNDLE_SIZE_MB:-256}
+FILE_MB=${MAX_FILE_SIZE_MB:-1024}
+SKILL_MB=${MAX_SKILL_BUNDLE_SIZE_MB:-1024}
 if [ "$SKILL_MB" -lt "$FILE_MB" ] 2>/dev/null; then
   SKILL_MB=$FILE_MB
 fi
-if [ "$SKILL_MB" -gt 512 ] 2>/dev/null; then
-  SKILL_MB=512
+if [ "$SKILL_MB" -gt 1024 ] 2>/dev/null; then
+  SKILL_MB=1024
 fi
 
 cat > /usr/share/nginx/html/config.js << EOF

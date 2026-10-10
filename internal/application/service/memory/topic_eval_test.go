@@ -24,8 +24,8 @@ import (
 // checks the deterministic tiers and that the prompt still carries the rules
 // the boundary cases depend on. Given a real model it scores the model tier:
 //
-//	WEKNORA_MEMORY_EVAL_MODEL=<model id> \
-//	WEKNORA_MEMORY_EVAL_BASE_URL=... WEKNORA_MEMORY_EVAL_API_KEY=... \
+//	LUOSA_MEMORY_EVAL_MODEL=<model id> \
+//	LUOSA_MEMORY_EVAL_BASE_URL=... LUOSA_MEMORY_EVAL_API_KEY=... \
 //	go test ./internal/application/service/memory/ -run TestTopicMergeEval -v
 
 type topicEvalCase struct {
@@ -138,11 +138,11 @@ func TestExtractionPromptDoesNotDumpEveryTrackedTopic(t *testing.T) {
 }
 
 // TestTopicMergeEval scores the model tier against the golden set.
-// Skipped unless WEKNORA_MEMORY_EVAL_MODEL is set.
+// Skipped unless LUOSA_MEMORY_EVAL_MODEL is set.
 func TestTopicMergeEval(t *testing.T) {
-	modelID := strings.TrimSpace(os.Getenv("WEKNORA_MEMORY_EVAL_MODEL"))
+	modelID := strings.TrimSpace(os.Getenv("LUOSA_MEMORY_EVAL_MODEL"))
 	if modelID == "" {
-		t.Skip("set WEKNORA_MEMORY_EVAL_MODEL (plus base URL / API key) to score topic merging")
+		t.Skip("set LUOSA_MEMORY_EVAL_MODEL (plus base URL / API key) to score topic merging")
 	}
 	set := loadTopicEvalSet(t)
 	chatModel, err := newEvalChatModel(modelID)
